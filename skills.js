@@ -1,0 +1,578 @@
+// D&D 3.5 Character Sheet - Skills Module
+
+const Skills = (function () {
+  "use strict";
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+  const int = (v) => parseInt(v) || 0;
+  const fmt = (n) => (n >= 0 ? "+" + n : String(n));
+
+  // ============================================================
+  // Build the skills table from DND35.skills
+  // ============================================================
+  function build(getAbilityMod) {
+    const tbody = $("#skills-body");
+    tbody.innerHTML = "";
+
+    DND35.skills.forEach((skill, i) => {
+      if (skill.editableSubtype) {
+        // Render as an expandable subtype group (Craft, Perform, Profession)
+        addSubtypeGroup(tbody, skill, i);
+      } else {
+        addSkillRow(tbody, skill, i, getAbilityMod);
+      }
+    });
+
+    tbody.addEventListener("input", () => recalc(getAbilityMod));
+  }
+
+  function addSkillRow(tbody, skill, index, getAbilityMod, opts = {}) {
+    const tr = document.createElement("tr");
+    tr.dataset.ability = skill.ability;
+    tr.dataset.acp = skill.armorPenalty;
+    tr.dataset.doubleAcp = skill.doubleArmorPenalty || false;
+    tr.dataset.skillIndex = index;
+    if (opts.subtypeOf) tr.dataset.subtypeOf = opts.subtypeOf;
+
+    let displayName;
+    if (skill.hasSubtype && skill.subtypeLabel) {
+      displayName = `${skill.name} (${skill.subtypeLabel})`;
+    } else {
+      displayName = skill.name;
+    }
+
+    let markers = "";
+    if (skill.untrained) markers += '<span class="skill-untrained-marker" title="Can be used untrained">U</span>';
+    if (skill.armorPenalty) markers += '<span class="skill-acp-marker" title="Armor check penalty applies">*</span>';
+
+    tr.innerHTML = `
+      <td class="skill-class-col"><input type="checkbox" class="skill-class-check" title="Class Skill?"></td>
+      <td class="skill-name-col">
+        <span class="skill-name">${displayName}</span>${markers}
+        <span class="synergy-info"></span>
+        <button class="skill-notes-toggle" title="Situational modifiers">&#9776;</button>
+      </td>
+      <td class="skill-ability-col">${skill.ability}</td>
+      <td class="skill-total-col"><span class="skill-total calc-field">+0</span></td>
+      <td class="skill-ability-mod-col"><span class="skill-ability-mod">${fmt(0)}</span></td>
+      <td class="skill-ranks-col"><input type="number" class="skill-ranks" value="0" min="0" step="0.5"></td>
+      <td class="skill-misc-col"><input type="number" class="skill-misc" value="0"></td>
+    `;
+    tbody.appendChild(tr);
+
+    // Notes toggle
+    const toggleBtn = tr.querySelector(".skill-notes-toggle");
+    toggleBtn.addEventListener("click", () => toggleNotes(tr, toggleBtn));
+
+    return tr;
+  }
+
+  // ============================================================
+  // Subtype groups (Craft, Perform, Profession)
+  // ============================================================
+  function addSubtypeGroup(tbody, skill, index) {
+    // Create a container row with the base skill name and an "add" button
+    const headerTr = document.createElement("tr");
+    headerTr.className = "subtype-header-row";
+    headerTr.dataset.subtypeBase = skill.name;
+    headerTr.dataset.skillIndex = index;
+    headerTr.innerHTML = `
+      <td colspan="7" style="padding:0.3rem 0.25rem 0.1rem">
+        <span style="font-weight:600;font-size:0.8rem;">${skill.name}</span>
+        <span class="skill-untrained-marker" title="Can be used untrained">${skill.untrained ? "U" : ""}</span>
+        <button class="btn-add-subtype" data-skill-name="${skill.name}" data-skill-index="${index}">+ add subtype</button>
+      </td>
+    `;
+    tbody.appendChild(headerTr);
+
+    // Add one default empty subtype entry
+    addSubtypeEntry(tbody, skill, index, "");
+
+    // Wire up the add button
+    headerTr.querySelector(".btn-add-subtype").addEventListener("click", () => {
+      addSubtypeEntry(tbody, skill, index, "");
+      // Move the next non-subtype rows after this group
+      reorderAfterSubtype(tbody, index);
+    });
+  }
+
+  function addSubtypeEntry(tbody, skill, index, subtypeName, data = {}) {
+    const tr = document.createElement("tr");
+    tr.className = "subtype-skill-group";
+    tr.dataset.ability = skill.ability;
+    tr.dataset.acp = skill.armorPenalty || false;
+    tr.dataset.doubleAcp = false;
+    tr.dataset.skillIndex = index;
+    tr.dataset.subtypeOf = skill.name;
+    tr.dataset.isSubtype = "true";
+
+    const markers = skill.armorPenalty ? '<span class="skill-acp-marker" title="Armor check penalty applies">*</span>' : '';
+
+    tr.innerHTML = `
+      <td class="skill-class-col"><input type="checkbox" class="skill-class-check" title="Class Skill?"></td>
+      <td class="skill-name-col">
+        <div class="subtype-skill-name">
+          <span class="skill-base-name">${skill.name} (</span>
+          <input type="text" class="skill-subtype-input" placeholder="subtype" value="${subtypeName}">
+          <span>)</span>${markers}
+          <span class="synergy-info"></span>
+          <button class="skill-notes-toggle" title="Situational modifiers">&#9776;</button>
+          <button class="btn-remove" style="font-size:0.6rem;padding:0 0.3rem;margin-left:auto" onclick="Skills.removeSubtype(this)">X</button>
+        </div>
+      </td>
+      <td class="skill-ability-col">${skill.ability}</td>
+      <td class="skill-total-col"><span class="skill-total calc-field">+0</span></td>
+      <td class="skill-ability-mod-col"><span class="skill-ability-mod">${fmt(0)}</span></td>
+      <td class="skill-ranks-col"><input type="number" class="skill-ranks" value="${data.ranks || 0}" min="0" step="0.5"></td>
+      <td class="skill-misc-col"><input type="number" class="skill-misc" value="${data.misc || 0}"></td>
+    `;
+
+    if (data.classSkill) tr.querySelector(".skill-class-check").checked = true;
+
+    // Insert after the header or last subtype of this group
+    const existing = tbody.querySelectorAll(`tr[data-skill-index="${index}"]`);
+    const lastOfGroup = existing[existing.length - 1];
+    if (lastOfGroup && lastOfGroup.nextSibling) {
+      tbody.insertBefore(tr, lastOfGroup.nextSibling);
+    } else {
+      tbody.appendChild(tr);
+    }
+
+    // Wire notes toggle
+    const toggleBtn = tr.querySelector(".skill-notes-toggle");
+    toggleBtn.addEventListener("click", () => toggleNotes(tr, toggleBtn));
+
+    return tr;
+  }
+
+  function reorderAfterSubtype(tbody, index) {
+    // Ensure subtype entries stay grouped after their header
+    // (they already are via insertBefore logic above, this is a safety measure)
+  }
+
+  function removeSubtype(btn) {
+    const tr = btn.closest("tr");
+    // Also remove any notes row following it
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains("skill-notes-row-container")) {
+      next.remove();
+    }
+    tr.remove();
+  }
+
+  // ============================================================
+  // Skill notes (expandable per-skill)
+  // ============================================================
+  function toggleNotes(skillRow, toggleBtn) {
+    const nextRow = skillRow.nextElementSibling;
+    if (nextRow && nextRow.classList.contains("skill-notes-row-container")) {
+      // Close
+      nextRow.remove();
+    } else {
+      // Open
+      const synergy = toggleBtn.dataset.synergy || "";
+      const notesTr = document.createElement("tr");
+      notesTr.className = "skill-notes-row-container";
+      notesTr.innerHTML = `
+        <td class="skill-notes-row" colspan="7">
+          ${synergy ? `<div class="synergy-notes">${synergy}</div>` : ""}
+          <textarea class="skill-notes-input" placeholder="Situational modifiers...">${toggleBtn.dataset.notes || ""}</textarea>
+        </td>
+      `;
+      skillRow.after(notesTr);
+      const ta = notesTr.querySelector("textarea");
+      ta.addEventListener("input", () => {
+        toggleBtn.dataset.notes = ta.value;
+        toggleBtn.classList.toggle("has-notes", ta.value.trim() !== "" || !!toggleBtn.dataset.synergy);
+        // Auto-expand
+        ta.style.height = "auto";
+        ta.style.height = ta.scrollHeight + "px";
+      });
+      // Auto-expand on open
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+      ta.focus();
+    }
+  }
+
+  // ============================================================
+  // Recalculate all skill modifiers + synergies
+  // ============================================================
+  function recalc(getAbilityMod) {
+    const acPenalty = int($("#armor-check-penalty").value);
+
+    // First pass: gather all skill ranks for synergy calculation
+    const rankMap = {};
+    $$("#skills-body tr").forEach((row) => {
+      if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
+      const ranks = parseFloat(row.querySelector(".skill-ranks")?.value) || 0;
+      if (ranks <= 0) return;
+
+      const skillName = getRowSkillName(row);
+      if (skillName) {
+        // Store the highest rank for this base skill name (for synergy checks)
+        if (!rankMap[skillName] || ranks > rankMap[skillName]) {
+          rankMap[skillName] = ranks;
+        }
+        // For Craft, also store generic "Craft" key
+        const baseName = row.dataset.subtypeOf;
+        if (baseName && baseName !== skillName) {
+          if (!rankMap[baseName] || ranks > rankMap[baseName]) {
+            rankMap[baseName] = ranks;
+          }
+        }
+      }
+    });
+
+    // Also check custom skills
+    $$("#custom-skills-body tr").forEach((row) => {
+      const nameInput = row.querySelector(".custom-skill-name");
+      const ranks = parseFloat(row.querySelector(".skill-ranks")?.value) || 0;
+      if (nameInput && ranks > 0) {
+        const name = nameInput.value.trim();
+        if (name && (!rankMap[name] || ranks > rankMap[name])) {
+          rankMap[name] = ranks;
+        }
+      }
+    });
+
+    // Build synergy bonus map: which skills get +2 from which sources
+    // Synergies with a note are situational — they go into the skill's notes, not the total
+    const synergyBonuses = {}; // { targetSkill: [{from, bonus, note, situational}] }
+    DND35.synergies.forEach((syn) => {
+      const fromRanks = rankMap[syn.from] || 0;
+      if (fromRanks >= 5) {
+        if (!synergyBonuses[syn.to]) synergyBonuses[syn.to] = [];
+        synergyBonuses[syn.to].push({
+          from: syn.from, bonus: 2,
+          note: syn.note || "",
+          situational: !!syn.note,
+        });
+      }
+    });
+
+    // Second pass: calculate totals
+    $$("#skills-body tr").forEach((row) => {
+      if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
+
+      const abilityKey = row.dataset.ability;
+      if (!abilityKey || abilityKey === "NONE") {
+        const ranks = int(row.querySelector(".skill-ranks")?.value);
+        const misc = int(row.querySelector(".skill-misc")?.value);
+        const totalEl = row.querySelector(".skill-total");
+        if (totalEl) totalEl.textContent = fmt(ranks + misc);
+        return;
+      }
+
+      const abilityMod = getAbilityMod(abilityKey);
+      const ranks = int(row.querySelector(".skill-ranks")?.value);
+      const misc = int(row.querySelector(".skill-misc")?.value);
+      const hasACP = row.dataset.acp === "true";
+      const doubleACP = row.dataset.doubleAcp === "true";
+      let penalty = 0;
+      if (hasACP) penalty = doubleACP ? acPenalty * 2 : acPenalty;
+
+      // Synergy bonus
+      const skillName = getRowSkillName(row);
+      const synergies = synergyBonuses[skillName] || [];
+      // Also check base name for partial matches (e.g. "Survival" matches synergy to "Survival")
+      const baseName = row.dataset.subtypeOf;
+      if (baseName && baseName !== skillName) {
+        const baseSyn = synergyBonuses[baseName] || [];
+        baseSyn.forEach(s => {
+          if (!synergies.find(x => x.from === s.from)) synergies.push(s);
+        });
+      }
+      // Only unconditional synergies add to the total; situational ones become notes
+      const unconditional = synergies.filter(s => !s.situational);
+      const situational = synergies.filter(s => s.situational);
+      const synergyBonus = unconditional.reduce((sum, s) => sum + s.bonus, 0);
+
+      const total = abilityMod + ranks + misc + penalty + synergyBonus;
+      const abilityModEl = row.querySelector(".skill-ability-mod");
+      if (abilityModEl) abilityModEl.textContent = fmt(abilityMod);
+      const totalEl = row.querySelector(".skill-total");
+      if (totalEl) totalEl.textContent = fmt(total);
+
+      // Show synergy info badges (unconditional only)
+      const synInfoEl = row.querySelector(".synergy-info");
+      if (synInfoEl) {
+        if (unconditional.length > 0) {
+          const badges = unconditional.map(s =>
+            `<span class="synergy-badge" title="${s.from}: +${s.bonus}">+${s.bonus} ${s.from}</span>`
+          ).join("");
+          synInfoEl.innerHTML = badges;
+        } else {
+          synInfoEl.innerHTML = "";
+        }
+      }
+
+      // Auto-populate situational synergies into the skill's notes
+      const toggleBtn = row.querySelector(".skill-notes-toggle");
+      if (toggleBtn && situational.length > 0) {
+        const synNotes = situational.map(s =>
+          `+${s.bonus} ${s.note} (${s.from} synergy)`
+        ).join("; ");
+        toggleBtn.dataset.synergy = synNotes;
+        toggleBtn.classList.add("has-notes");
+      } else if (toggleBtn) {
+        toggleBtn.dataset.synergy = "";
+        if (!toggleBtn.dataset.notes) toggleBtn.classList.remove("has-notes");
+      }
+    });
+
+    // Custom skills
+    $$("#custom-skills-body tr").forEach((row) => {
+      const select = row.querySelector(".custom-skill-ability");
+      const abilityKey = select?.value;
+      const ranks = int(row.querySelector(".skill-ranks")?.value);
+      const misc = int(row.querySelector(".skill-misc")?.value);
+      let abilityMod = 0;
+      if (abilityKey && abilityKey !== "NONE") {
+        abilityMod = getAbilityMod(abilityKey);
+      }
+      const total = abilityMod + ranks + misc;
+      const abilityModEl = row.querySelector(".skill-ability-mod");
+      if (abilityModEl) abilityModEl.textContent = fmt(abilityMod);
+      const totalEl = row.querySelector(".skill-total");
+      if (totalEl) totalEl.textContent = fmt(total);
+    });
+
+    // Class feature synergies (not skills, so handled separately)
+    updateClassFeatureSynergies(rankMap);
+  }
+
+  function updateClassFeatureSynergies(rankMap) {
+    // Turn/Rebuke Undead from Knowledge (Religion) 5+ ranks
+    const turnEl = $("#turn-synergy-note");
+    if (turnEl) {
+      if ((rankMap["Knowledge (Religion)"] || 0) >= 5) {
+        turnEl.textContent = "+2 turning check (Knowledge: Religion synergy)";
+        turnEl.style.display = "";
+      } else {
+        turnEl.style.display = "none";
+      }
+    }
+  }
+
+  function getRowSkillName(row) {
+    // For subtype rows: "Craft (Weaponsmithing)"
+    const subtypeInput = row.querySelector(".skill-subtype-input");
+    if (subtypeInput) {
+      const baseName = row.dataset.subtypeOf || "";
+      const sub = subtypeInput.value.trim();
+      return sub ? `${baseName} (${sub})` : baseName;
+    }
+    // For Knowledge rows with fixed subtypes
+    const nameSpan = row.querySelector(".skill-name");
+    if (nameSpan) return nameSpan.textContent.trim();
+    return "";
+  }
+
+  // ============================================================
+  // Collect / Load skill data for save/load
+  // ============================================================
+  function collectData() {
+    const skills = [];
+    $$("#skills-body tr").forEach((row) => {
+      if (row.classList.contains("skill-notes-row-container")) return;
+      if (row.classList.contains("subtype-header-row")) {
+        skills.push({ type: "header", baseName: row.dataset.subtypeBase, index: int(row.dataset.skillIndex) });
+        return;
+      }
+      const entry = {
+        type: row.dataset.isSubtype === "true" ? "subtype" : "skill",
+        classSkill: row.querySelector(".skill-class-check")?.checked || false,
+        ranks: row.querySelector(".skill-ranks")?.value || "0",
+        misc: row.querySelector(".skill-misc")?.value || "0",
+        index: int(row.dataset.skillIndex),
+      };
+      const subtypeInput = row.querySelector(".skill-subtype-input");
+      if (subtypeInput) entry.subtypeName = subtypeInput.value;
+      // Notes
+      const toggleBtn = row.querySelector(".skill-notes-toggle");
+      if (toggleBtn?.dataset.notes) entry.notes = toggleBtn.dataset.notes;
+      skills.push(entry);
+    });
+    return skills;
+  }
+
+  function loadData(skillsData, getAbilityMod) {
+    if (!skillsData || !Array.isArray(skillsData)) {
+      // Legacy format: array of {classSkill, ranks, misc, subtype?}
+      if (skillsData && Array.isArray(skillsData)) {
+        loadLegacyData(skillsData, getAbilityMod);
+      }
+      return;
+    }
+
+    const tbody = $("#skills-body");
+    tbody.innerHTML = "";
+
+    let currentSkillDef = null;
+    skillsData.forEach((entry) => {
+      if (entry.type === "header") {
+        currentSkillDef = DND35.skills[entry.index];
+        if (currentSkillDef && currentSkillDef.editableSubtype) {
+          // Create header row only
+          const headerTr = document.createElement("tr");
+          headerTr.className = "subtype-header-row";
+          headerTr.dataset.subtypeBase = currentSkillDef.name;
+          headerTr.dataset.skillIndex = entry.index;
+          headerTr.innerHTML = `
+            <td colspan="7" style="padding:0.3rem 0.25rem 0.1rem">
+              <span style="font-weight:600;font-size:0.8rem;">${currentSkillDef.name}</span>
+              <span class="skill-untrained-marker">${currentSkillDef.untrained ? "U" : ""}</span>
+              <button class="btn-add-subtype" data-skill-name="${currentSkillDef.name}" data-skill-index="${entry.index}">+ add subtype</button>
+            </td>
+          `;
+          tbody.appendChild(headerTr);
+          headerTr.querySelector(".btn-add-subtype").addEventListener("click", () => {
+            addSubtypeEntry(tbody, currentSkillDef, entry.index, "");
+          });
+        }
+      } else if (entry.type === "subtype") {
+        const skillDef = DND35.skills[entry.index];
+        if (skillDef) {
+          const tr = addSubtypeEntry(tbody, skillDef, entry.index, entry.subtypeName || "", entry);
+          if (entry.notes) {
+            const toggleBtn = tr.querySelector(".skill-notes-toggle");
+            toggleBtn.dataset.notes = entry.notes;
+            toggleBtn.classList.add("has-notes");
+          }
+        }
+      } else {
+        // Regular skill
+        const skillDef = DND35.skills[entry.index];
+        if (skillDef) {
+          const tr = addSkillRow(tbody, skillDef, entry.index, getAbilityMod);
+          tr.querySelector(".skill-class-check").checked = entry.classSkill;
+          tr.querySelector(".skill-ranks").value = entry.ranks;
+          tr.querySelector(".skill-misc").value = entry.misc;
+          if (entry.notes) {
+            const toggleBtn = tr.querySelector(".skill-notes-toggle");
+            toggleBtn.dataset.notes = entry.notes;
+            toggleBtn.classList.add("has-notes");
+          }
+        }
+      }
+    });
+
+    tbody.addEventListener("input", () => recalc(getAbilityMod));
+    recalc(getAbilityMod);
+  }
+
+  function loadLegacyData(skillsData, getAbilityMod) {
+    // Old format: simple array matching DND35.skills order
+    const rows = $$("#skills-body tr:not(.subtype-header-row):not(.skill-notes-row-container)");
+    let rowIdx = 0;
+    skillsData.forEach((skill, i) => {
+      if (rows[rowIdx]) {
+        rows[rowIdx].querySelector(".skill-class-check").checked = skill.classSkill;
+        rows[rowIdx].querySelector(".skill-ranks").value = skill.ranks;
+        rows[rowIdx].querySelector(".skill-misc").value = skill.misc;
+        const subtypeInput = rows[rowIdx].querySelector(".skill-subtype-input");
+        if (subtypeInput && skill.subtype) subtypeInput.value = skill.subtype;
+        rowIdx++;
+      }
+    });
+    recalc(getAbilityMod);
+  }
+
+  // ============================================================
+  // Custom Skills (unchanged from app.js, just moved here)
+  // ============================================================
+  let customSkillCount = 0;
+
+  function addCustomSkill(data = {}) {
+    const tbody = $("#custom-skills-body");
+    const tr = document.createElement("tr");
+    tr.dataset.customIndex = customSkillCount++;
+    tr.innerHTML = `
+      <td class="skill-class-col"><input type="checkbox" class="skill-class-check"></td>
+      <td class="skill-name-col"><input type="text" class="custom-skill-name" placeholder="Skill name" value="${data.name || ""}"></td>
+      <td class="skill-ability-col">
+        <select class="custom-skill-ability">
+          <option value="NONE">--</option>
+          <option value="STR">STR</option>
+          <option value="DEX">DEX</option>
+          <option value="CON">CON</option>
+          <option value="INT">INT</option>
+          <option value="WIS">WIS</option>
+          <option value="CHA">CHA</option>
+        </select>
+      </td>
+      <td class="skill-total-col"><span class="skill-total calc-field">+0</span></td>
+      <td class="skill-ability-mod-col"><span class="skill-ability-mod">+0</span></td>
+      <td class="skill-ranks-col"><input type="number" class="skill-ranks" value="${data.ranks || 0}" min="0" step="0.5"></td>
+      <td class="skill-misc-col"><input type="number" class="skill-misc" value="${data.misc || 0}"></td>
+    `;
+    tbody.appendChild(tr);
+    if (data.classSkill) tr.querySelector(".skill-class-check").checked = true;
+    if (data.ability) tr.querySelector(".custom-skill-ability").value = data.ability;
+    return tr;
+  }
+
+  function collectCustomSkills() {
+    const customs = [];
+    $$("#custom-skills-body tr").forEach((row) => {
+      customs.push({
+        classSkill: row.querySelector(".skill-class-check").checked,
+        name: row.querySelector(".custom-skill-name").value,
+        ability: row.querySelector(".custom-skill-ability").value,
+        ranks: row.querySelector(".skill-ranks").value,
+        misc: row.querySelector(".skill-misc").value,
+      });
+    });
+    return customs;
+  }
+
+  function loadCustomSkills(data, getAbilityMod) {
+    $("#custom-skills-body").innerHTML = "";
+    customSkillCount = 0;
+    if (data) {
+      data.forEach((cs) => {
+        const tr = addCustomSkill(cs);
+        tr.addEventListener("input", () => recalc(getAbilityMod));
+      });
+    }
+  }
+
+  function resetCustomSkills() {
+    $("#custom-skills-body").innerHTML = "";
+    customSkillCount = 0;
+  }
+
+  // ============================================================
+  // Get total ranks for a skill by display name (e.g. "Knowledge (Religion)")
+  // ============================================================
+  function getRanks(skillName) {
+    let max = 0;
+    $$("#skills-body tr").forEach((row) => {
+      if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
+      const name = getRowSkillName(row);
+      if (name === skillName) {
+        const r = parseFloat(row.querySelector(".skill-ranks")?.value) || 0;
+        if (r > max) max = r;
+      }
+    });
+    return max;
+  }
+
+  // ============================================================
+  // Public API
+  // ============================================================
+  return {
+    build,
+    recalc,
+    collectData,
+    loadData,
+    addCustomSkill,
+    collectCustomSkills,
+    loadCustomSkills,
+    resetCustomSkills,
+    removeSubtype,
+    getRanks,
+  };
+})();
