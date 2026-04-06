@@ -367,6 +367,26 @@ textarea {
   align-items: flex-end;
 }
 
+.bab-boxes {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+.bab-input {
+  width: 50px;
+  text-align: center;
+}
+.bab-calc {
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+}
+.bab-plus, .bab-sep {
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0 0.15rem;
+}
+
 .ac-grid {
   display: flex;
   gap: 1rem;
@@ -725,6 +745,29 @@ textarea {
 .inner-tab:hover { color: var(--text); }
 .inner-tab.active { background: var(--calc-bg); color: var(--calc-text); }
 
+.btn-add-tab {
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed var(--accent);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-add-tab:hover { background: rgba(255,183,77,0.1); }
+
+.caster-tab-remove {
+  margin-left: 0.4rem;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.caster-tab-remove:hover { opacity: 1; color: #f44336; }
+
 .inner-tab-content { display: none; }
 .inner-tab-content.active { display: block; }
 
@@ -819,13 +862,39 @@ textarea {
 
 /* === Protective Items === */
 .protective-entry {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0,0,0,0.1);
+  border-radius: var(--radius);
+}
+.prot-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-bottom: 0.4rem;
-  padding: 0.4rem;
-  background: rgba(0,0,0,0.1);
+  align-items: flex-end;
+  margin-bottom: 0.3rem;
+}
+.prot-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 0.2rem 0;
+}
+.prot-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.prot-type {
+  padding: 0.3rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
+  font-size: 0.8rem;
 }
 
 /* === Responsive === */

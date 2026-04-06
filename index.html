@@ -136,7 +136,7 @@
               <div class="field field-sm"><label>Size Modifier</label><span id="ac-size" class="calc-field">+0</span></div>
               <div class="field field-sm"><label>Natural Armor</label><input type="number" id="ac-natural" value="0"></div>
               <div class="field field-sm"><label>Deflection Mod</label><input type="number" id="ac-deflection" value="0"></div>
-              <div class="field field-sm"><label>Misc Modifier</label><input type="number" id="ac-misc" value="0"></div>
+              <div class="field field-sm"><label>Misc Modifier</label><input type="text" id="ac-misc" value="0" class="misc-expr" placeholder="e.g. 2+1"></div>
             </div>
           </div>
           <div class="ac-secondary">
@@ -160,7 +160,7 @@
                 <td><input type="number" id="fort-base" value="0"></td>
                 <td><span id="fort-ability" class="calc-field">+0</span></td>
                 <td><input type="number" id="fort-magic" value="0"></td>
-                <td><input type="number" id="fort-misc" value="0"></td>
+                <td><input type="text" id="fort-misc" value="0" class="misc-expr"></td>
                 <td><input type="number" id="fort-temp" value="0"></td>
               </tr>
               <tr>
@@ -169,7 +169,7 @@
                 <td><input type="number" id="ref-base" value="0"></td>
                 <td><span id="ref-ability" class="calc-field">+0</span></td>
                 <td><input type="number" id="ref-magic" value="0"></td>
-                <td><input type="number" id="ref-misc" value="0"></td>
+                <td><input type="text" id="ref-misc" value="0" class="misc-expr"></td>
                 <td><input type="number" id="ref-temp" value="0"></td>
               </tr>
               <tr>
@@ -178,7 +178,7 @@
                 <td><input type="number" id="will-base" value="0"></td>
                 <td><span id="will-ability" class="calc-field">+0</span></td>
                 <td><input type="number" id="will-magic" value="0"></td>
-                <td><input type="number" id="will-misc" value="0"></td>
+                <td><input type="text" id="will-misc" value="0" class="misc-expr"></td>
                 <td><input type="number" id="will-temp" value="0"></td>
               </tr>
             </tbody>
@@ -192,7 +192,7 @@
           <div class="init-row">
             <div class="field"><label>Total</label><span id="init-total" class="calc-field">+0</span></div>
             <div class="field"><label>DEX Modifier</label><span id="init-dex" class="calc-field">+0</span></div>
-            <div class="field"><label>Misc Modifier</label><input type="number" id="init-misc" value="0"></div>
+            <div class="field"><label>Misc Modifier</label><input type="text" id="init-misc" value="0" class="misc-expr" placeholder="e.g. 2+1"></div>
           </div>
         </section>
 
@@ -200,15 +200,20 @@
         <section class="section">
           <h2>Base Attack Bonus & Grapple</h2>
           <div class="bab-row">
-            <div class="field"><label>Base Attack Bonus</label><input type="text" id="bab" placeholder="e.g. +6/+1"></div>
-            <div class="field"><label>BAB (numeric)</label><input type="number" id="bab-numeric" value="0" title="Highest BAB value for calculations"></div>
+            <label>Base Attack Bonus</label>
+            <div class="bab-boxes">
+              <span class="bab-plus">+</span><input type="number" id="bab-1" class="bab-input" value="0" min="0" title="Highest BAB">
+              <span class="bab-sep" id="bab-sep-2">/</span><span class="bab-plus" id="bab-plus-2">+</span><span id="bab-2" class="calc-field bab-calc"></span>
+              <span class="bab-sep" id="bab-sep-3">/</span><span class="bab-plus" id="bab-plus-3">+</span><span id="bab-3" class="calc-field bab-calc"></span>
+              <span class="bab-sep" id="bab-sep-4">/</span><span class="bab-plus" id="bab-plus-4">+</span><span id="bab-4" class="calc-field bab-calc"></span>
+            </div>
           </div>
           <div class="grapple-row">
             <div class="field"><label>Grapple Total</label><span id="grapple-total" class="calc-field">+0</span></div>
             <div class="field"><label>BAB</label><span id="grapple-bab" class="calc-field">+0</span></div>
             <div class="field"><label>STR Mod</label><span id="grapple-str" class="calc-field">+0</span></div>
             <div class="field"><label>Size Mod</label><span id="grapple-size" class="calc-field">+0</span></div>
-            <div class="field"><label>Misc Mod</label><input type="number" id="grapple-misc" value="0"></div>
+            <div class="field"><label>Misc Mod</label><input type="text" id="grapple-misc" value="0" class="misc-expr"></div>
           </div>
         </section>
       </div>
@@ -234,6 +239,7 @@
         <div class="field"><label>Max Class Skill Ranks</label><span id="max-class-ranks" class="calc-field">4</span></div>
         <div class="field"><label>Max Cross-Class Ranks</label><span id="max-crossclass-ranks" class="calc-field">2</span></div>
         <div class="field"><label>Armor Check Penalty</label><span id="armor-check-penalty-display" class="calc-field">0</span><input type="hidden" id="armor-check-penalty" value="0"></div>
+        <input type="hidden" id="arcane-spell-failure" value="0">
       </div>
       <table class="skills-table">
         <thead>
@@ -397,85 +403,11 @@
   <!-- ==================== SPELLS TAB ==================== -->
   <div id="tab-spells" class="tab-content">
     <div class="inner-tabs">
-      <button class="inner-tab active" data-inner="inner-spellcasting">Spellcasting</button>
-      <button class="inner-tab" data-inner="inner-psionics">Psionics</button>
+      <span id="spells-tab-bar"></span>
+      <button id="btn-add-spellcasting" class="btn-add-tab" title="Add Spellcasting">+ Spellcasting</button>
+      <button id="btn-add-psionics" class="btn-add-tab" title="Add Psionics">+ Psionics</button>
     </div>
-
-    <!-- Spellcasting Inner Tab -->
-    <div id="inner-spellcasting" class="inner-tab-content active">
-      <section class="section">
-        <h2>Spellcasting</h2>
-        <div class="spell-header">
-          <div class="field"><label>Spell Save DC Mod</label><input type="number" id="spell-dc-mod" value="0"></div>
-          <div class="field"><label>Arcane Spell Failure %</label><span id="arcane-spell-failure-display" class="calc-field">0%</span><input type="hidden" id="arcane-spell-failure" value="0"></div>
-          <div class="field"><label>Domains / Specialty School</label><input type="text" id="spell-domains" placeholder="Enter domains or specialty school"></div>
-          <div class="field"><label>Conditional Modifiers</label><input type="text" id="spell-conditional"></div>
-        </div>
-
-        <table class="spell-slots-table">
-          <thead>
-            <tr>
-              <th>Spell Level</th>
-              <th>Spells Known</th>
-              <th>Save DC</th>
-              <th>Spells/Day</th>
-              <th>Bonus Spells</th>
-              <th>Slots Used</th>
-              <th>Remaining</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>0 (Cantrips)</td><td><input type="number" id="spell-known-0" min="0"></td><td><span id="spell-dc-0" class="calc-field">10</span></td><td><input type="number" id="spell-per-day-0" min="0"></td><td><input type="number" id="spell-bonus-0" min="0"></td><td><input type="number" id="spell-used-0" min="0" value="0"></td><td><span id="spell-remain-0" class="calc-field">--</span></td></tr>
-            <tr><td>1st</td><td><input type="number" id="spell-known-1" min="0"></td><td><span id="spell-dc-1" class="calc-field">11</span></td><td><input type="number" id="spell-per-day-1" min="0"></td><td><input type="number" id="spell-bonus-1" min="0"></td><td><input type="number" id="spell-used-1" min="0" value="0"></td><td><span id="spell-remain-1" class="calc-field">--</span></td></tr>
-            <tr><td>2nd</td><td><input type="number" id="spell-known-2" min="0"></td><td><span id="spell-dc-2" class="calc-field">12</span></td><td><input type="number" id="spell-per-day-2" min="0"></td><td><input type="number" id="spell-bonus-2" min="0"></td><td><input type="number" id="spell-used-2" min="0" value="0"></td><td><span id="spell-remain-2" class="calc-field">--</span></td></tr>
-            <tr><td>3rd</td><td><input type="number" id="spell-known-3" min="0"></td><td><span id="spell-dc-3" class="calc-field">13</span></td><td><input type="number" id="spell-per-day-3" min="0"></td><td><input type="number" id="spell-bonus-3" min="0"></td><td><input type="number" id="spell-used-3" min="0" value="0"></td><td><span id="spell-remain-3" class="calc-field">--</span></td></tr>
-            <tr><td>4th</td><td><input type="number" id="spell-known-4" min="0"></td><td><span id="spell-dc-4" class="calc-field">14</span></td><td><input type="number" id="spell-per-day-4" min="0"></td><td><input type="number" id="spell-bonus-4" min="0"></td><td><input type="number" id="spell-used-4" min="0" value="0"></td><td><span id="spell-remain-4" class="calc-field">--</span></td></tr>
-            <tr><td>5th</td><td><input type="number" id="spell-known-5" min="0"></td><td><span id="spell-dc-5" class="calc-field">15</span></td><td><input type="number" id="spell-per-day-5" min="0"></td><td><input type="number" id="spell-bonus-5" min="0"></td><td><input type="number" id="spell-used-5" min="0" value="0"></td><td><span id="spell-remain-5" class="calc-field">--</span></td></tr>
-            <tr><td>6th</td><td><input type="number" id="spell-known-6" min="0"></td><td><span id="spell-dc-6" class="calc-field">16</span></td><td><input type="number" id="spell-per-day-6" min="0"></td><td><input type="number" id="spell-bonus-6" min="0"></td><td><input type="number" id="spell-used-6" min="0" value="0"></td><td><span id="spell-remain-6" class="calc-field">--</span></td></tr>
-            <tr><td>7th</td><td><input type="number" id="spell-known-7" min="0"></td><td><span id="spell-dc-7" class="calc-field">17</span></td><td><input type="number" id="spell-per-day-7" min="0"></td><td><input type="number" id="spell-bonus-7" min="0"></td><td><input type="number" id="spell-used-7" min="0" value="0"></td><td><span id="spell-remain-7" class="calc-field">--</span></td></tr>
-            <tr><td>8th</td><td><input type="number" id="spell-known-8" min="0"></td><td><span id="spell-dc-8" class="calc-field">18</span></td><td><input type="number" id="spell-per-day-8" min="0"></td><td><input type="number" id="spell-bonus-8" min="0"></td><td><input type="number" id="spell-used-8" min="0" value="0"></td><td><span id="spell-remain-8" class="calc-field">--</span></td></tr>
-            <tr><td>9th</td><td><input type="number" id="spell-known-9" min="0"></td><td><span id="spell-dc-9" class="calc-field">19</span></td><td><input type="number" id="spell-per-day-9" min="0"></td><td><input type="number" id="spell-bonus-9" min="0"></td><td><input type="number" id="spell-used-9" min="0" value="0"></td><td><span id="spell-remain-9" class="calc-field">--</span></td></tr>
-          </tbody>
-        </table>
-        <button id="btn-reset-slots" class="btn-add" style="margin-top:0.5rem">Reset All Expended Slots</button>
-      </section>
-
-      <section class="section">
-        <h2>Spell List & Prepared Spells</h2>
-        <div class="spell-list-tabs">
-          <button class="spell-level-tab active" data-level="0">0</button>
-          <button class="spell-level-tab" data-level="1">1st</button>
-          <button class="spell-level-tab" data-level="2">2nd</button>
-          <button class="spell-level-tab" data-level="3">3rd</button>
-          <button class="spell-level-tab" data-level="4">4th</button>
-          <button class="spell-level-tab" data-level="5">5th</button>
-          <button class="spell-level-tab" data-level="6">6th</button>
-          <button class="spell-level-tab" data-level="7">7th</button>
-          <button class="spell-level-tab" data-level="8">8th</button>
-          <button class="spell-level-tab" data-level="9">9th</button>
-        </div>
-        <div id="spell-lists">
-          <!-- Generated by JS: two textareas per spell level (known + prepared) -->
-        </div>
-      </section>
-    </div>
-
-    <!-- Psionics Inner Tab -->
-    <div id="inner-psionics" class="inner-tab-content">
-      <section class="section">
-        <h2>Psionics</h2>
-        <div class="info-grid">
-          <div class="field"><label>Primary Discipline</label><input type="text" id="psi-discipline"></div>
-          <div class="field field-sm"><label>Power Points/Day</label><input type="number" id="psi-pp-day" min="0"></div>
-          <div class="field field-sm"><label>PP Spent</label><input type="number" id="psi-pp-spent" min="0" value="0"></div>
-          <div class="field field-sm"><label>PP Remaining</label><span id="psi-pp-remaining" class="calc-field">--</span></div>
-          <div class="field field-sm"><label>Powers Known</label><input type="number" id="psi-powers-known" min="0"></div>
-          <div class="field field-sm"><label>Max Power Level</label><input type="number" id="psi-max-level" min="0" max="9"></div>
-        </div>
-        <h3>Psionic Powers</h3>
-        <textarea id="psi-powers" rows="6" placeholder="List psionic powers here..."></textarea>
-      </section>
-    </div>
+    <div id="spells-content"></div>
   </div>
 
   <!-- ==================== COMPANION TAB ==================== -->
@@ -629,6 +561,12 @@
 
   <script src="data.js"></script>
   <script src="skills.js"></script>
+  <script src="character.js"></script>
+  <script src="equipment.js"></script>
+  <script src="spells.js"></script>
+  <script src="feats.js"></script>
+  <script src="companion.js"></script>
+  <script src="class-features.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

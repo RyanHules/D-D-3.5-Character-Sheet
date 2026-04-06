@@ -6,6 +6,7 @@ const Skills = (function () {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
   const int = (v) => parseInt(v) || 0;
+  const expr = (v) => DND35.evalExpr(v);
   const fmt = (n) => (n >= 0 ? "+" + n : String(n));
 
   // ============================================================
@@ -57,7 +58,7 @@ const Skills = (function () {
       <td class="skill-total-col"><span class="skill-total calc-field">+0</span></td>
       <td class="skill-ability-mod-col"><span class="skill-ability-mod">${fmt(0)}</span></td>
       <td class="skill-ranks-col"><input type="number" class="skill-ranks" value="0" min="0" step="0.5"></td>
-      <td class="skill-misc-col"><input type="number" class="skill-misc" value="0"></td>
+      <td class="skill-misc-col"><input type="text" class="skill-misc" value="0"></td>
     `;
     tbody.appendChild(tr);
 
@@ -125,7 +126,7 @@ const Skills = (function () {
       <td class="skill-total-col"><span class="skill-total calc-field">+0</span></td>
       <td class="skill-ability-mod-col"><span class="skill-ability-mod">${fmt(0)}</span></td>
       <td class="skill-ranks-col"><input type="number" class="skill-ranks" value="${data.ranks || 0}" min="0" step="0.5"></td>
-      <td class="skill-misc-col"><input type="number" class="skill-misc" value="${data.misc || 0}"></td>
+      <td class="skill-misc-col"><input type="text" class="skill-misc" value="${data.misc || 0}"></td>
     `;
 
     if (data.classSkill) tr.querySelector(".skill-class-check").checked = true;
@@ -259,7 +260,7 @@ const Skills = (function () {
       const abilityKey = row.dataset.ability;
       if (!abilityKey || abilityKey === "NONE") {
         const ranks = int(row.querySelector(".skill-ranks")?.value);
-        const misc = int(row.querySelector(".skill-misc")?.value);
+        const misc = expr(row.querySelector(".skill-misc")?.value);
         const totalEl = row.querySelector(".skill-total");
         if (totalEl) totalEl.textContent = fmt(ranks + misc);
         return;
@@ -267,7 +268,7 @@ const Skills = (function () {
 
       const abilityMod = getAbilityMod(abilityKey);
       const ranks = int(row.querySelector(".skill-ranks")?.value);
-      const misc = int(row.querySelector(".skill-misc")?.value);
+      const misc = expr(row.querySelector(".skill-misc")?.value);
       const hasACP = row.dataset.acp === "true";
       const doubleACP = row.dataset.doubleAcp === "true";
       let penalty = 0;
@@ -310,15 +311,13 @@ const Skills = (function () {
 
       // Auto-populate situational synergies into the skill's notes
       const toggleBtn = row.querySelector(".skill-notes-toggle");
-      if (toggleBtn && situational.length > 0) {
-        const synNotes = situational.map(s =>
-          `+${s.bonus} ${s.note} (${s.from} synergy)`
-        ).join("; ");
+      if (toggleBtn) {
+        const synNotes = situational.length > 0
+          ? situational.map(s => `+${s.bonus} ${s.note} (${s.from} synergy)`).join("; ")
+          : "";
+        toggleBtn.dataset.rankSynergy = synNotes;
         toggleBtn.dataset.synergy = synNotes;
-        toggleBtn.classList.add("has-notes");
-      } else if (toggleBtn) {
-        toggleBtn.dataset.synergy = "";
-        if (!toggleBtn.dataset.notes) toggleBtn.classList.remove("has-notes");
+        toggleBtn.classList.toggle("has-notes", !!synNotes || !!toggleBtn.dataset.notes);
       }
     });
 
@@ -327,7 +326,7 @@ const Skills = (function () {
       const select = row.querySelector(".custom-skill-ability");
       const abilityKey = select?.value;
       const ranks = int(row.querySelector(".skill-ranks")?.value);
-      const misc = int(row.querySelector(".skill-misc")?.value);
+      const misc = expr(row.querySelector(".skill-misc")?.value);
       let abilityMod = 0;
       if (abilityKey && abilityKey !== "NONE") {
         abilityMod = getAbilityMod(abilityKey);
@@ -354,6 +353,46 @@ const Skills = (function () {
         turnEl.style.display = "none";
       }
     }
+
+    // Spellcraft note from Wizard Specialty School
+    const school = ($("#specialty-school")?.value || "").trim();
+    const spellcraftRow = findSkillRow("Spellcraft");
+    if (spellcraftRow) {
+      const toggleBtn = spellcraftRow.querySelector(".skill-notes-toggle");
+      if (toggleBtn) {
+        // Build combined synergy text: existing rank-based synergies + specialty school
+        const rankSynergy = toggleBtn.dataset.rankSynergy || "";
+        const schoolNote = school ? `+2 on Spellcraft checks for ${school} spells (Wizard Specialty)` : "";
+        const parts = [rankSynergy, schoolNote].filter(Boolean);
+        toggleBtn.dataset.synergy = parts.join("; ");
+        toggleBtn.classList.toggle("has-notes", parts.length > 0 || !!toggleBtn.dataset.notes);
+
+        // Update open notes row if visible
+        const nextRow = spellcraftRow.nextElementSibling;
+        if (nextRow && nextRow.classList.contains("skill-notes-row-container")) {
+          const synDiv = nextRow.querySelector(".synergy-notes");
+          if (synDiv) {
+            synDiv.textContent = toggleBtn.dataset.synergy;
+            synDiv.style.display = toggleBtn.dataset.synergy ? "" : "none";
+          } else if (toggleBtn.dataset.synergy) {
+            const div = document.createElement("div");
+            div.className = "synergy-notes";
+            div.textContent = toggleBtn.dataset.synergy;
+            nextRow.querySelector(".skill-notes-row").prepend(div);
+          }
+        }
+      }
+    }
+  }
+
+  function findSkillRow(skillName) {
+    let found = null;
+    $$("#skills-body tr").forEach((row) => {
+      if (found) return;
+      if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
+      if (getRowSkillName(row) === skillName) found = row;
+    });
+    return found;
   }
 
   function getRowSkillName(row) {
@@ -506,7 +545,7 @@ const Skills = (function () {
       <td class="skill-total-col"><span class="skill-total calc-field">+0</span></td>
       <td class="skill-ability-mod-col"><span class="skill-ability-mod">+0</span></td>
       <td class="skill-ranks-col"><input type="number" class="skill-ranks" value="${data.ranks || 0}" min="0" step="0.5"></td>
-      <td class="skill-misc-col"><input type="number" class="skill-misc" value="${data.misc || 0}"></td>
+      <td class="skill-misc-col"><input type="text" class="skill-misc" value="${data.misc || 0}"></td>
     `;
     tbody.appendChild(tr);
     if (data.classSkill) tr.querySelector(".skill-class-check").checked = true;

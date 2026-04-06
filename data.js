@@ -1,6 +1,20 @@
 // D&D 3.5 Edition Rules Data
 
 const DND35 = {
+  // Safe math expression evaluator for misc modifier boxes
+  // Supports: +, -, *, / and parentheses. Returns integer result or 0.
+  evalExpr(str) {
+    if (!str || typeof str !== 'string') return parseInt(str) || 0;
+    const s = str.replace(/\s/g, '');
+    if (/^-?\d+$/.test(s)) return parseInt(s);
+    // Only allow digits, operators, parens, decimal points
+    if (!/^[\d+\-*/().]+$/.test(s)) return 0;
+    try {
+      const result = Function('"use strict"; return (' + s + ')')();
+      return isFinite(result) ? Math.floor(result) : 0;
+    } catch { return 0; }
+  },
+
   // Ability score modifier calculation
   abilityModifier(score) {
     if (score === null || score === undefined || score === '') return 0;
