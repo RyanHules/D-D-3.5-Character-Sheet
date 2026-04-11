@@ -9,26 +9,36 @@ const Feats = (function () {
   function addFeat(text = "") {
     const container = $("#feats-container");
     const div = document.createElement("div");
-    div.style.display = "flex";
-    div.style.gap = "0.3rem";
-    div.style.marginBottom = "0.3rem";
-    div.innerHTML = `
-      <input type="text" class="feat-entry" value="${text}" style="flex:1" placeholder="Feat name & details">
-      <button class="btn-remove" onclick="this.parentElement.remove()">X</button>
-    `;
+    div.className = "feat-row";
+    const ta = document.createElement("textarea");
+    ta.className = "feat-entry";
+    ta.placeholder = "Feat name & details";
+    ta.rows = 1;
+    ta.value = text;
+    const btn = document.createElement("button");
+    btn.className = "btn-remove";
+    btn.textContent = "X";
+    btn.addEventListener("click", () => div.remove());
+    div.appendChild(ta);
+    div.appendChild(btn);
     container.appendChild(div);
   }
 
   function addSpecialAbility(text = "") {
     const container = $("#special-abilities-container");
     const div = document.createElement("div");
-    div.style.display = "flex";
-    div.style.gap = "0.3rem";
-    div.style.marginBottom = "0.3rem";
-    div.innerHTML = `
-      <input type="text" class="special-ability-entry" value="${text}" style="flex:1" placeholder="Ability name & description">
-      <button class="btn-remove" onclick="this.parentElement.remove()">X</button>
-    `;
+    div.className = "feat-row";
+    const ta = document.createElement("textarea");
+    ta.className = "special-ability-entry";
+    ta.placeholder = "Ability name & description";
+    ta.rows = 1;
+    ta.value = text;
+    const btn = document.createElement("button");
+    btn.className = "btn-remove";
+    btn.textContent = "X";
+    btn.addEventListener("click", () => div.remove());
+    div.appendChild(ta);
+    div.appendChild(btn);
     container.appendChild(div);
   }
 

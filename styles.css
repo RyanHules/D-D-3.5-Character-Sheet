@@ -150,6 +150,7 @@ header h1 {
   gap: 0.2rem;
   flex: 1;
   min-width: 120px;
+  overflow: hidden;
 }
 
 .field-sm { min-width: 80px; max-width: 140px; }
@@ -182,6 +183,8 @@ input, select, textarea {
 
 input[type="text"] {
   text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -197,6 +200,8 @@ textarea {
   width: 100%;
   overflow: hidden;
   min-height: 2.5em;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* === Editable Subtype Skills === */
@@ -718,6 +723,18 @@ textarea {
 
 .spell-remain-zero { background: var(--danger) !important; color: white !important; }
 .spell-remain-low { background: #e65100 !important; color: white !important; }
+.spell-row-exhausted { background: rgba(244, 67, 54, 0.15); }
+
+.caster-notes-field {
+  margin-bottom: 0.75rem;
+  max-width: 100%;
+}
+
+.psi-pp-cost {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
 
 /* === Inner Tabs (within a tab) === */
 .inner-tabs {
@@ -894,6 +911,35 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-size: 0.8rem;
+}
+
+/* === Feats & Abilities === */
+.feat-row {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+  align-items: flex-start;
+}
+
+.feat-row textarea {
+  flex: 1;
+  min-height: 1.8em;
+  rows: 1;
+}
+
+.feat-row .btn-remove {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
+/* === Rage Active === */
+#rage-section.rage-active {
+  border-color: var(--danger);
+  box-shadow: 0 0 8px rgba(244, 67, 54, 0.3);
+}
+
+#rage-section.rage-active h2 {
+  color: var(--danger);
 }
 
 /* === Responsive === */

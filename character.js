@@ -14,17 +14,22 @@ const Character = (function () {
   // ============================================================
   // Recalculate character tab fields
   // ============================================================
-  function recalc(getAbilityMod) {
-    // Ability modifiers
+  function recalc(getAbilityMod, bonuses = {}) {
+    const abilityBonuses = bonuses.abilities || {};
+    const saveBonuses = bonuses.saves || {};
+    const acBonus = bonuses.ac || 0;
+
+    // Ability modifiers (include active bonuses like rage)
     DND35.abilities.forEach((ab) => {
       const lower = ab.toLowerCase();
-      const baseScore = int($(`#${lower}-score`).value);
+      const bonus = abilityBonuses[ab] || 0;
+      const baseScore = int($(`#${lower}-score`).value) + bonus;
       const baseMod = DND35.abilityModifier(baseScore);
       $(`#${lower}-mod`).textContent = fmt(baseMod);
 
       const tempVal = $(`#${lower}-temp`).value;
       if (tempVal !== "") {
-        $(`#${lower}-tempmod`).textContent = fmt(DND35.abilityModifier(int(tempVal)));
+        $(`#${lower}-tempmod`).textContent = fmt(DND35.abilityModifier(int(tempVal) + bonus));
       } else {
         $(`#${lower}-tempmod`).textContent = "";
       }
@@ -130,9 +135,9 @@ const Character = (function () {
       if (best.flatfooted) resolvedFF += best.ac;
     });
 
-    const acTotal = 10 + cappedDexMod + acSize + acMisc + resolvedTotal + stackingTotal;
-    const touchAC = 10 + cappedDexMod + acSize + acMisc + resolvedTouch + stackingTouch;
-    const flatFootedAC = 10 + acSize + acMisc + resolvedFF + stackingFF;
+    const acTotal = 10 + cappedDexMod + acSize + acMisc + resolvedTotal + stackingTotal + acBonus;
+    const touchAC = 10 + cappedDexMod + acSize + acMisc + resolvedTouch + stackingTouch + acBonus;
+    const flatFootedAC = 10 + acSize + acMisc + resolvedFF + stackingFF + acBonus;
 
     $("#ac-total").textContent = acTotal;
     $("#ac-touch").textContent = touchAC;
@@ -146,12 +151,14 @@ const Character = (function () {
     ].forEach(({ prefix, ability }) => {
       const abilityMod = getAbilityMod(ability);
       $(`#${prefix}-ability`).textContent = fmt(abilityMod);
+      const saveBonus = saveBonuses[prefix] || 0;
       const total =
         int($(`#${prefix}-base`).value) +
         abilityMod +
         int($(`#${prefix}-magic`).value) +
         expr($(`#${prefix}-misc`).value) +
-        int($(`#${prefix}-temp`).value);
+        int($(`#${prefix}-temp`).value) +
+        saveBonus;
       $(`#${prefix}-total`).textContent = fmt(total);
     });
 

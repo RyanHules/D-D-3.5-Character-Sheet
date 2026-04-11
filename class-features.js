@@ -15,6 +15,31 @@ const ClassFeatures = (function () {
     "rage-used", "rage-rounds",
   ];
 
+  // ============================================================
+  // Active Bonuses (bonus layer for rage, future: equipment, etc.)
+  // Returns { abilities: { STR: N, CON: N, ... }, saves: { will: N, ... }, ac: N }
+  // ============================================================
+  function getActiveBonuses() {
+    const bonuses = { abilities: {}, saves: {}, ac: 0 };
+
+    // Rage toggle
+    const rageActive = $("#rage-active");
+    if (rageActive && rageActive.checked) {
+      const strCon = int($("#rage-str-con")?.value) || 0;
+      const willBonus = int($("#rage-will")?.value) || 0;
+      const acPenalty = int($("#rage-ac")?.value) || 0;
+
+      if (strCon) {
+        bonuses.abilities.STR = (bonuses.abilities.STR || 0) + strCon;
+        bonuses.abilities.CON = (bonuses.abilities.CON || 0) + strCon;
+      }
+      if (willBonus) bonuses.saves.will = (bonuses.saves.will || 0) + willBonus;
+      if (acPenalty) bonuses.ac += acPenalty;
+    }
+
+    return bonuses;
+  }
+
   let soulmeldCount = 0;
 
   // ============================================================
@@ -75,6 +100,7 @@ const ClassFeatures = (function () {
       const el = $(`#${id}`);
       if (el) data[id] = el.value;
     });
+    data["rage-active"] = $("#rage-active")?.checked || false;
 
     data.soulmelds = [];
     $$(".soulmeld-entry").forEach((entry) => {
@@ -100,6 +126,9 @@ const ClassFeatures = (function () {
       if (el && data[id] !== undefined) el.value = data[id];
     });
 
+    const rageActive = $("#rage-active");
+    if (rageActive) rageActive.checked = data["rage-active"] || false;
+
     if (data.notes !== undefined) $("#notes").value = data.notes;
 
     $("#soulmelds-container").innerHTML = "";
@@ -115,5 +144,5 @@ const ClassFeatures = (function () {
   // ============================================================
   // Public API
   // ============================================================
-  return { addSoulmeld, togglePip, collectData, loadData, resetSoulmelds };
+  return { addSoulmeld, togglePip, getActiveBonuses, collectData, loadData, resetSoulmelds };
 })();

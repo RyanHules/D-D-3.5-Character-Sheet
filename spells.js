@@ -10,6 +10,7 @@ const Spells = (function () {
   let casterIndex = 0;
   let _getAbilityMod = null;
   const SPELL_LABELS = ["0 (Cantrips)", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"];
+  const SPELL_LIST_LABELS = ["0-Level (Cantrips)", "1st Level", "2nd Level", "3rd Level", "4th Level", "5th Level", "6th Level", "7th Level", "8th Level", "9th Level"];
   const SPELL_SHORT = ["0", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"];
 
   // ============================================================
@@ -38,18 +39,21 @@ const Spells = (function () {
     panel.id = `caster-${idx}`;
     panel.dataset.casterType = type;
 
+    // Sub-tab notes field (for differentiating multiple tabs of same type)
+    const notesHTML = `<div class="field caster-notes-field"><label>Notes</label><input type="text" class="caster-notes" placeholder="e.g. Cleric spells, Arcane Trickster, etc." value="${data.notes || ""}"></div>`;
+
     if (type === "spellcasting") {
-      panel.innerHTML = buildSpellcastingHTML(idx, data);
+      panel.innerHTML = notesHTML + buildSpellcastingHTML(idx, data);
       container.appendChild(panel);
       buildSpellLists(idx, panel);
       wireSpellLevelTabs(panel);
     } else if (type === "psionics") {
-      panel.innerHTML = buildPsionicsHTML(idx, data);
+      panel.innerHTML = notesHTML + buildPsionicsHTML(idx, data);
       container.appendChild(panel);
       buildPsiPowerLists(idx, panel);
       wirePsiLevelTabs(panel);
     } else if (type === "maneuvers") {
-      panel.innerHTML = buildManeuversHTML(idx, data);
+      panel.innerHTML = notesHTML + buildManeuversHTML(idx, data);
       container.appendChild(panel);
       buildManeuverLists(idx, panel);
       wireManeuverLevelTabs(panel);
@@ -96,9 +100,13 @@ const Spells = (function () {
     }
   }
 
-  function buildAbilityOptions(selected) {
-    const abilities = ["", "INT", "WIS", "CHA", "STR", "DEX", "CON"];
-    const labels = ["-- None --", "Intelligence", "Wisdom", "Charisma", "Strength", "Dexterity", "Constitution"];
+  function buildAbilityOptions(selected, includePhysical = true) {
+    let abilities = ["", "INT", "WIS", "CHA"];
+    let labels = ["-- None --", "Intelligence", "Wisdom", "Charisma"];
+    if (includePhysical) {
+      abilities.push("STR", "DEX", "CON");
+      labels.push("Strength", "Dexterity", "Constitution");
+    }
     return abilities.map((ab, i) =>
       `<option value="${ab}"${ab === selected ? " selected" : ""}>${labels[i]}</option>`
     ).join("");
@@ -129,7 +137,8 @@ const Spells = (function () {
       <section class="section">
         <h2>Spellcasting</h2>
         <div class="spell-header">
-          <div class="field"><label>Spellcasting Ability</label><select class="sc-ability">${buildAbilityOptions(data.ability || "")}</select></div>
+          <div class="field field-sm"><label>Caster Level</label><input type="number" class="sc-caster-level" min="1" value="${data.casterLevel || ""}"></div>
+          <div class="field"><label>Spellcasting Ability</label><select class="sc-ability">${buildAbilityOptions(data.ability || "", false)}</select></div>
           <div class="field"><label>Arcane Spell Failure %</label><span class="sc-spell-fail calc-field">0%</span></div>
           <div class="field"><label>Conditional Modifiers</label><input type="text" class="sc-conditional" value="${data.conditional || ""}"></div>
         </div>
@@ -156,12 +165,12 @@ const Spells = (function () {
       div.innerHTML = `
         <div class="two-column">
           <div class="column">
-            <h3>${SPELL_LABELS[i]} Level - Known/Available Spells</h3>
-            <textarea class="sc-spell-text" data-lvl="${i}" rows="8" placeholder="Enter ${SPELL_LABELS[i]} level spells you know, one per line..."></textarea>
+            <h3>${SPELL_LIST_LABELS[i]} - Known/Available Spells</h3>
+            <textarea class="sc-spell-text" data-lvl="${i}" rows="8" placeholder="Enter ${SPELL_LIST_LABELS[i]} spells you know, one per line..."></textarea>
           </div>
           <div class="column">
-            <h3>${SPELL_LABELS[i]} Level - Prepared Spells</h3>
-            <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${SPELL_LABELS[i]} level spells, one per line. Mark used with [X]..."></textarea>
+            <h3>${SPELL_LIST_LABELS[i]} - Prepared Spells</h3>
+            <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${SPELL_LIST_LABELS[i]} spells, one per line. Mark used with [X]..."></textarea>
           </div>
         </div>
       `;
@@ -192,11 +201,15 @@ const Spells = (function () {
   // ============================================================
   // Psionics HTML builder
   // ============================================================
+  // Base PP cost by power level (XPH Table 3-3)
+  const PP_COSTS = [0, 1, 3, 5, 7, 9, 11, 13, 15, 17];
+
   function buildPsionicsHTML(idx, data) {
     const dcRows = [];
     for (let i = 1; i <= 9; i++) {
       dcRows.push(`<tr>
         <td>${SPELL_LABELS[i]}</td>
+        <td class="psi-pp-cost">${PP_COSTS[i]}</td>
         <td><span class="psi-dc calc-field" data-lvl="${i}">--</span></td>
       </tr>`);
     }
@@ -210,15 +223,22 @@ const Spells = (function () {
         <h2>Psionics</h2>
         <div class="info-grid">
           <div class="field"><label>Primary Discipline</label><input type="text" class="psi-discipline" value="${data.discipline || ""}"></div>
-          <div class="field field-sm"><label>Power Points/Day</label><input type="number" class="psi-pp-day" min="0" value="${data.ppDay || ""}"></div>
+          <div class="field field-sm"><label>Manifesting Ability</label><select class="psi-ability">${buildAbilityOptions(data.ability || "")}</select></div>
+          <div class="field field-sm"><label>Manifester Level</label><input type="number" class="psi-manifester-level" min="1" value="${data.manifesterLevel || ""}"></div>
+        </div>
+        <div class="info-grid" style="margin-top:0.4rem">
+          <div class="field field-sm"><label>Base PP</label><input type="number" class="psi-pp-base" min="0" value="${data.ppBase || ""}"></div>
+          <div class="field field-sm"><label>Bonus PP</label><span class="psi-pp-bonus calc-field">--</span></div>
+          <div class="field field-sm"><label>PP/Day</label><span class="psi-pp-day calc-field">--</span></div>
           <div class="field field-sm"><label>PP Spent</label><input type="number" class="psi-pp-spent" min="0" value="${data.ppSpent || "0"}"></div>
           <div class="field field-sm"><label>PP Remaining</label><span class="psi-pp-remaining calc-field">--</span></div>
+        </div>
+        <div class="info-grid" style="margin-top:0.4rem">
           <div class="field field-sm"><label>Powers Known</label><input type="number" class="psi-powers-known" min="0" value="${data.powersKnown || ""}"></div>
           <div class="field field-sm"><label>Max Power Level</label><input type="number" class="psi-max-level" min="1" max="9" value="${data.maxLevel || ""}"></div>
         </div>
-        <div class="field"><label>Manifesting Ability</label><select class="psi-ability">${buildAbilityOptions(data.ability || "")}</select></div>
-        <table class="spell-slots-table" style="max-width:300px">
-          <thead><tr><th>Power Level</th><th>Save DC</th></tr></thead>
+        <table class="spell-slots-table" style="max-width:400px">
+          <thead><tr><th>Power Level</th><th>Base PP Cost</th><th>Save DC</th></tr></thead>
           <tbody>${dcRows.join("")}</tbody>
         </table>
       </section>
@@ -350,14 +370,21 @@ const Spells = (function () {
         const remaining = totalSlots - used;
         const el = panel.querySelector(`.sc-remain[data-lvl="${i}"]`);
         if (el) {
+          const row = el.closest("tr");
           if (totalSlots > 0) {
             el.textContent = remaining;
             el.classList.remove("spell-remain-zero", "spell-remain-low");
-            if (remaining <= 0) el.classList.add("spell-remain-zero");
-            else if (remaining <= Math.ceil(totalSlots * 0.25)) el.classList.add("spell-remain-low");
+            if (row) row.classList.remove("spell-row-exhausted");
+            if (remaining <= 0) {
+              el.classList.add("spell-remain-zero");
+              if (row) row.classList.add("spell-row-exhausted");
+            } else if (remaining <= Math.ceil(totalSlots * 0.25)) {
+              el.classList.add("spell-remain-low");
+            }
           } else {
             el.textContent = "--";
             el.classList.remove("spell-remain-zero", "spell-remain-low");
+            if (row) row.classList.remove("spell-row-exhausted");
           }
         }
       }
@@ -367,15 +394,39 @@ const Spells = (function () {
     $$("[data-caster-type='psionics']").forEach((panel) => {
       const ability = panel.querySelector(".psi-ability")?.value || "";
       const abilityMod = ability && getAbilityMod ? getAbilityMod(ability) : 0;
+      const manifesterLevel = int(panel.querySelector(".psi-manifester-level")?.value);
+
       for (let i = 1; i <= 9; i++) {
         const dcEl = panel.querySelector(`.psi-dc[data-lvl="${i}"]`);
         if (dcEl) dcEl.textContent = ability ? 10 + i + abilityMod : "--";
       }
-      const ppDay = int(panel.querySelector(".psi-pp-day")?.value);
+
+      // Bonus PP = ability modifier × manifester level ÷ 2 (round down), min 0
+      const bonusPP = (ability && manifesterLevel > 0)
+        ? Math.max(0, Math.floor(abilityMod * manifesterLevel / 2))
+        : 0;
+      const basePP = int(panel.querySelector(".psi-pp-base")?.value);
+      const ppDay = basePP + bonusPP;
       const ppSpent = int(panel.querySelector(".psi-pp-spent")?.value);
+      const ppRemaining = ppDay - ppSpent;
+
+      const bonusEl = panel.querySelector(".psi-pp-bonus");
+      if (bonusEl) bonusEl.textContent = (ability && manifesterLevel > 0) ? bonusPP : "--";
+
+      const dayEl = panel.querySelector(".psi-pp-day");
+      if (dayEl) dayEl.textContent = basePP > 0 ? ppDay : "--";
+
       const ppRemainEl = panel.querySelector(".psi-pp-remaining");
       if (ppRemainEl) {
-        ppRemainEl.textContent = ppDay > 0 ? ppDay - ppSpent : "--";
+        if (ppDay > 0) {
+          ppRemainEl.textContent = ppRemaining;
+          ppRemainEl.classList.remove("spell-remain-zero", "spell-remain-low");
+          if (ppRemaining <= 0) ppRemainEl.classList.add("spell-remain-zero");
+          else if (ppRemaining <= Math.ceil(ppDay * 0.25)) ppRemainEl.classList.add("spell-remain-low");
+        } else {
+          ppRemainEl.textContent = "--";
+          ppRemainEl.classList.remove("spell-remain-zero", "spell-remain-low");
+        }
       }
     });
   }
@@ -402,8 +453,10 @@ const Spells = (function () {
       const removeSpan = btn.querySelector(".caster-tab-remove");
       const name = btn.textContent.replace("×", "").trim();
       const caster = { type, name };
+      caster.notes = panel.querySelector(".caster-notes")?.value || "";
 
       if (type === "spellcasting") {
+        caster.casterLevel = panel.querySelector(".sc-caster-level")?.value || "";
         caster.ability = panel.querySelector(".sc-ability").value;
         caster.conditional = panel.querySelector(".sc-conditional").value;
         for (let i = 0; i <= 9; i++) {
@@ -416,7 +469,8 @@ const Spells = (function () {
         }
       } else if (type === "psionics") {
         caster.discipline = panel.querySelector(".psi-discipline")?.value || "";
-        caster.ppDay = panel.querySelector(".psi-pp-day")?.value || "";
+        caster.manifesterLevel = panel.querySelector(".psi-manifester-level")?.value || "";
+        caster.ppBase = panel.querySelector(".psi-pp-base")?.value || "";
         caster.ppSpent = panel.querySelector(".psi-pp-spent")?.value || "0";
         caster.powersKnown = panel.querySelector(".psi-powers-known")?.value || "";
         caster.maxLevel = panel.querySelector(".psi-max-level")?.value || "";

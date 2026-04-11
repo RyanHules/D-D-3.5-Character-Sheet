@@ -52,21 +52,55 @@
   // ============================================================
   // Get ability modifier (used by multiple modules)
   // ============================================================
-  function getAbilityMod(ability) {
+  function getAbilityMod(ability, abilityBonuses) {
     const ab = ability.toLowerCase();
     const temp = $(`#${ab}-temp`).value;
     const base = $(`#${ab}-score`).value;
-    const score = temp !== "" ? parseInt(temp) || 0 : parseInt(base) || 0;
+    let score = temp !== "" ? parseInt(temp) || 0 : parseInt(base) || 0;
+    if (abilityBonuses) score += abilityBonuses[ability] || 0;
     return DND35.abilityModifier(score);
+  }
+
+  // ============================================================
+  // Bonus layer — collects active bonuses from all sources
+  // Returns { abilities: { STR: N, ... }, saves: { will: N, ... }, ac: N }
+  // ============================================================
+  function collectActiveBonuses() {
+    const bonuses = { abilities: {}, saves: {}, ac: 0 };
+
+    // Class features (rage, future: other toggles)
+    if (typeof ClassFeatures.getActiveBonuses === "function") {
+      const cf = ClassFeatures.getActiveBonuses();
+      for (const [ab, val] of Object.entries(cf.abilities || {})) {
+        bonuses.abilities[ab] = (bonuses.abilities[ab] || 0) + val;
+      }
+      for (const [save, val] of Object.entries(cf.saves || {})) {
+        bonuses.saves[save] = (bonuses.saves[save] || 0) + val;
+      }
+      bonuses.ac += cf.ac || 0;
+    }
+
+    // Future: Equipment.getActiveBonuses() for worn item ability bonuses
+
+    return bonuses;
   }
 
   // ============================================================
   // Recalculate everything (orchestrator)
   // ============================================================
   function recalcAll() {
-    Character.recalc(getAbilityMod);
-    Skills.recalc(getAbilityMod);
-    Spells.recalc(getAbilityMod);
+    const bonuses = collectActiveBonuses();
+    const getModWithBonuses = (ability) => getAbilityMod(ability, bonuses.abilities);
+
+    Character.recalc(getModWithBonuses, bonuses);
+    Skills.recalc(getModWithBonuses);
+    Spells.recalc(getModWithBonuses);
+
+    // Visual indicator for rage
+    const rageSection = $("#rage-section");
+    if (rageSection) {
+      rageSection.classList.toggle("rage-active", $("#rage-active")?.checked || false);
+    }
   }
 
   // ============================================================
@@ -180,7 +214,7 @@
   function newCharacter() {
     if (!confirm("Start a new character? Unsaved changes will be lost.")) return;
     $$("input, select, textarea").forEach((el) => {
-      if (el.type === "checkbox") el.checked = el.id === "armor-worn" || el.id === "shield-worn";
+      if (el.type === "checkbox") el.checked = (el.id === "armor-worn" || el.id === "shield-worn");
       else if (el.tagName === "SELECT") el.selectedIndex = el.id === "char-size" ? 4 : 0;
       else el.value = el.type === "number" && el.defaultValue ? el.defaultValue : "";
     });
@@ -255,8 +289,8 @@
       target.closest("#tab-character") ||
       target.closest("#tab-equipment") ||
       target.closest("#tab-spells") ||
-      target.id === "char-level" ||
-      target.id === "specialty-school"
+      target.closest("#tab-class-features") ||
+      target.id === "char-level"
     ) {
       recalcAll();
     }
@@ -266,6 +300,7 @@
   $("#char-size").addEventListener("change", recalcAll);
   $("#armor-worn").addEventListener("change", recalcAll);
   $("#shield-worn").addEventListener("change", recalcAll);
+  $("#rage-active").addEventListener("change", recalcAll);
   document.addEventListener("change", (e) => {
     if (e.target.closest("#tab-equipment") || e.target.closest("#tab-spells")) recalcAll();
   });
