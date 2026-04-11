@@ -17,7 +17,8 @@ const Spells = (function () {
   // ============================================================
   function addCaster(type, data = {}) {
     const idx = casterIndex++;
-    const defaultName = type === "spellcasting" ? "Spellcasting" : "Psionics";
+    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers" };
+    const defaultName = DEFAULT_NAMES[type] || type;
     const name = data.name || defaultName;
 
     // Create inner-tab button
@@ -42,11 +43,16 @@ const Spells = (function () {
       container.appendChild(panel);
       buildSpellLists(idx, panel);
       wireSpellLevelTabs(panel);
-    } else {
+    } else if (type === "psionics") {
       panel.innerHTML = buildPsionicsHTML(idx, data);
       container.appendChild(panel);
       buildPsiPowerLists(idx, panel);
       wirePsiLevelTabs(panel);
+    } else if (type === "maneuvers") {
+      panel.innerHTML = buildManeuversHTML(idx, data);
+      container.appendChild(panel);
+      buildManeuverLists(idx, panel);
+      wireManeuverLevelTabs(panel);
     }
 
     // Add remove button to tab
@@ -253,6 +259,72 @@ const Spells = (function () {
   }
 
   // ============================================================
+  // Tome of Battle Maneuvers HTML builder
+  // ============================================================
+  function buildManeuversHTML(idx, data) {
+    const levelTabs = SPELL_SHORT.slice(1).map((label, i) =>
+      `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i + 1}">${label}</button>`
+    ).join("");
+
+    return `
+      <section class="section">
+        <h2>Martial Maneuvers</h2>
+        <div class="info-grid">
+          <div class="field field-sm"><label>Initiator Level</label><input type="number" class="tom-init-level" min="1" value="${data.initLevel || ""}"></div>
+          <div class="field field-sm"><label>Maneuvers Known</label><input type="number" class="tom-known-count" min="0" value="${data.knownCount || ""}"></div>
+          <div class="field field-sm"><label>Maneuvers Readied</label><input type="number" class="tom-readied-count" min="0" value="${data.readiedCount || ""}"></div>
+          <div class="field field-sm"><label>Stances Known</label><input type="number" class="tom-stances-count" min="0" value="${data.stancesCount || ""}"></div>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Known Maneuvers & Stances</h2>
+        <div class="spell-list-tabs">${levelTabs}</div>
+        <div class="tom-maneuver-lists"></div>
+      </section>
+      <section class="section">
+        <h2>Readied Maneuvers</h2>
+        <textarea class="tom-readied" rows="8" placeholder="List readied maneuvers here. Mark expended with [X]...">${data.readied || ""}</textarea>
+      </section>
+    `;
+  }
+
+  function buildManeuverLists(idx, panel) {
+    const container = panel.querySelector(".tom-maneuver-lists");
+    for (let i = 1; i <= 9; i++) {
+      const div = document.createElement("div");
+      div.className = `spell-list-content${i === 1 ? " active" : ""}`;
+      div.dataset.level = i;
+      div.innerHTML = `
+        <div class="two-column">
+          <div class="column">
+            <h3>${SPELL_LABELS[i]} Level - Known Maneuvers</h3>
+            <textarea class="tom-maneuver-text" data-lvl="${i}" rows="8" placeholder="Enter ${SPELL_LABELS[i]} level maneuvers, one per line..."></textarea>
+          </div>
+          <div class="column">
+            <h3>${SPELL_LABELS[i]} Level - Known Stances</h3>
+            <textarea class="tom-stance-text" data-lvl="${i}" rows="8" placeholder="Enter ${SPELL_LABELS[i]} level stances, one per line..."></textarea>
+          </div>
+        </div>
+      `;
+      container.appendChild(div);
+    }
+  }
+
+  function wireManeuverLevelTabs(panel) {
+    panel.querySelectorAll(".spell-level-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
+        panel.querySelectorAll(".spell-list-content").forEach((c) => c.classList.remove("active"));
+        btn.classList.add("active");
+        const lvl = btn.dataset.level;
+        panel.querySelectorAll(".spell-list-content").forEach((c) => {
+          if (c.dataset.level === lvl) c.classList.add("active");
+        });
+      });
+    });
+  }
+
+  // ============================================================
   // Recalculate DCs and slot tracking for all casters
   // ============================================================
   function recalc(getAbilityMod) {
@@ -342,7 +414,7 @@ const Spells = (function () {
           caster[`text-${i}`] = panel.querySelector(`.sc-spell-text[data-lvl="${i}"]`)?.value || "";
           caster[`prepared-${i}`] = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`)?.value || "";
         }
-      } else {
+      } else if (type === "psionics") {
         caster.discipline = panel.querySelector(".psi-discipline")?.value || "";
         caster.ppDay = panel.querySelector(".psi-pp-day")?.value || "";
         caster.ppSpent = panel.querySelector(".psi-pp-spent")?.value || "0";
@@ -351,6 +423,16 @@ const Spells = (function () {
         caster.ability = panel.querySelector(".psi-ability")?.value || "";
         for (let i = 1; i <= 9; i++) {
           caster[`power-${i}`] = panel.querySelector(`.psi-power-text[data-lvl="${i}"]`)?.value || "";
+        }
+      } else if (type === "maneuvers") {
+        caster.initLevel = panel.querySelector(".tom-init-level")?.value || "";
+        caster.knownCount = panel.querySelector(".tom-known-count")?.value || "";
+        caster.readiedCount = panel.querySelector(".tom-readied-count")?.value || "";
+        caster.stancesCount = panel.querySelector(".tom-stances-count")?.value || "";
+        caster.readied = panel.querySelector(".tom-readied")?.value || "";
+        for (let i = 1; i <= 9; i++) {
+          caster[`maneuver-${i}`] = panel.querySelector(`.tom-maneuver-text[data-lvl="${i}"]`)?.value || "";
+          caster[`stance-${i}`] = panel.querySelector(`.tom-stance-text[data-lvl="${i}"]`)?.value || "";
         }
       }
 
@@ -379,10 +461,17 @@ const Spells = (function () {
             const prepEl = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`);
             if (prepEl && caster[`prepared-${i}`]) prepEl.value = caster[`prepared-${i}`];
           }
-        } else {
+        } else if (caster.type === "psionics") {
           for (let i = 1; i <= 9; i++) {
             const textEl = panel.querySelector(`.psi-power-text[data-lvl="${i}"]`);
             if (textEl && caster[`power-${i}`]) textEl.value = caster[`power-${i}`];
+          }
+        } else if (caster.type === "maneuvers") {
+          for (let i = 1; i <= 9; i++) {
+            const mEl = panel.querySelector(`.tom-maneuver-text[data-lvl="${i}"]`);
+            if (mEl && caster[`maneuver-${i}`]) mEl.value = caster[`maneuver-${i}`];
+            const sEl = panel.querySelector(`.tom-stance-text[data-lvl="${i}"]`);
+            if (sEl && caster[`stance-${i}`]) sEl.value = caster[`stance-${i}`];
           }
         }
       });

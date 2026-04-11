@@ -377,9 +377,8 @@ textarea {
   text-align: center;
 }
 .bab-calc {
-  display: inline-block;
   min-width: 20px;
-  text-align: center;
+  padding: 0.25rem 0.3rem;
 }
 .bab-plus, .bab-sep {
   font-weight: 600;

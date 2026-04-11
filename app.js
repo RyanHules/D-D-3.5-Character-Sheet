@@ -239,6 +239,7 @@
   });
   $("#btn-add-spellcasting").addEventListener("click", () => Spells.addCaster("spellcasting"));
   $("#btn-add-psionics").addEventListener("click", () => Spells.addCaster("psionics"));
+  $("#btn-add-maneuvers").addEventListener("click", () => Spells.addCaster("maneuvers"));
   $("#btn-add-attack").addEventListener("click", () => Character.addAttack());
   $("#btn-add-feat").addEventListener("click", () => Feats.addFeat());
   $("#btn-add-special-ability").addEventListener("click", () => Feats.addSpecialAbility());

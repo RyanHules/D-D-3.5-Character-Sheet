@@ -256,7 +256,7 @@ const Character = (function () {
     });
 
     // HP
-    ["hp-total", "hp-current", "hp-nonlethal"].forEach((id) => {
+    ["hp-total", "hp-current", "hp-temp", "hp-nonlethal"].forEach((id) => {
       data[id] = $(`#${id}`).value;
     });
 
