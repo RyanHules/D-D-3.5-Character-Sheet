@@ -13,19 +13,24 @@ const Skills = (function () {
   // Build the skills table from DND35.skills
   // ============================================================
   function build(getAbilityMod) {
-    const tbody = $("#skills-body");
-    tbody.innerHTML = "";
+    const tbodyL = $("#skills-body-left");
+    const tbodyR = $("#skills-body-right");
+    tbodyL.innerHTML = "";
+    tbodyR.innerHTML = "";
 
+    // Split skills roughly in half
+    const midpoint = Math.ceil(DND35.skills.length / 2);
     DND35.skills.forEach((skill, i) => {
+      const tbody = i < midpoint ? tbodyL : tbodyR;
       if (skill.editableSubtype) {
-        // Render as an expandable subtype group (Craft, Perform, Profession)
         addSubtypeGroup(tbody, skill, i);
       } else {
         addSkillRow(tbody, skill, i, getAbilityMod);
       }
     });
 
-    tbody.addEventListener("input", () => recalc(getAbilityMod));
+    tbodyL.addEventListener("input", () => recalc(getAbilityMod));
+    tbodyR.addEventListener("input", () => recalc(getAbilityMod));
   }
 
   function addSkillRow(tbody, skill, index, getAbilityMod, opts = {}) {
@@ -205,7 +210,7 @@ const Skills = (function () {
 
     // First pass: gather all skill ranks for synergy calculation
     const rankMap = {};
-    $$("#skills-body tr").forEach((row) => {
+    $$("#skills-body-left tr, #skills-body-right tr").forEach((row) => {
       if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
       const ranks = parseFloat(row.querySelector(".skill-ranks")?.value) || 0;
       if (ranks <= 0) return;
@@ -254,7 +259,7 @@ const Skills = (function () {
     });
 
     // Second pass: calculate totals
-    $$("#skills-body tr").forEach((row) => {
+    $$("#skills-body-left tr, #skills-body-right tr").forEach((row) => {
       if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
 
       const abilityKey = row.dataset.ability;
@@ -354,20 +359,24 @@ const Skills = (function () {
       }
     }
 
-    // Spellcraft note from Wizard Specialty School
-    const school = ($("#specialty-school")?.value || "").trim();
+    // Spellcraft note from Wizard Specialty School (now per-caster in spells tab)
+    const schools = [];
+    $$(".sc-specialist-toggle").forEach(toggle => {
+      if (!toggle.checked) return;
+      const panel = toggle.closest(".inner-tab-content");
+      const school = (panel?.querySelector(".sc-specialty-school")?.value || "").trim();
+      if (school) schools.push(school);
+    });
     const spellcraftRow = findSkillRow("Spellcraft");
     if (spellcraftRow) {
       const toggleBtn = spellcraftRow.querySelector(".skill-notes-toggle");
       if (toggleBtn) {
-        // Build combined synergy text: existing rank-based synergies + specialty school
         const rankSynergy = toggleBtn.dataset.rankSynergy || "";
-        const schoolNote = school ? `+2 on Spellcraft checks for ${school} spells (Wizard Specialty)` : "";
+        const schoolNote = schools.map(s => `+2 on Spellcraft checks for ${s} spells (Wizard Specialty)`).join("; ");
         const parts = [rankSynergy, schoolNote].filter(Boolean);
         toggleBtn.dataset.synergy = parts.join("; ");
         toggleBtn.classList.toggle("has-notes", parts.length > 0 || !!toggleBtn.dataset.notes);
 
-        // Update open notes row if visible
         const nextRow = spellcraftRow.nextElementSibling;
         if (nextRow && nextRow.classList.contains("skill-notes-row-container")) {
           const synDiv = nextRow.querySelector(".synergy-notes");
@@ -387,7 +396,7 @@ const Skills = (function () {
 
   function findSkillRow(skillName) {
     let found = null;
-    $$("#skills-body tr").forEach((row) => {
+    $$("#skills-body-left tr, #skills-body-right tr").forEach((row) => {
       if (found) return;
       if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
       if (getRowSkillName(row) === skillName) found = row;
@@ -414,7 +423,7 @@ const Skills = (function () {
   // ============================================================
   function collectData() {
     const skills = [];
-    $$("#skills-body tr").forEach((row) => {
+    $$("#skills-body-left tr, #skills-body-right tr").forEach((row) => {
       if (row.classList.contains("skill-notes-row-container")) return;
       if (row.classList.contains("subtype-header-row")) {
         skills.push({ type: "header", baseName: row.dataset.subtypeBase, index: int(row.dataset.skillIndex) });
@@ -446,15 +455,18 @@ const Skills = (function () {
       return;
     }
 
-    const tbody = $("#skills-body");
-    tbody.innerHTML = "";
+    const tbodyL = $("#skills-body-left");
+    const tbodyR = $("#skills-body-right");
+    tbodyL.innerHTML = "";
+    tbodyR.innerHTML = "";
 
+    const midpoint = Math.ceil(DND35.skills.length / 2);
     let currentSkillDef = null;
     skillsData.forEach((entry) => {
       if (entry.type === "header") {
         currentSkillDef = DND35.skills[entry.index];
         if (currentSkillDef && currentSkillDef.editableSubtype) {
-          // Create header row only
+          const tbody = entry.index < midpoint ? tbodyL : tbodyR;
           const headerTr = document.createElement("tr");
           headerTr.className = "subtype-header-row";
           headerTr.dataset.subtypeBase = currentSkillDef.name;
@@ -474,6 +486,7 @@ const Skills = (function () {
       } else if (entry.type === "subtype") {
         const skillDef = DND35.skills[entry.index];
         if (skillDef) {
+          const tbody = entry.index < midpoint ? tbodyL : tbodyR;
           const tr = addSubtypeEntry(tbody, skillDef, entry.index, entry.subtypeName || "", entry);
           if (entry.notes) {
             const toggleBtn = tr.querySelector(".skill-notes-toggle");
@@ -485,6 +498,7 @@ const Skills = (function () {
         // Regular skill
         const skillDef = DND35.skills[entry.index];
         if (skillDef) {
+          const tbody = entry.index < midpoint ? tbodyL : tbodyR;
           const tr = addSkillRow(tbody, skillDef, entry.index, getAbilityMod);
           tr.querySelector(".skill-class-check").checked = entry.classSkill;
           tr.querySelector(".skill-ranks").value = entry.ranks;
@@ -498,13 +512,14 @@ const Skills = (function () {
       }
     });
 
-    tbody.addEventListener("input", () => recalc(getAbilityMod));
+    tbodyL.addEventListener("input", () => recalc(getAbilityMod));
+    tbodyR.addEventListener("input", () => recalc(getAbilityMod));
     recalc(getAbilityMod);
   }
 
   function loadLegacyData(skillsData, getAbilityMod) {
     // Old format: simple array matching DND35.skills order
-    const rows = $$("#skills-body tr:not(.subtype-header-row):not(.skill-notes-row-container)");
+    const rows = $$("#skills-body-left tr:not(.subtype-header-row):not(.skill-notes-row-container), #skills-body-right tr:not(.subtype-header-row):not(.skill-notes-row-container)");
     let rowIdx = 0;
     skillsData.forEach((skill, i) => {
       if (rows[rowIdx]) {
@@ -588,7 +603,7 @@ const Skills = (function () {
   // ============================================================
   function getRanks(skillName) {
     let max = 0;
-    $$("#skills-body tr").forEach((row) => {
+    $$("#skills-body-left tr, #skills-body-right tr").forEach((row) => {
       if (row.classList.contains("subtype-header-row") || row.classList.contains("skill-notes-row-container")) return;
       const name = getRowSkillName(row);
       if (name === skillName) {

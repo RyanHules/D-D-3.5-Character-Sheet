@@ -219,6 +219,16 @@ const DND35 = {
     { from: "Use Magic Device", to: "Spellcraft", note: "to decipher spells on scrolls" },
     { from: "Use Rope", to: "Climb", note: "involving climbing ropes" },
     { from: "Use Rope", to: "Escape Artist", note: "involving ropes" },
+    // Expanded Psionics Handbook
+    { from: "Autohypnosis", to: "Knowledge (Psionics)" },
+    { from: "Concentration", to: "Autohypnosis" },
+    { from: "Knowledge (Psionics)", to: "Psicraft" },
+    { from: "Psicraft", to: "Use Psionic Device", note: "involving power stones" },
+    { from: "Use Psionic Device", to: "Psicraft", note: "to address power stones" },
+    // Races of Stone
+    { from: "Perform", to: "Appraise", note: "related performances" },
+    // Races of Destiny
+    { from: "Knowledge (Local)", to: "Survival", note: "in urban areas" },
   ],
 
   // Get synergy bonus key from skill name + optional subtype

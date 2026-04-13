@@ -23,55 +23,430 @@ const Equipment = (function () {
   }
 
   // ============================================================
-  // Protective Items
+  // Magic Items (formerly Protective Items)
   // ============================================================
   const BONUS_TYPES = [
     "Untyped", "Deflection", "Dodge", "Natural Armor", "Sacred", "Profane",
     "Insight", "Luck", "Morale", "Circumstance", "Enhancement", "Shield", "Armor",
   ];
 
-  function addProtectiveItem(data = {}) {
-    const container = $("#protective-items-container");
-    const div = document.createElement("div");
-    div.className = "protective-entry";
+  function buildSlotOptions(selected) {
+    let html = '<option value="">None</option>';
+    DND35.itemSlots.forEach((slot) => {
+      html += `<option value="${slot.id}"${slot.id === selected ? " selected" : ""}>${slot.label}</option>`;
+    });
+    return html;
+  }
 
-    const typeOptions = BONUS_TYPES.map((t) =>
-      `<option value="${t}"${t === (data.type || "Untyped") ? " selected" : ""}>${t}</option>`
-    ).join("");
+  function addMagicItem(data = {}) {
+    const container = $("#magic-items-container");
+    const div = document.createElement("div");
+    div.className = "magic-item-entry";
+    div.dataset.miId = "mi-" + (magicItemIdCounter++);
+
+    const worn = data.worn !== false;
+    const isProtective = data.isProtective || false;
+    const hasAbility = data.hasAbilityBonuses || false;
 
     div.innerHTML = `
-      <div class="prot-row">
-        <div class="field" style="flex:2"><label>Item</label><input type="text" class="prot-name" value="${data.name || ""}"></div>
-        <div class="field field-sm"><label>AC Bonus</label><input type="number" class="prot-ac" value="${data.ac || "0"}"></div>
-        <div class="field field-sm"><label>Bonus Type</label><select class="prot-type">${typeOptions}</select></div>
-        <div class="field field-sm"><label>Weight</label><input type="number" class="prot-weight" value="${data.weight || ""}" step="0.1"></div>
-        <button class="btn-remove" style="align-self:flex-end" onclick="this.closest('.protective-entry').remove()">X</button>
+      <div class="mi-row mi-header-row">
+        <div class="field" style="flex:2"><label>Item</label><input type="text" class="mi-name" value="${data.name || ""}"></div>
+        <div class="field field-sm"><label>Body Slot</label><select class="mi-slot">${buildSlotOptions(data.slot || "")}</select></div>
+        <div class="field field-sm"><label>Weight</label><input type="number" class="mi-weight" value="${data.weight || ""}" step="0.1"></div>
+        <button class="btn-remove" style="align-self:flex-end" onclick="Equipment.removeMagicItem(this)">X</button>
       </div>
-      <div class="prot-row">
-        <div class="field" style="flex:2"><label>Special</label><input type="text" class="prot-special" value="${data.special || ""}"></div>
-        <label class="prot-toggle"><input type="checkbox" class="prot-touch" ${data.touch ? "checked" : ""}> Applies to Touch AC</label>
-        <label class="prot-toggle"><input type="checkbox" class="prot-flatfooted" ${data.flatfooted !== false ? "checked" : ""}> Applies to Flat-Footed AC</label>
+      <div class="mi-row">
+        <div class="field" style="flex:2"><label>Special</label><input type="text" class="mi-special" value="${data.special || ""}"></div>
+        <label class="mi-toggle"><input type="checkbox" class="mi-worn" ${worn ? "checked" : ""}> Worn</label>
+        <label class="mi-toggle"><input type="checkbox" class="mi-protective-toggle" ${isProtective ? "checked" : ""}> Protective Item</label>
+        <label class="mi-toggle"><input type="checkbox" class="mi-ability-toggle" ${hasAbility ? "checked" : ""}> Ability Bonuses</label>
+      </div>
+      <div class="mi-protective-section" style="${isProtective ? "" : "display:none"}">
+        <div class="mi-ac-bonuses"></div>
+        <button class="btn-add mi-btn-add-ac" style="margin-top:0.3rem">+ Add AC Bonus</button>
+      </div>
+      <div class="mi-ability-section" style="${hasAbility ? "" : "display:none"}">
+        <div class="mi-row">
+          ${DND35.abilities.map(ab => `<div class="field field-sm"><label>${ab}</label><input type="number" class="mi-ability mi-ab-${ab.toLowerCase()}" value="${(data.abilityBonuses && data.abilityBonuses[ab]) || ""}" data-ability="${ab}"></div>`).join("")}
+        </div>
       </div>
     `;
     container.appendChild(div);
+
+    // Wire toggle visibility
+    const protToggle = div.querySelector(".mi-protective-toggle");
+    const abilToggle = div.querySelector(".mi-ability-toggle");
+    const protSection = div.querySelector(".mi-protective-section");
+    const abilSection = div.querySelector(".mi-ability-section");
+    protToggle.addEventListener("change", () => protSection.style.display = protToggle.checked ? "" : "none");
+    abilToggle.addEventListener("change", () => abilSection.style.display = abilToggle.checked ? "" : "none");
+
+    // Wire body slot linkage
+    const slotSelect = div.querySelector(".mi-slot");
+    const nameInput = div.querySelector(".mi-name");
+    slotSelect.addEventListener("change", () => syncSlot(div));
+    nameInput.addEventListener("input", () => syncSlot(div));
+    div.querySelector(".mi-worn")?.addEventListener("change", () => syncSlot(div));
+
+    // Wire add AC bonus button
+    div.querySelector(".mi-btn-add-ac").addEventListener("click", () => addACBonus(div));
+
+    // Load existing AC bonuses
+    if (data.acBonuses && data.acBonuses.length > 0) {
+      data.acBonuses.forEach(b => addACBonus(div, b));
+    } else if (data.ac && parseInt(data.ac)) {
+      // Backwards compat: old single AC bonus format
+      addACBonus(div, { ac: data.ac, type: data.type || "Untyped", touch: data.touch || false, flatfooted: data.flatfooted !== false });
+    } else if (isProtective) {
+      addACBonus(div); // add one empty row
+    }
+
+    // Initial slot sync
+    if (data.slot) syncSlot(div);
   }
 
+  function addACBonus(itemDiv, data = {}) {
+    const container = itemDiv.querySelector(".mi-ac-bonuses");
+    const row = document.createElement("div");
+    row.className = "mi-row mi-ac-bonus-row";
+    const typeOptions = BONUS_TYPES.map(t =>
+      `<option value="${t}"${t === (data.type || "Untyped") ? " selected" : ""}>${t}</option>`
+    ).join("");
+    row.innerHTML = `
+      <div class="field field-sm"><label>AC Bonus</label><input type="number" class="mi-ac-val" value="${data.ac || "0"}"></div>
+      <div class="field field-sm"><label>Bonus Type</label><select class="mi-ac-type">${typeOptions}</select></div>
+      <label class="mi-toggle"><input type="checkbox" class="mi-ac-touch" ${data.touch ? "checked" : ""}> Touch</label>
+      <label class="mi-toggle"><input type="checkbox" class="mi-ac-ff" ${data.flatfooted !== false ? "checked" : ""}> Flat-Footed</label>
+      <button class="btn-remove" style="font-size:0.6rem;padding:0.15rem 0.4rem" onclick="this.closest('.mi-ac-bonus-row').remove()">X</button>
+    `;
+    container.appendChild(row);
+  }
+
+  function syncSlot(itemDiv) {
+    const slotId = itemDiv.querySelector(".mi-slot")?.value;
+    const name = itemDiv.querySelector(".mi-name")?.value || "";
+    const worn = itemDiv.querySelector(".mi-worn")?.checked;
+    // Clear any previous slot ownership by this item
+    const prevSlot = itemDiv.dataset.prevSlot;
+    if (prevSlot) {
+      const prevEl = $(`#slot-${prevSlot}`);
+      if (prevEl && prevEl.dataset.ownedBy === itemDiv.dataset.miId) {
+        prevEl.value = "";
+        prevEl.readOnly = false;
+        delete prevEl.dataset.ownedBy;
+      }
+    }
+    // Set new slot
+    if (slotId && worn) {
+      const slotEl = $(`#slot-${slotId}`);
+      if (slotEl) {
+        slotEl.value = name;
+        slotEl.readOnly = true;
+        slotEl.dataset.ownedBy = itemDiv.dataset.miId;
+      }
+    }
+    itemDiv.dataset.prevSlot = slotId || "";
+  }
+
+  function removeMagicItem(btn) {
+    const entry = btn.closest(".magic-item-entry");
+    // Clear linked slot
+    const slotId = entry.querySelector(".mi-slot")?.value;
+    if (slotId) {
+      const slotEl = $(`#slot-${slotId}`);
+      if (slotEl && slotEl.dataset.ownedBy === entry.dataset.miId) {
+        slotEl.value = "";
+        slotEl.readOnly = false;
+        delete slotEl.dataset.ownedBy;
+      }
+    }
+    entry.remove();
+  }
+
+  let magicItemIdCounter = 0;
+
   // ============================================================
-  // Magic Item Slots
+  // Magic Item Slots / Soulmelds Worn
   // ============================================================
   function buildMagicItemSlots() {
     const grid = $("#magic-items-grid");
     grid.innerHTML = "";
+
+    // Counters bar
+    const countersDiv = document.createElement("div");
+    countersDiv.className = "soulmeld-counters";
+    countersDiv.innerHTML = `
+      <div class="field field-sm"><label>Max Soulmelds</label><input type="number" id="sm-max-soulmelds" min="0" value="0"></div>
+      <div class="field field-sm"><label>Max Essentia</label><input type="number" id="sm-max-essentia" min="0" value="0"></div>
+      <div class="field field-sm"><label>Max Chakra Binds</label><input type="number" id="sm-max-binds" min="0" value="0"></div>
+      <div class="field field-sm"><label>Base Capacity</label><input type="number" id="sm-base-capacity" min="0" value="0"></div>
+      <div class="field field-sm"><label>Shaped</label><span id="sm-count-shaped" class="calc-field">0</span></div>
+      <div class="field field-sm"><label>Essentia Used</label><span id="sm-count-essentia" class="calc-field">0</span></div>
+      <div class="field field-sm"><label>Binds Used</label><span id="sm-count-binds" class="calc-field">0</span></div>
+    `;
+    grid.appendChild(countersDiv);
+
+    // Body slots
     DND35.itemSlots.forEach((slot) => {
       const div = document.createElement("div");
       div.className = "magic-item-slot";
+      div.dataset.slotId = slot.id;
       div.innerHTML = `
-        <label>${slot.label}</label>
-        <div class="slot-desc">${slot.description}</div>
-        <input type="text" id="slot-${slot.id}" placeholder="Item name">
+        <div class="slot-header">
+          <label>${slot.label}</label>
+          <div class="slot-desc">${slot.description}</div>
+          <label class="mi-toggle slot-sm-toggle"><input type="checkbox" class="slot-soulmeld-check"> Soulmeld</label>
+        </div>
+        <input type="text" id="slot-${slot.id}" class="slot-item-name" placeholder="Item name">
+        <div class="slot-soulmeld-area" style="display:none">
+          <input type="text" class="slot-sm-name" placeholder="Soulmeld name">
+          <div class="slot-sm-options">
+            <label class="mi-toggle"><input type="checkbox" class="slot-sm-bound"> Bound</label>
+            <label class="mi-toggle"><input type="checkbox" class="slot-sm-split"> Split Chakra</label>
+            <label class="mi-toggle"><input type="checkbox" class="slot-sm-double"> Double Chakra</label>
+          </div>
+          <div class="slot-sm-fields">
+            <div class="field field-sm"><label>Base Effect</label><input type="text" class="slot-sm-base"></div>
+            <div class="field field-sm"><label>Bind Effect</label><input type="text" class="slot-sm-bind-effect"></div>
+            <div class="field field-sm"><label>Extra Capacity</label><input type="number" class="slot-sm-extra-cap" min="0" value="0"></div>
+          </div>
+          <div class="essentia-pips">
+            <label>Essentia:</label>
+          </div>
+          <div class="slot-sm-second" style="display:none">
+            <input type="text" class="slot-sm2-name" placeholder="Second soulmeld">
+            <div class="slot-sm-options">
+              <label class="mi-toggle"><input type="checkbox" class="slot-sm2-bound"> Bound</label>
+            </div>
+            <div class="slot-sm-fields">
+              <div class="field field-sm"><label>Base Effect</label><input type="text" class="slot-sm2-base"></div>
+              <div class="field field-sm"><label>Bind Effect</label><input type="text" class="slot-sm2-bind-effect"></div>
+              <div class="field field-sm"><label>Extra Capacity</label><input type="number" class="slot-sm2-extra-cap" min="0" value="0"></div>
+            </div>
+            <div class="essentia-pips essentia-pips-2">
+              <label>Essentia:</label>
+            </div>
+          </div>
+        </div>
       `;
       grid.appendChild(div);
+
+      // Wire soulmeld toggle
+      const smCheck = div.querySelector(".slot-soulmeld-check");
+      const smArea = div.querySelector(".slot-soulmeld-area");
+      const itemInput = div.querySelector(".slot-item-name");
+      smCheck.addEventListener("change", () => {
+        smArea.style.display = smCheck.checked ? "" : "none";
+        if (smCheck.checked && !div.querySelector(".slot-sm-split").checked) {
+          itemInput.style.display = "none";
+        } else {
+          itemInput.style.display = "";
+        }
+        rebuildEssentiaPips(div);
+        recalcSoulmelds();
+      });
+
+      // Wire split chakra (shows item input alongside soulmeld)
+      div.querySelector(".slot-sm-split").addEventListener("change", () => {
+        itemInput.style.display = (smCheck.checked && !div.querySelector(".slot-sm-split").checked) ? "none" : "";
+        recalcSoulmelds();
+      });
+
+      // Wire double chakra (shows second soulmeld)
+      div.querySelector(".slot-sm-double").addEventListener("change", () => {
+        div.querySelector(".slot-sm-second").style.display = div.querySelector(".slot-sm-double").checked ? "" : "none";
+        rebuildEssentiaPips(div, true);
+        recalcSoulmelds();
+      });
+
+      div.querySelector(".slot-sm-bound").addEventListener("change", recalcSoulmelds);
+      div.querySelector(".slot-sm2-bound").addEventListener("change", recalcSoulmelds);
+      div.querySelector(".slot-sm-extra-cap").addEventListener("input", () => rebuildEssentiaPips(div));
+      div.querySelector(".slot-sm2-extra-cap").addEventListener("input", () => rebuildEssentiaPips(div, true));
     });
+
+    // Totem entry
+    const totemDiv = document.createElement("div");
+    totemDiv.className = "magic-item-slot slot-totem";
+    totemDiv.innerHTML = `
+      <details>
+        <summary>Totem (Totemist only)</summary>
+        <input type="text" class="slot-sm-name" id="totem-sm-name" placeholder="Totem soulmeld">
+        <div class="slot-sm-options">
+          <label class="mi-toggle"><input type="checkbox" id="totem-sm-bound"> Bound</label>
+          <label class="mi-toggle"><input type="checkbox" id="totem-sm-double"> Double Chakra</label>
+        </div>
+        <div class="slot-sm-fields">
+          <div class="field field-sm"><label>Base Effect</label><input type="text" id="totem-sm-base"></div>
+          <div class="field field-sm"><label>Bind Effect</label><input type="text" id="totem-sm-bind-effect"></div>
+          <div class="field field-sm"><label>Extra Capacity</label><input type="number" id="totem-sm-extra-cap" min="0" value="0"></div>
+        </div>
+        <div class="essentia-pips" id="totem-essentia-pips">
+          <label>Essentia:</label>
+        </div>
+        <div id="totem-sm-second" style="display:none">
+          <input type="text" id="totem-sm2-name" placeholder="Second soulmeld">
+          <div class="slot-sm-options">
+            <label class="mi-toggle"><input type="checkbox" id="totem-sm2-bound"> Bound</label>
+          </div>
+          <div class="slot-sm-fields">
+            <div class="field field-sm"><label>Base Effect</label><input type="text" id="totem-sm2-base"></div>
+            <div class="field field-sm"><label>Bind Effect</label><input type="text" id="totem-sm2-bind-effect"></div>
+            <div class="field field-sm"><label>Extra Capacity</label><input type="number" id="totem-sm2-extra-cap" min="0" value="0"></div>
+          </div>
+          <div class="essentia-pips" id="totem-essentia-pips-2">
+            <label>Essentia:</label>
+          </div>
+        </div>
+      </details>
+    `;
+    grid.appendChild(totemDiv);
+
+    // Wire totem
+    const totemBound = totemDiv.querySelector("#totem-sm-bound");
+    const totemDouble = totemDiv.querySelector("#totem-sm-double");
+    totemBound?.addEventListener("change", recalcSoulmelds);
+    totemDouble?.addEventListener("change", () => {
+      const second = totemDiv.querySelector("#totem-sm-second");
+      if (second) second.style.display = totemDouble.checked ? "" : "none";
+      rebuildTotemPips(true);
+      recalcSoulmelds();
+    });
+    totemDiv.querySelector("#totem-sm-extra-cap")?.addEventListener("input", () => rebuildTotemPips(false));
+    totemDiv.querySelector("#totem-sm2-extra-cap")?.addEventListener("input", () => rebuildTotemPips(true));
+    totemDiv.querySelector("#totem-sm2-bound")?.addEventListener("change", recalcSoulmelds);
+
+    // Counter inputs trigger recalc
+    ["sm-max-soulmelds", "sm-max-essentia", "sm-max-binds", "sm-base-capacity"].forEach(id => {
+      const el = $(`#${id}`);
+      if (el) el.addEventListener("input", () => { rebuildAllPips(); recalcSoulmelds(); });
+    });
+  }
+
+  // ============================================================
+  // Essentia pip management
+  // ============================================================
+  function getCapacity(slotDiv) {
+    const base = parseInt($("#sm-base-capacity")?.value) || 0;
+    const extra = parseInt(slotDiv.querySelector(".slot-sm-extra-cap")?.value) || 0;
+    return base + extra;
+  }
+
+  function rebuildEssentiaPips(slotDiv, alsoSecond) {
+    const cap = getCapacity(slotDiv);
+    const pipsContainer = slotDiv.querySelector(".essentia-pips:not(.essentia-pips-2)");
+    buildPipButtons(pipsContainer, cap);
+    if (alsoSecond || slotDiv.querySelector(".slot-sm-double")?.checked) {
+      const base = parseInt($("#sm-base-capacity")?.value) || 0;
+      const extra2 = parseInt(slotDiv.querySelector(".slot-sm2-extra-cap")?.value) || 0;
+      const pips2 = slotDiv.querySelector(".essentia-pips-2");
+      if (pips2) buildPipButtons(pips2, base + extra2);
+    }
+    recalcSoulmelds();
+  }
+
+  function rebuildTotemPips(alsoSecond) {
+    const base = parseInt($("#sm-base-capacity")?.value) || 0;
+    const extra = parseInt($("#totem-sm-extra-cap")?.value) || 0;
+    const pips = $("#totem-essentia-pips");
+    if (pips) buildPipButtons(pips, base + extra);
+    if (alsoSecond) {
+      const extra2 = parseInt($("#totem-sm2-extra-cap")?.value) || 0;
+      const pips2 = $("#totem-essentia-pips-2");
+      if (pips2) buildPipButtons(pips2, base + extra2);
+    }
+    recalcSoulmelds();
+  }
+
+  function rebuildAllPips() {
+    $$(".magic-item-slot[data-slot-id]").forEach(slot => {
+      if (slot.querySelector(".slot-soulmeld-check")?.checked) {
+        rebuildEssentiaPips(slot);
+      }
+    });
+    // Totem
+    if ($("#totem-sm-name")?.value) rebuildTotemPips($("#totem-sm-double")?.checked);
+  }
+
+  function buildPipButtons(container, maxPips) {
+    // Preserve current filled count
+    const currentFilled = container.querySelectorAll(".essentia-pip.filled").length;
+    const label = container.querySelector("label");
+    container.innerHTML = "";
+    if (label) container.appendChild(label);
+    else { const l = document.createElement("label"); l.textContent = "Essentia:"; container.appendChild(l); }
+    for (let i = 1; i <= Math.max(maxPips, 0); i++) {
+      const btn = document.createElement("button");
+      btn.className = "essentia-pip" + (i <= currentFilled ? " filled" : "");
+      btn.dataset.pip = i;
+      btn.addEventListener("click", () => toggleSlotPip(btn));
+      container.appendChild(btn);
+    }
+  }
+
+  function fillPips(container, count) {
+    if (!container) return;
+    container.querySelectorAll(".essentia-pip").forEach((p, i) => {
+      p.classList.toggle("filled", i < count);
+    });
+  }
+
+  function toggleSlotPip(btn) {
+    const pip = parseInt(btn.dataset.pip);
+    const pips = btn.parentElement.querySelectorAll(".essentia-pip");
+    const currentlyFilled = btn.classList.contains("filled");
+    pips.forEach(p => {
+      const pVal = parseInt(p.dataset.pip);
+      if (currentlyFilled) { if (pVal >= pip) p.classList.remove("filled"); }
+      else { if (pVal <= pip) p.classList.add("filled"); }
+    });
+    recalcSoulmelds();
+  }
+
+  // ============================================================
+  // Soulmeld counter recalculation
+  // ============================================================
+  function recalcSoulmelds() {
+    let shaped = 0, essentia = 0, binds = 0;
+
+    $$(".magic-item-slot[data-slot-id]").forEach(slot => {
+      if (!slot.querySelector(".slot-soulmeld-check")?.checked) return;
+      shaped++;
+      binds += slot.querySelector(".slot-sm-bound")?.checked ? 1 : 0;
+      essentia += slot.querySelectorAll(".essentia-pips:not(.essentia-pips-2) .essentia-pip.filled").length;
+      if (slot.querySelector(".slot-sm-double")?.checked && slot.querySelector(".slot-sm2-name")?.value) {
+        shaped++;
+        binds += slot.querySelector(".slot-sm2-bound")?.checked ? 1 : 0;
+        essentia += slot.querySelectorAll(".essentia-pips-2 .essentia-pip.filled").length;
+      }
+    });
+
+    // Totem
+    if ($("#totem-sm-name")?.value) {
+      shaped++;
+      binds += $("#totem-sm-bound")?.checked ? 1 : 0;
+      essentia += $$("#totem-essentia-pips .essentia-pip.filled").length;
+      if ($("#totem-sm-double")?.checked && $("#totem-sm2-name")?.value) {
+        shaped++;
+        binds += $("#totem-sm2-bound")?.checked ? 1 : 0;
+        essentia += $$("#totem-essentia-pips-2 .essentia-pip.filled").length;
+      }
+    }
+
+    const maxSm = parseInt($("#sm-max-soulmelds")?.value) || 0;
+    const maxEss = parseInt($("#sm-max-essentia")?.value) || 0;
+    const maxBinds = parseInt($("#sm-max-binds")?.value) || 0;
+
+    setCounterDisplay("sm-count-shaped", shaped, maxSm);
+    setCounterDisplay("sm-count-essentia", essentia, maxEss);
+    setCounterDisplay("sm-count-binds", binds, maxBinds);
+  }
+
+  function setCounterDisplay(id, current, max) {
+    const el = $(`#${id}`);
+    if (!el) return;
+    el.textContent = current;
+    el.classList.toggle("counter-over", max > 0 && current > max);
   }
 
   // ============================================================
@@ -106,25 +481,97 @@ const Equipment = (function () {
     // Worn state
     data["armor-worn"] = $("#armor-worn").checked;
     data["shield-worn"] = $("#shield-worn").checked;
+    data["armor-touch-ac"] = $("#armor-touch-ac").checked;
+    data["shield-touch-ac"] = $("#shield-touch-ac").checked;
 
-    // Protective items
-    data.protectiveItems = [];
-    $$(".protective-entry").forEach((entry) => {
-      data.protectiveItems.push({
-        name: entry.querySelector(".prot-name").value,
-        ac: entry.querySelector(".prot-ac").value,
-        type: entry.querySelector(".prot-type").value,
-        weight: entry.querySelector(".prot-weight").value,
-        special: entry.querySelector(".prot-special").value,
-        touch: entry.querySelector(".prot-touch").checked,
-        flatfooted: entry.querySelector(".prot-flatfooted").checked,
+    // Magic items
+    data.magicItems = [];
+    $$(".magic-item-entry").forEach((entry) => {
+      const item = {
+        name: entry.querySelector(".mi-name").value,
+        weight: entry.querySelector(".mi-weight").value,
+        special: entry.querySelector(".mi-special").value,
+        slot: entry.querySelector(".mi-slot").value,
+        worn: entry.querySelector(".mi-worn").checked,
+        isProtective: entry.querySelector(".mi-protective-toggle").checked,
+        hasAbilityBonuses: entry.querySelector(".mi-ability-toggle").checked,
+      };
+      // AC bonuses
+      item.acBonuses = [];
+      entry.querySelectorAll(".mi-ac-bonus-row").forEach(row => {
+        item.acBonuses.push({
+          ac: row.querySelector(".mi-ac-val").value,
+          type: row.querySelector(".mi-ac-type").value,
+          touch: row.querySelector(".mi-ac-touch").checked,
+          flatfooted: row.querySelector(".mi-ac-ff").checked,
+        });
       });
+      // Ability bonuses
+      if (item.hasAbilityBonuses) {
+        item.abilityBonuses = {};
+        DND35.abilities.forEach(ab => {
+          const val = entry.querySelector(`.mi-ab-${ab.toLowerCase()}`)?.value;
+          if (val) item.abilityBonuses[ab] = val;
+        });
+      }
+      data.magicItems.push(item);
     });
 
-    // Magic item slots
+    // Magic item slots + soulmelds
+    data.slotSoulmelds = {};
     DND35.itemSlots.forEach((slot) => {
       data[`slot-${slot.id}`] = $(`#slot-${slot.id}`).value;
+      const slotDiv = $(`.magic-item-slot[data-slot-id="${slot.id}"]`);
+      if (slotDiv?.querySelector(".slot-soulmeld-check")?.checked) {
+        const sm = {
+          enabled: true,
+          name: slotDiv.querySelector(".slot-sm-name")?.value || "",
+          bound: slotDiv.querySelector(".slot-sm-bound")?.checked || false,
+          split: slotDiv.querySelector(".slot-sm-split")?.checked || false,
+          double: slotDiv.querySelector(".slot-sm-double")?.checked || false,
+          base: slotDiv.querySelector(".slot-sm-base")?.value || "",
+          bindEffect: slotDiv.querySelector(".slot-sm-bind-effect")?.value || "",
+          extraCap: slotDiv.querySelector(".slot-sm-extra-cap")?.value || "0",
+          essentia: slotDiv.querySelectorAll(".essentia-pips:not(.essentia-pips-2) .essentia-pip.filled").length,
+        };
+        if (sm.double) {
+          sm.name2 = slotDiv.querySelector(".slot-sm2-name")?.value || "";
+          sm.bound2 = slotDiv.querySelector(".slot-sm2-bound")?.checked || false;
+          sm.base2 = slotDiv.querySelector(".slot-sm2-base")?.value || "";
+          sm.bindEffect2 = slotDiv.querySelector(".slot-sm2-bind-effect")?.value || "";
+          sm.extraCap2 = slotDiv.querySelector(".slot-sm2-extra-cap")?.value || "0";
+          sm.essentia2 = slotDiv.querySelectorAll(".essentia-pips-2 .essentia-pip.filled").length;
+        }
+        data.slotSoulmelds[slot.id] = sm;
+      }
     });
+
+    // Soulmeld counters
+    ["sm-max-soulmelds", "sm-max-essentia", "sm-max-binds", "sm-base-capacity"].forEach(id => {
+      data[id] = $(`#${id}`)?.value || "0";
+    });
+
+    // Totem
+    const totemName = $("#totem-sm-name")?.value;
+    if (totemName) {
+      data.totem = {
+        name: totemName,
+        bound: $("#totem-sm-bound")?.checked || false,
+        double: $("#totem-sm-double")?.checked || false,
+        base: $("#totem-sm-base")?.value || "",
+        bindEffect: $("#totem-sm-bind-effect")?.value || "",
+        extraCap: $("#totem-sm-extra-cap")?.value || "0",
+        essentia: $$("#totem-essentia-pips .essentia-pip.filled").length,
+      };
+      if (data.totem.double) {
+        data.totem.name2 = $("#totem-sm2-name")?.value || "";
+        data.totem.bound2 = $("#totem-sm2-bound")?.checked || false;
+        data.totem.base2 = $("#totem-sm2-base")?.value || "";
+        data.totem.bindEffect2 = $("#totem-sm2-bind-effect")?.value || "";
+        data.totem.extraCap2 = $("#totem-sm2-extra-cap")?.value || "0";
+        data.totem.essentia2 = $$("#totem-essentia-pips-2 .essentia-pip.filled").length;
+      }
+    }
 
     // Gear
     data.gear = [];
@@ -160,45 +607,190 @@ const Equipment = (function () {
     // Worn state (default to true)
     $("#armor-worn").checked = data["armor-worn"] !== undefined ? data["armor-worn"] : true;
     $("#shield-worn").checked = data["shield-worn"] !== undefined ? data["shield-worn"] : true;
+    $("#armor-touch-ac").checked = data["armor-touch-ac"] || false;
+    $("#shield-touch-ac").checked = data["shield-touch-ac"] || false;
 
-    // Magic item slots
+    // Soulmeld counters
+    ["sm-max-soulmelds", "sm-max-essentia", "sm-max-binds", "sm-base-capacity"].forEach(id => {
+      const el = $(`#${id}`);
+      if (el && data[id] !== undefined) el.value = data[id];
+    });
+
+    // Magic item slots + soulmelds
     DND35.itemSlots.forEach((slot) => {
       const key = `slot-${slot.id}`;
       if (data[key] !== undefined) $(`#${key}`).value = data[key];
+
+      const sm = data.slotSoulmelds?.[slot.id];
+      if (sm?.enabled) {
+        const slotDiv = $(`.magic-item-slot[data-slot-id="${slot.id}"]`);
+        if (!slotDiv) return;
+        const check = slotDiv.querySelector(".slot-soulmeld-check");
+        check.checked = true;
+        slotDiv.querySelector(".slot-soulmeld-area").style.display = "";
+        slotDiv.querySelector(".slot-sm-name").value = sm.name || "";
+        slotDiv.querySelector(".slot-sm-bound").checked = sm.bound || false;
+        slotDiv.querySelector(".slot-sm-split").checked = sm.split || false;
+        slotDiv.querySelector(".slot-sm-double").checked = sm.double || false;
+        slotDiv.querySelector(".slot-sm-base").value = sm.base || "";
+        slotDiv.querySelector(".slot-sm-bind-effect").value = sm.bindEffect || "";
+        slotDiv.querySelector(".slot-sm-extra-cap").value = sm.extraCap || "0";
+        // Show/hide item based on split
+        const itemInput = slotDiv.querySelector(".slot-item-name");
+        itemInput.style.display = sm.split ? "" : "none";
+        // Build pips and fill
+        rebuildEssentiaPips(slotDiv);
+        fillPips(slotDiv.querySelector(".essentia-pips:not(.essentia-pips-2)"), sm.essentia || 0);
+        if (sm.double) {
+          slotDiv.querySelector(".slot-sm-second").style.display = "";
+          slotDiv.querySelector(".slot-sm2-name").value = sm.name2 || "";
+          slotDiv.querySelector(".slot-sm2-bound").checked = sm.bound2 || false;
+          slotDiv.querySelector(".slot-sm2-base").value = sm.base2 || "";
+          slotDiv.querySelector(".slot-sm2-bind-effect").value = sm.bindEffect2 || "";
+          slotDiv.querySelector(".slot-sm2-extra-cap").value = sm.extraCap2 || "0";
+          rebuildEssentiaPips(slotDiv, true);
+          fillPips(slotDiv.querySelector(".essentia-pips-2"), sm.essentia2 || 0);
+        }
+      }
     });
+
+    // Totem
+    if (data.totem) {
+      const details = $(".slot-totem details");
+      if (details) details.open = true;
+      $("#totem-sm-name").value = data.totem.name || "";
+      $("#totem-sm-bound").checked = data.totem.bound || false;
+      $("#totem-sm-double").checked = data.totem.double || false;
+      $("#totem-sm-base").value = data.totem.base || "";
+      $("#totem-sm-bind-effect").value = data.totem.bindEffect || "";
+      $("#totem-sm-extra-cap").value = data.totem.extraCap || "0";
+      rebuildTotemPips(false);
+      fillPips($("#totem-essentia-pips"), data.totem.essentia || 0);
+      if (data.totem.double) {
+        $("#totem-sm-second").style.display = "";
+        $("#totem-sm2-name").value = data.totem.name2 || "";
+        $("#totem-sm2-bound").checked = data.totem.bound2 || false;
+        $("#totem-sm2-base").value = data.totem.base2 || "";
+        $("#totem-sm2-bind-effect").value = data.totem.bindEffect2 || "";
+        $("#totem-sm2-extra-cap").value = data.totem.extraCap2 || "0";
+        rebuildTotemPips(true);
+        fillPips($("#totem-essentia-pips-2"), data.totem.essentia2 || 0);
+      }
+    }
+
+    // Legacy soulmelds from class features
+    if (data.soulmelds && data.soulmelds.length > 0 && !data.slotSoulmelds) {
+      // Old format: standalone soulmeld entries — can't auto-map to slots, ignore
+    }
+
+    recalcSoulmelds();
 
     // Gear
     $("#gear-body").innerHTML = "";
     if (data.gear) data.gear.forEach((g) => addGearRow(g));
 
-    // Protective items
-    $("#protective-items-container").innerHTML = "";
-    if (data.protectiveItems) data.protectiveItems.forEach((p) => addProtectiveItem(p));
+    // Magic items (with backwards compat for old protectiveItems format)
+    $("#magic-items-container").innerHTML = "";
+    magicItemIdCounter = 0;
+    if (data.magicItems) {
+      data.magicItems.forEach((m) => addMagicItem(m));
+    } else if (data.protectiveItems) {
+      // Legacy format: convert protective items to magic items
+      data.protectiveItems.forEach((p) => addMagicItem({
+        name: p.name, weight: p.weight, special: p.special, worn: true,
+        isProtective: true, ac: p.ac, type: p.type, touch: p.touch, flatfooted: p.flatfooted,
+      }));
+    }
   }
 
   // ============================================================
-  // Get raw protective item data for AC calculation
+  // Get AC bonuses from worn magic items (for AC calculation)
   // ============================================================
   function getProtectiveItems() {
     const items = [];
-    $$(".protective-entry").forEach((entry) => {
-      const ac = parseInt(entry.querySelector(".prot-ac").value) || 0;
-      if (ac === 0) return;
-      items.push({
-        type: entry.querySelector(".prot-type").value || "Untyped",
-        ac,
-        touch: entry.querySelector(".prot-touch").checked,
-        flatfooted: entry.querySelector(".prot-flatfooted").checked,
+    $$(".magic-item-entry").forEach((entry) => {
+      const worn = entry.querySelector(".mi-worn")?.checked;
+      const isProt = entry.querySelector(".mi-protective-toggle")?.checked;
+      if (!worn || !isProt) return;
+      entry.querySelectorAll(".mi-ac-bonus-row").forEach(row => {
+        const ac = parseInt(row.querySelector(".mi-ac-val").value) || 0;
+        if (ac === 0) return;
+        items.push({
+          type: row.querySelector(".mi-ac-type").value || "Untyped",
+          ac,
+          touch: row.querySelector(".mi-ac-touch").checked,
+          flatfooted: row.querySelector(".mi-ac-ff").checked,
+        });
       });
     });
     return items;
   }
 
   // ============================================================
+  // Get active ability bonuses from worn magic items
+  // ============================================================
+  function getActiveBonuses() {
+    const bonuses = { abilities: {}, saves: {}, ac: 0 };
+    $$(".magic-item-entry").forEach((entry) => {
+      const worn = entry.querySelector(".mi-worn")?.checked;
+      const hasAbility = entry.querySelector(".mi-ability-toggle")?.checked;
+      if (!worn || !hasAbility) return;
+      DND35.abilities.forEach(ab => {
+        const val = parseInt(entry.querySelector(`.mi-ab-${ab.toLowerCase()}`)?.value) || 0;
+        if (val) bonuses.abilities[ab] = (bonuses.abilities[ab] || 0) + val;
+      });
+    });
+    return bonuses;
+  }
+
+  // ============================================================
+  // Paper Doll
+  // ============================================================
+  function updatePaperDoll() {
+    const doll = $("#paper-doll");
+    if (!doll) return;
+
+    // Clear all slot states
+    doll.querySelectorAll(".doll-slot").forEach((el) => {
+      el.classList.remove("doll-has-item", "doll-has-soulmeld", "doll-has-both");
+      if (el.dataset.slot === "armor" || el.dataset.slot === "shield") el.style.display = "none";
+    });
+
+    // Check each body slot
+    DND35.itemSlots.forEach((slot) => {
+      const slotDiv = $(`.magic-item-slot[data-slot-id="${slot.id}"]`);
+      if (!slotDiv) return;
+      const hasItem = !!slotDiv.querySelector(".slot-item-name")?.value?.trim();
+      const hasSoulmeld = slotDiv.querySelector(".slot-soulmeld-check")?.checked || false;
+      const cls = (hasItem && hasSoulmeld) ? "doll-has-both" : hasItem ? "doll-has-item" : hasSoulmeld ? "doll-has-soulmeld" : "";
+      if (!cls) return;
+      doll.querySelectorAll(`[data-slot="${slot.id}"]`).forEach((el) => {
+        el.classList.add(cls);
+      });
+    });
+
+    // Armor and shield
+    const armorWorn = $("#armor-worn")?.checked;
+    const armorName = $("#armor-name")?.value?.trim();
+    if (armorWorn && armorName) {
+      const el = doll.querySelector('[data-slot="armor"]');
+      if (el) { el.style.display = ""; el.classList.add("doll-has-item"); }
+    }
+
+    const shieldWorn = $("#shield-worn")?.checked;
+    const shieldName = $("#shield-name")?.value?.trim();
+    if (shieldWorn && shieldName) {
+      const el = doll.querySelector('[data-slot="shield"]');
+      if (el) { el.style.display = ""; el.classList.add("doll-has-item"); }
+    }
+  }
+
+  // ============================================================
   // Public API
   // ============================================================
   return {
-    addGearRow, addProtectiveItem, buildMagicItemSlots,
-    recalcWeight, getProtectiveItems, collectData, loadData,
+    addGearRow, addMagicItem, buildMagicItemSlots, removeMagicItem,
+    recalcWeight, getProtectiveItems, getActiveBonuses, updatePaperDoll,
+    collectData, loadData,
   };
 })();

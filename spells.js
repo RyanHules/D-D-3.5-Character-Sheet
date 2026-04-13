@@ -18,7 +18,7 @@ const Spells = (function () {
   // ============================================================
   function addCaster(type, data = {}) {
     const idx = casterIndex++;
-    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers" };
+    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers", epic: "Epic Spellcasting", binding: "Binding" };
     const defaultName = DEFAULT_NAMES[type] || type;
     const name = data.name || defaultName;
 
@@ -47,6 +47,7 @@ const Spells = (function () {
       container.appendChild(panel);
       buildSpellLists(idx, panel);
       wireSpellLevelTabs(panel);
+      wireSpecialistDomainToggles(panel);
     } else if (type === "psionics") {
       panel.innerHTML = notesHTML + buildPsionicsHTML(idx, data);
       container.appendChild(panel);
@@ -57,6 +58,14 @@ const Spells = (function () {
       container.appendChild(panel);
       buildManeuverLists(idx, panel);
       wireManeuverLevelTabs(panel);
+    } else if (type === "epic") {
+      panel.innerHTML = notesHTML + buildEpicHTML(idx, data);
+      container.appendChild(panel);
+      wireEpicSpells(panel);
+    } else if (type === "binding") {
+      panel.innerHTML = notesHTML + buildBindingHTML(idx, data);
+      container.appendChild(panel);
+      wireBindingVestiges(panel);
     }
 
     // Add remove button to tab
@@ -116,14 +125,19 @@ const Spells = (function () {
   // Spellcasting HTML builder
   // ============================================================
   function buildSpellcastingHTML(idx, data) {
+    const domainVis = data.domainAccess ? "" : "display:none";
+    const specVis = data.specialist ? "" : "display:none";
     const rows = [];
     for (let i = 0; i <= 9; i++) {
+      const hasBonusSlot = i >= 1;
       rows.push(`<tr>
         <td>${SPELL_LABELS[i]}</td>
         <td><input type="number" class="sc-known" data-lvl="${i}" min="0" value="${data[`known-${i}`] || ""}"></td>
         <td><span class="sc-dc calc-field" data-lvl="${i}">--</span></td>
         <td><input type="number" class="sc-per-day" data-lvl="${i}" min="0" value="${data[`perDay-${i}`] || ""}"></td>
         <td><input type="number" class="sc-bonus" data-lvl="${i}" min="0" value="${data[`bonus-${i}`] || ""}"></td>
+        <td class="sc-domain-col" style="${domainVis}">${hasBonusSlot ? `<input type="number" class="sc-domain-slots" data-lvl="${i}" min="0" value="${data[`domain-${i}`] || ""}">` : ""}</td>
+        <td class="sc-specialist-col" style="${specVis}">${hasBonusSlot ? `<input type="number" class="sc-specialist-slots" data-lvl="${i}" min="0" value="${data[`specialist-${i}`] || ""}">` : ""}</td>
         <td><input type="number" class="sc-used" data-lvl="${i}" min="0" value="${data[`used-${i}`] || "0"}"></td>
         <td><span class="sc-remain calc-field" data-lvl="${i}">--</span></td>
       </tr>`);
@@ -131,6 +145,20 @@ const Spells = (function () {
 
     const levelTabs = SPELL_SHORT.map((label, i) =>
       `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i}">${label}</button>`
+    ).join("");
+
+    // Build prohibited schools list
+    const prohibitedSchools = data.prohibitedSchools || [];
+    // Legacy migration: pull from old prohibited1/prohibited2 fields
+    if (prohibitedSchools.length === 0) {
+      if (data.prohibited1) prohibitedSchools.push(data.prohibited1);
+      if (data.prohibited2) prohibitedSchools.push(data.prohibited2);
+    }
+    // Default to one empty entry
+    if (prohibitedSchools.length === 0) prohibitedSchools.push("");
+
+    const prohibitedHTML = prohibitedSchools.map((s) =>
+      `<div class="prohibited-entry"><input type="text" class="sc-prohibited" value="${s}" placeholder="School name"><button class="btn-remove sc-remove-prohibited" title="Remove">X</button></div>`
     ).join("");
 
     return `
@@ -142,8 +170,37 @@ const Spells = (function () {
           <div class="field"><label>Arcane Spell Failure %</label><span class="sc-spell-fail calc-field">0%</span></div>
           <div class="field"><label>Conditional Modifiers</label><input type="text" class="sc-conditional" value="${data.conditional || ""}"></div>
         </div>
+        <div class="spell-header" style="margin-top:0.5rem">
+          <label class="mi-toggle"><input type="checkbox" class="sc-specialist-toggle" ${data.specialist ? "checked" : ""}> Specialist</label>
+          <label class="mi-toggle"><input type="checkbox" class="sc-domain-toggle" ${data.domainAccess ? "checked" : ""}> Domain Access</label>
+        </div>
+        <div class="sc-specialist-section" style="${specVis}">
+          <div class="info-grid">
+            <div class="field"><label>Specialty School</label><input type="text" class="sc-specialty-school" value="${data.specialtySchool || ""}" placeholder="+2 on Spellcraft checks for this school"></div>
+          </div>
+          <div class="sc-prohibited-list">
+            <label>Prohibited Schools</label>
+            ${prohibitedHTML}
+            <button class="btn-add sc-add-prohibited" style="margin-top:0.3rem">+ Add Prohibited School</button>
+          </div>
+        </div>
+        <div class="sc-domain-section" style="${domainVis}">
+          <div class="domain-entry">
+            <div class="field"><label>Domain Name</label><input type="text" class="sc-domain1-name" value="${data.domain1Name || ""}"></div>
+            <div class="field"><label>Granted Power</label><textarea class="sc-domain1-power" rows="2">${data.domain1Power || ""}</textarea></div>
+          </div>
+          <div class="domain-entry">
+            <div class="field"><label>Domain Name</label><input type="text" class="sc-domain2-name" value="${data.domain2Name || ""}"></div>
+            <div class="field"><label>Granted Power</label><textarea class="sc-domain2-power" rows="2">${data.domain2Power || ""}</textarea></div>
+          </div>
+        </div>
         <table class="spell-slots-table">
-          <thead><tr><th>Spell Level</th><th>Spells Known</th><th>Save DC</th><th>Spells/Day</th><th>Bonus Spells</th><th>Slots Used</th><th>Remaining</th></tr></thead>
+          <thead><tr>
+            <th>Spell Level</th><th>Spells Known</th><th>Save DC</th><th>Spells/Day</th><th>Bonus Spells</th>
+            <th class="sc-domain-col" style="${domainVis}">Domain</th>
+            <th class="sc-specialist-col" style="${specVis}">Specialist</th>
+            <th>Slots Used</th><th>Remaining</th>
+          </tr></thead>
           <tbody>${rows.join("")}</tbody>
         </table>
         <button class="btn-add sc-reset-slots" style="margin-top:0.5rem">Reset All Expended Slots</button>
@@ -180,6 +237,7 @@ const Spells = (function () {
     // Wire reset slots button
     panel.querySelector(".sc-reset-slots").addEventListener("click", () => {
       panel.querySelectorAll(".sc-used").forEach((el) => { el.value = 0; });
+      // Note: domain/specialist slot counts are not reset — only "used" slots are reset
       recalc();
     });
   }
@@ -196,6 +254,67 @@ const Spells = (function () {
         });
       });
     });
+  }
+
+  function wireSpecialistDomainToggles(panel) {
+    const specToggle = panel.querySelector(".sc-specialist-toggle");
+    const domToggle = panel.querySelector(".sc-domain-toggle");
+    const specSection = panel.querySelector(".sc-specialist-section");
+    const domSection = panel.querySelector(".sc-domain-section");
+
+    function toggleColumns(panel, colClass, show) {
+      panel.querySelectorAll(`.${colClass}`).forEach((el) => {
+        el.style.display = show ? "" : "none";
+      });
+    }
+
+    if (specToggle && specSection) {
+      specToggle.addEventListener("change", () => {
+        specSection.style.display = specToggle.checked ? "" : "none";
+        toggleColumns(panel, "sc-specialist-col", specToggle.checked);
+      });
+    }
+    if (domToggle && domSection) {
+      domToggle.addEventListener("change", () => {
+        domSection.style.display = domToggle.checked ? "" : "none";
+        toggleColumns(panel, "sc-domain-col", domToggle.checked);
+      });
+    }
+
+    // Wire prohibited schools add/remove
+    wireProhibitedSchools(panel);
+  }
+
+  function wireProhibitedSchools(panel) {
+    const list = panel.querySelector(".sc-prohibited-list");
+    if (!list) return;
+
+    list.querySelector(".sc-add-prohibited").addEventListener("click", () => {
+      addProhibitedEntry(list, "");
+    });
+
+    list.querySelectorAll(".sc-remove-prohibited").forEach((btn) => {
+      btn.addEventListener("click", () => removeProhibitedEntry(btn));
+    });
+  }
+
+  function addProhibitedEntry(list, value) {
+    const div = document.createElement("div");
+    div.className = "prohibited-entry";
+    div.innerHTML = `<input type="text" class="sc-prohibited" value="${value}" placeholder="School name"><button class="btn-remove sc-remove-prohibited" title="Remove">X</button>`;
+    list.insertBefore(div, list.querySelector(".sc-add-prohibited"));
+    div.querySelector(".sc-remove-prohibited").addEventListener("click", () => removeProhibitedEntry(div.querySelector(".sc-remove-prohibited")));
+  }
+
+  function removeProhibitedEntry(btn) {
+    const list = btn.closest(".sc-prohibited-list");
+    const entries = list.querySelectorAll(".prohibited-entry");
+    if (entries.length <= 1) {
+      // Keep at least one entry, just clear it
+      entries[0].querySelector(".sc-prohibited").value = "";
+      return;
+    }
+    btn.closest(".prohibited-entry").remove();
   }
 
   // ============================================================
@@ -345,6 +464,142 @@ const Spells = (function () {
   }
 
   // ============================================================
+  // Epic Spellcasting HTML builder
+  // ============================================================
+  function buildEpicHTML(idx, data) {
+    const spellRows = (data.epicSpells || [""]).map((s, i) => epicSpellRow(s, i)).join("");
+    return `
+      <section class="section">
+        <h2>Epic Spellcasting</h2>
+        <div class="info-grid">
+          <div class="field"><label>Slot Skill (ranks ÷ 10)</label><select class="epic-skill">
+            <option value="know-arcana"${(data.epicSkill || "know-arcana") === "know-arcana" ? " selected" : ""}>Knowledge (Arcana)</option>
+            <option value="know-religion"${data.epicSkill === "know-religion" ? " selected" : ""}>Knowledge (Religion)</option>
+            <option value="know-nature"${data.epicSkill === "know-nature" ? " selected" : ""}>Knowledge (Nature)</option>
+          </select></div>
+          <div class="field field-sm"><label>Skill Ranks</label><input type="number" class="epic-skill-ranks" min="0" value="${data.epicSkillRanks || ""}"></div>
+          <div class="field field-sm"><label>Slots/Day</label><span class="epic-slots-day calc-field">--</span></div>
+          <div class="field field-sm"><label>Slots Used</label><input type="number" class="epic-slots-used" min="0" value="${data.epicSlotsUsed || "0"}"></div>
+          <div class="field field-sm"><label>Remaining</label><span class="epic-slots-remain calc-field">--</span></div>
+        </div>
+        <div class="info-grid" style="margin-top:0.4rem">
+          <div class="field field-sm"><label>Spellcraft Ranks</label><input type="number" class="epic-spellcraft" min="0" value="${data.epicSpellcraft || ""}" placeholder="For seed DCs"></div>
+          <div class="field"><label>Conditional Modifiers</label><input type="text" class="epic-conditional" value="${data.epicConditional || ""}"></div>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Epic Spells</h2>
+        <div class="epic-spell-list">${spellRows}</div>
+        <button class="btn-add epic-add-spell" style="margin-top:0.5rem">+ Add Epic Spell</button>
+      </section>
+    `;
+  }
+
+  function epicSpellRow(data = "", index = 0) {
+    const d = typeof data === "object" ? data : { name: data };
+    return `<div class="epic-spell-entry">
+      <div class="field" style="flex:1"><label>Spell Name</label><input type="text" class="epic-spell-name" value="${d.name || ""}"></div>
+      <div class="field field-sm"><label>DC</label><input type="number" class="epic-spell-dc" value="${d.dc || ""}"></div>
+      <div class="field" style="flex:2"><label>Effect / Notes</label><input type="text" class="epic-spell-notes" value="${d.notes || ""}"></div>
+      <button class="btn-remove epic-remove-spell" title="Remove">X</button>
+    </div>`;
+  }
+
+  function wireEpicSpells(panel) {
+    panel.querySelector(".epic-add-spell").addEventListener("click", () => {
+      const list = panel.querySelector(".epic-spell-list");
+      const div = document.createElement("div");
+      div.innerHTML = epicSpellRow();
+      const entry = div.firstElementChild;
+      list.appendChild(entry);
+      entry.querySelector(".epic-remove-spell").addEventListener("click", () => entry.remove());
+    });
+    panel.querySelectorAll(".epic-remove-spell").forEach((btn) => {
+      btn.addEventListener("click", () => btn.closest(".epic-spell-entry").remove());
+    });
+  }
+
+  // ============================================================
+  // Vestige Binding HTML builder
+  // ============================================================
+  function buildBindingHTML(idx, data) {
+    const vestigeRows = (data.vestiges || [""]).map((v, i) => vestigeRow(v)).join("");
+    return `
+      <section class="section">
+        <h2>Vestige Binding</h2>
+        <div class="info-grid">
+          <div class="field field-sm"><label>Effective Binder Level</label><input type="number" class="bind-level" min="1" value="${data.binderLevel || ""}"></div>
+          <div class="field field-sm"><label>Max Vestige Level</label><input type="number" class="bind-max-vestige" min="1" max="8" value="${data.maxVestige || ""}"></div>
+          <div class="field field-sm"><label>Max Vestiges Bound</label><input type="number" class="bind-max-bound" min="1" value="${data.maxBound || ""}"></div>
+          <div class="field field-sm"><label>Binding Check Mod</label><input type="number" class="bind-check-mod" value="${data.bindCheckMod || ""}"></div>
+        </div>
+        <div class="info-grid" style="margin-top:0.4rem">
+          <div class="field field-sm"><label>Currently Bound</label><span class="bind-count calc-field">0</span></div>
+          <div class="field"><label>Conditional Modifiers</label><input type="text" class="bind-conditional" value="${data.bindConditional || ""}"></div>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Bound Vestiges</h2>
+        <div class="vestige-list">${vestigeRows}</div>
+        <button class="btn-add bind-add-vestige" style="margin-top:0.5rem">+ Add Vestige</button>
+      </section>
+    `;
+  }
+
+  function vestigeRow(data = "") {
+    const d = typeof data === "object" ? data : { name: data };
+    return `<div class="vestige-entry">
+      <div class="vestige-header">
+        <div class="field" style="flex:1"><label>Vestige Name</label><input type="text" class="vestige-name" value="${d.name || ""}"></div>
+        <div class="field field-sm"><label>Level</label><input type="number" class="vestige-level" min="1" max="8" value="${d.level || ""}"></div>
+        <div class="field field-sm"><label>Binding DC</label><input type="number" class="vestige-dc" value="${d.dc || ""}"></div>
+        <label class="mi-toggle"><input type="checkbox" class="vestige-good-pact"${d.goodPact ? " checked" : ""}> Good Pact</label>
+        <button class="btn-remove bind-remove-vestige" title="Remove">X</button>
+      </div>
+      <div class="field"><label>Granted Abilities</label><textarea class="vestige-abilities" rows="2">${d.abilities || ""}</textarea></div>
+      <div class="vestige-pact-info" style="${d.goodPact ? "display:none" : ""}">
+        <div class="field"><label>Sign &amp; Influence</label><input type="text" class="vestige-sign" value="${d.sign || ""}"></div>
+      </div>
+    </div>`;
+  }
+
+  function wireBindingVestiges(panel) {
+    panel.querySelector(".bind-add-vestige").addEventListener("click", () => {
+      const list = panel.querySelector(".vestige-list");
+      const div = document.createElement("div");
+      div.innerHTML = vestigeRow();
+      const entry = div.firstElementChild;
+      list.appendChild(entry);
+      wireVestigeEntry(entry);
+      recalcBindCount(panel);
+    });
+    panel.querySelectorAll(".vestige-entry").forEach((entry) => wireVestigeEntry(entry));
+  }
+
+  function wireVestigeEntry(entry) {
+    entry.querySelector(".bind-remove-vestige").addEventListener("click", () => {
+      const panel = entry.closest(".inner-tab-content");
+      entry.remove();
+      recalcBindCount(panel);
+    });
+    const goodPact = entry.querySelector(".vestige-good-pact");
+    const pactInfo = entry.querySelector(".vestige-pact-info");
+    goodPact.addEventListener("change", () => {
+      pactInfo.style.display = goodPact.checked ? "none" : "";
+    });
+  }
+
+  function recalcBindCount(panel) {
+    const count = panel.querySelectorAll(".vestige-entry").length;
+    const el = panel.querySelector(".bind-count");
+    const max = int(panel.querySelector(".bind-max-bound")?.value);
+    if (el) {
+      el.textContent = count;
+      el.classList.toggle("counter-over", max > 0 && count > max);
+    }
+  }
+
+  // ============================================================
   // Recalculate DCs and slot tracking for all casters
   // ============================================================
   function recalc(getAbilityMod) {
@@ -365,8 +620,10 @@ const Spells = (function () {
 
         const perDay = int(panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value);
         const bonus = int(panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value);
+        const domain = int(panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value);
+        const specialist = int(panel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value);
         const used = int(panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value);
-        const totalSlots = perDay + bonus;
+        const totalSlots = perDay + bonus + domain + specialist;
         const remaining = totalSlots - used;
         const el = panel.querySelector(`.sc-remain[data-lvl="${i}"]`);
         if (el) {
@@ -429,10 +686,40 @@ const Spells = (function () {
         }
       }
     });
+
+    recalcEpicAndBinding();
   }
 
   function resetSlots() {
     $$(".sc-used").forEach((el) => { el.value = 0; });
+  }
+
+  function recalcEpicAndBinding() {
+    // Epic spellcasting: slots/day = floor(ranks / 10) per ELH p.72
+    $$("[data-caster-type='epic']").forEach((panel) => {
+      const ranks = int(panel.querySelector(".epic-skill-ranks")?.value);
+      const slotsDay = Math.floor(ranks / 10);
+      const used = int(panel.querySelector(".epic-slots-used")?.value);
+      const remaining = slotsDay - used;
+      const dayEl = panel.querySelector(".epic-slots-day");
+      if (dayEl) dayEl.textContent = ranks > 0 ? slotsDay : "--";
+      const remainEl = panel.querySelector(".epic-slots-remain");
+      if (remainEl) {
+        if (slotsDay > 0) {
+          remainEl.textContent = remaining;
+          remainEl.classList.remove("spell-remain-zero", "spell-remain-low");
+          if (remaining <= 0) remainEl.classList.add("spell-remain-zero");
+        } else {
+          remainEl.textContent = "--";
+          remainEl.classList.remove("spell-remain-zero", "spell-remain-low");
+        }
+      }
+    });
+
+    // Binding: count bound vestiges
+    $$("[data-caster-type='binding']").forEach((panel) => {
+      recalcBindCount(panel);
+    });
   }
 
   // No-op stub for app.js backward compat
@@ -459,6 +746,15 @@ const Spells = (function () {
         caster.casterLevel = panel.querySelector(".sc-caster-level")?.value || "";
         caster.ability = panel.querySelector(".sc-ability").value;
         caster.conditional = panel.querySelector(".sc-conditional").value;
+        // Specialist / Domain toggles
+        caster.specialist = panel.querySelector(".sc-specialist-toggle")?.checked || false;
+        caster.specialtySchool = panel.querySelector(".sc-specialty-school")?.value || "";
+        caster.prohibitedSchools = Array.from(panel.querySelectorAll(".sc-prohibited")).map((el) => el.value).filter((v) => v);
+        caster.domainAccess = panel.querySelector(".sc-domain-toggle")?.checked || false;
+        caster.domain1Name = panel.querySelector(".sc-domain1-name")?.value || "";
+        caster.domain1Power = panel.querySelector(".sc-domain1-power")?.value || "";
+        caster.domain2Name = panel.querySelector(".sc-domain2-name")?.value || "";
+        caster.domain2Power = panel.querySelector(".sc-domain2-power")?.value || "";
         for (let i = 0; i <= 9; i++) {
           caster[`known-${i}`] = panel.querySelector(`.sc-known[data-lvl="${i}"]`)?.value || "";
           caster[`perDay-${i}`] = panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || "";
@@ -466,6 +762,10 @@ const Spells = (function () {
           caster[`used-${i}`] = panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value || "0";
           caster[`text-${i}`] = panel.querySelector(`.sc-spell-text[data-lvl="${i}"]`)?.value || "";
           caster[`prepared-${i}`] = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`)?.value || "";
+          if (i >= 1) {
+            caster[`domain-${i}`] = panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value || "";
+            caster[`specialist-${i}`] = panel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value || "";
+          }
         }
       } else if (type === "psionics") {
         caster.discipline = panel.querySelector(".psi-discipline")?.value || "";
@@ -488,6 +788,31 @@ const Spells = (function () {
           caster[`maneuver-${i}`] = panel.querySelector(`.tom-maneuver-text[data-lvl="${i}"]`)?.value || "";
           caster[`stance-${i}`] = panel.querySelector(`.tom-stance-text[data-lvl="${i}"]`)?.value || "";
         }
+      } else if (type === "epic") {
+        caster.epicSkill = panel.querySelector(".epic-skill")?.value || "spellcraft";
+        caster.epicSkillRanks = panel.querySelector(".epic-skill-ranks")?.value || "";
+        caster.epicSlotsUsed = panel.querySelector(".epic-slots-used")?.value || "0";
+        caster.epicSpellcraft = panel.querySelector(".epic-spellcraft")?.value || "";
+        caster.epicConditional = panel.querySelector(".epic-conditional")?.value || "";
+        caster.epicSpells = Array.from(panel.querySelectorAll(".epic-spell-entry")).map((entry) => ({
+          name: entry.querySelector(".epic-spell-name")?.value || "",
+          dc: entry.querySelector(".epic-spell-dc")?.value || "",
+          notes: entry.querySelector(".epic-spell-notes")?.value || "",
+        }));
+      } else if (type === "binding") {
+        caster.binderLevel = panel.querySelector(".bind-level")?.value || "";
+        caster.maxVestige = panel.querySelector(".bind-max-vestige")?.value || "";
+        caster.maxBound = panel.querySelector(".bind-max-bound")?.value || "";
+        caster.bindCheckMod = panel.querySelector(".bind-check-mod")?.value || "";
+        caster.bindConditional = panel.querySelector(".bind-conditional")?.value || "";
+        caster.vestiges = Array.from(panel.querySelectorAll(".vestige-entry")).map((entry) => ({
+          name: entry.querySelector(".vestige-name")?.value || "",
+          level: entry.querySelector(".vestige-level")?.value || "",
+          dc: entry.querySelector(".vestige-dc")?.value || "",
+          goodPact: entry.querySelector(".vestige-good-pact")?.checked || false,
+          abilities: entry.querySelector(".vestige-abilities")?.value || "",
+          sign: entry.querySelector(".vestige-sign")?.value || "",
+        }));
       }
 
       data.casters.push(caster);
@@ -503,6 +828,28 @@ const Spells = (function () {
     casterIndex = 0;
 
     if (data.casters) {
+      // Migrate legacy domain/specialty data from class features into first spellcasting caster
+      let legacyMigrated = false;
+      data.casters.forEach((caster) => {
+        if (!legacyMigrated && caster.type === "spellcasting" && !caster.specialist && !caster.domainAccess) {
+          if (data["domain1-name"] || data["specialty-school"]) {
+            if (data["specialty-school"]) {
+              caster.specialist = true;
+              caster.specialtySchool = data["specialty-school"];
+              caster.prohibited1 = data["prohibited1"] || "";
+              caster.prohibited2 = data["prohibited2"] || "";
+            }
+            if (data["domain1-name"]) {
+              caster.domainAccess = true;
+              caster.domain1Name = data["domain1-name"];
+              caster.domain1Power = data["domain1-power"] || "";
+              caster.domain2Name = data["domain2-name"] || "";
+              caster.domain2Power = data["domain2-power"] || "";
+            }
+            legacyMigrated = true;
+          }
+        }
+      });
       data.casters.forEach((caster) => {
         const idx = addCaster(caster.type, caster);
         const panel = $(`#caster-${idx}`);

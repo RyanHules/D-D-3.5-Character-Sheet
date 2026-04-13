@@ -80,7 +80,13 @@
       bonuses.ac += cf.ac || 0;
     }
 
-    // Future: Equipment.getActiveBonuses() for worn item ability bonuses
+    // Equipment: worn item ability bonuses
+    if (typeof Equipment.getActiveBonuses === "function") {
+      const eq = Equipment.getActiveBonuses();
+      for (const [ab, val] of Object.entries(eq.abilities || {})) {
+        bonuses.abilities[ab] = (bonuses.abilities[ab] || 0) + val;
+      }
+    }
 
     return bonuses;
   }
@@ -95,6 +101,7 @@
     Character.recalc(getModWithBonuses, bonuses);
     Skills.recalc(getModWithBonuses);
     Spells.recalc(getModWithBonuses);
+    Equipment.updatePaperDoll();
 
     // Visual indicator for rage
     const rageSection = $("#rage-section");
@@ -226,8 +233,7 @@
     Feats.loadData({ feats: [""], specialAbilities: [""] });
     $("#gear-body").innerHTML = "";
     for (let i = 0; i < 5; i++) Equipment.addGearRow();
-    $("#protective-items-container").innerHTML = "";
-    ClassFeatures.resetSoulmelds();
+    $("#magic-items-container").innerHTML = "";
     Spells.loadData({});
 
     recalcAll();
@@ -274,13 +280,14 @@
   $("#btn-add-spellcasting").addEventListener("click", () => Spells.addCaster("spellcasting"));
   $("#btn-add-psionics").addEventListener("click", () => Spells.addCaster("psionics"));
   $("#btn-add-maneuvers").addEventListener("click", () => Spells.addCaster("maneuvers"));
+  $("#btn-add-epic").addEventListener("click", () => Spells.addCaster("epic"));
+  $("#btn-add-binding").addEventListener("click", () => Spells.addCaster("binding"));
   $("#btn-add-attack").addEventListener("click", () => Character.addAttack());
   $("#btn-add-feat").addEventListener("click", () => Feats.addFeat());
   $("#btn-add-special-ability").addEventListener("click", () => Feats.addSpecialAbility());
   $("#btn-add-gear").addEventListener("click", () => Equipment.addGearRow());
-  $("#btn-add-protective").addEventListener("click", () => Equipment.addProtectiveItem());
+  $("#btn-add-magic-item").addEventListener("click", () => Equipment.addMagicItem());
   $("#btn-add-custom-skill").addEventListener("click", () => Skills.addCustomSkill());
-  $("#btn-add-soulmeld").addEventListener("click", () => ClassFeatures.addSoulmeld());
 
   // Auto-recalc on any input change in relevant tabs
   document.addEventListener("input", (e) => {
@@ -300,6 +307,8 @@
   $("#char-size").addEventListener("change", recalcAll);
   $("#armor-worn").addEventListener("change", recalcAll);
   $("#shield-worn").addEventListener("change", recalcAll);
+  $("#armor-touch-ac").addEventListener("change", recalcAll);
+  $("#shield-touch-ac").addEventListener("change", recalcAll);
   $("#rage-active").addEventListener("change", recalcAll);
   document.addEventListener("change", (e) => {
     if (e.target.closest("#tab-equipment") || e.target.closest("#tab-spells")) recalcAll();

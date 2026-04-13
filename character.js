@@ -53,9 +53,9 @@ const Character = (function () {
     const shieldSpellFail = shieldWorn ? int($("#shield-spell-fail").value) : 0;
     const totalSpellFailure = armorSpellFail + shieldSpellFail;
 
-    // Auto-set AC armor/shield fields on character tab
-    $("#ac-armor").value = armorACBonus;
-    $("#ac-shield").value = shieldACBonus;
+    // Auto-set AC armor/shield fields on character tab (now read-only spans)
+    $("#ac-armor").textContent = armorACBonus;
+    $("#ac-shield").textContent = shieldACBonus;
 
     // ---- Carrying load penalties (Table 9-2, PHB p.162) ----
     const strScore = int($("#str-score").value) || 10;
@@ -91,7 +91,6 @@ const Character = (function () {
     const dexMod = getAbilityMod("DEX");
     const cappedDexMod = Math.min(dexMod, effectiveMaxDex);
     const naturalArmor = int($("#ac-natural").value);
-    const deflection = int($("#ac-deflection").value);
     const acMisc = expr($("#ac-misc").value);
     const acSize = sizeData.acMod;
 
@@ -100,16 +99,16 @@ const Character = (function () {
 
     // Resolve protective item bonuses with D&D 3.5 stacking rules
     // Same bonus type: take highest (except dodge, circumstance, untyped which stack)
-    // Character tab fields count as their respective types
     const protItems = Equipment.getProtectiveItems();
     const STACKING_TYPES = ["Dodge", "Circumstance", "Untyped"];
 
     // Seed with character tab bonuses
+    const armorTouchAC = $("#armor-touch-ac")?.checked || false;
+    const shieldTouchAC = $("#shield-touch-ac")?.checked || false;
     const bestByType = {
-      "Armor": { ac: armorACBonus, touch: false, flatfooted: true },
-      "Shield": { ac: shieldACBonus, touch: false, flatfooted: true },
+      "Armor": { ac: armorACBonus, touch: armorTouchAC, flatfooted: true },
+      "Shield": { ac: shieldACBonus, touch: shieldTouchAC, flatfooted: true },
       "Natural Armor": { ac: naturalArmor, touch: false, flatfooted: true },
-      "Deflection": { ac: deflection, touch: true, flatfooted: true },
     };
 
     let stackingTotal = 0, stackingTouch = 0, stackingFF = 0;
@@ -127,7 +126,25 @@ const Character = (function () {
       }
     });
 
-    // Sum resolved bonuses (skip armor/shield/natural/deflection from character tab — they're in bestByType)
+    // Auto-set deflection display from resolved equipment bonuses
+    const deflectionBest = bestByType["Deflection"];
+    $("#ac-deflection").textContent = deflectionBest ? deflectionBest.ac : 0;
+
+    // Show dynamic bonus type boxes for non-standard types from equipment
+    const bonusTypesContainer = $("#ac-bonus-types");
+    if (bonusTypesContainer) {
+      bonusTypesContainer.innerHTML = "";
+      const STANDARD_TYPES = ["Armor", "Shield", "Natural Armor", "Deflection"];
+      Object.entries(bestByType).forEach(([type, data]) => {
+        if (STANDARD_TYPES.includes(type) || data.ac === 0) return;
+        const div = document.createElement("div");
+        div.className = "field field-sm";
+        div.innerHTML = `<label>${type}</label><span class="calc-field">${data.ac}</span>`;
+        bonusTypesContainer.appendChild(div);
+      });
+    }
+
+    // Sum resolved bonuses
     let resolvedTotal = 0, resolvedTouch = 0, resolvedFF = 0;
     Object.values(bestByType).forEach((best) => {
       resolvedTotal += best.ac;
@@ -267,8 +284,8 @@ const Character = (function () {
       data[id] = $(`#${id}`).value;
     });
 
-    // AC
-    ["ac-armor", "ac-shield", "ac-natural", "ac-deflection", "ac-misc"].forEach((id) => {
+    // AC (natural and misc are manual inputs; armor, shield, deflection are auto-calculated)
+    ["ac-natural", "ac-misc"].forEach((id) => {
       data[id] = $(`#${id}`).value;
     });
 
@@ -311,7 +328,7 @@ const Character = (function () {
       "char-height", "char-weight", "char-eyes", "char-hair", "char-skin",
       "char-campaign", "char-xp", "char-speed", "damage-reduction",
       "hp-total", "hp-current", "hp-nonlethal",
-      "ac-armor", "ac-shield", "ac-natural", "ac-deflection", "ac-misc",
+      "ac-natural", "ac-misc",
       "save-conditional", "init-misc", "bab-1", "grapple-misc",
       "spell-resistance", "languages",
     ].forEach((id) => {
