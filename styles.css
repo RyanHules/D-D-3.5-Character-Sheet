@@ -798,10 +798,18 @@ textarea {
 
 /* === Companion === */
 .companion-abilities { display: flex;flex-wrap: wrap;gap: 0.4rem;}
-
-.comp-attack-entry { display: flex;gap: 0.3rem;margin-bottom: 0.3rem;}
-
-.comp-attack-entry input { font-size: 0.8rem; padding: 0.3rem; }
+.companion-abilities .field { min-width: 80px; }
+.companion-abilities .comp-mod { font-size: 0.85rem; font-weight: 600; color: var(--accent); min-width: 2rem; display: inline-block; }
+.comp-attack-entry { display: flex;gap: 0.3rem;margin-bottom: 0.3rem; align-items: center; }
+.comp-attack-entry input { font-size: 0.8rem; padding: 0.3rem; } .comp-header { margin-bottom: 0.75rem; }
+.comp-saves { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.3rem; }
+.save-row { display: flex; align-items: center; gap: 0.4rem; }
+.save-row .save-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); min-width: 2.5rem; }
+.save-row input[type="number"] { width: 3.5rem; } .save-row .comp-save-ab, .save-row .comp-save-total { min-width: 2.5rem; font-size: 0.85rem; font-weight: 600; }
+.save-row .comp-save-total { color: var(--accent); }
+.comp-skill-row { display: flex; gap: 0.3rem; align-items: center; margin-bottom: 0.25rem; }
+.comp-skill-row .comp-skill-name { flex: 2; } .comp-skill-row input[type="number"] { width: 3.5rem; }
+.comp-skill-row .comp-skill-total { min-width: 2.5rem; font-size: 0.85rem; font-weight: 600; color: var(--accent); }
 
 /* === Domain Entry === */
 .domain-entry {

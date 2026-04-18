@@ -13,6 +13,10 @@ const Spells = (function () {
   const SPELL_LIST_LABELS = ["0-Level (Cantrips)", "1st Level", "2nd Level", "3rd Level", "4th Level", "5th Level", "6th Level", "7th Level", "8th Level", "9th Level"];
   const SPELL_SHORT = ["0", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"];
 
+  function spellOrd(i) { return i < SPELL_LABELS.length ? SPELL_LABELS[i] : i + "th"; }
+  function spellListLabel(i) { return i < SPELL_LIST_LABELS.length ? SPELL_LIST_LABELS[i] : i + "th Level"; }
+  function spellShort(i) { return i < SPELL_SHORT.length ? SPELL_SHORT[i] : i + "th"; }
+
   // ============================================================
   // Add a caster sub-tab (spellcasting or psionics)
   // ============================================================
@@ -46,18 +50,18 @@ const Spells = (function () {
       panel.innerHTML = notesHTML + buildSpellcastingHTML(idx, data);
       container.appendChild(panel);
       buildSpellLists(idx, panel);
-      wireSpellLevelTabs(panel);
+      wireLevelTabs(panel);
       wireSpecialistDomainToggles(panel);
     } else if (type === "psionics") {
       panel.innerHTML = notesHTML + buildPsionicsHTML(idx, data);
       container.appendChild(panel);
       buildPsiPowerLists(idx, panel);
-      wirePsiLevelTabs(panel);
+      wireLevelTabs(panel);
     } else if (type === "maneuvers") {
       panel.innerHTML = notesHTML + buildManeuversHTML(idx, data);
       container.appendChild(panel);
       buildManeuverLists(idx, panel);
-      wireManeuverLevelTabs(panel);
+      wireLevelTabs(panel);
     } else if (type === "epic") {
       panel.innerHTML = notesHTML + buildEpicHTML(idx, data);
       container.appendChild(panel);
@@ -97,6 +101,7 @@ const Spells = (function () {
     const panel = $(`#caster-${idx}`);
     if (btn) btn.classList.add("active");
     if (panel) panel.classList.add("active");
+    setTimeout(() => window.autoExpandAll && window.autoExpandAll(), 10);
   }
 
   function renameCaster(btn) {
@@ -127,11 +132,12 @@ const Spells = (function () {
   function buildSpellcastingHTML(idx, data) {
     const domainVis = data.domainAccess ? "" : "display:none";
     const specVis = data.specialist ? "" : "display:none";
+    const maxLevel = data.maxLevel || 9;
     const rows = [];
-    for (let i = 0; i <= 9; i++) {
+    for (let i = 0; i <= maxLevel; i++) {
       const hasBonusSlot = i >= 1;
       rows.push(`<tr>
-        <td>${SPELL_LABELS[i]}</td>
+        <td>${spellOrd(i)}</td>
         <td><input type="number" class="sc-known" data-lvl="${i}" min="0" value="${data[`known-${i}`] || ""}"></td>
         <td><span class="sc-dc calc-field" data-lvl="${i}">--</span></td>
         <td><input type="number" class="sc-per-day" data-lvl="${i}" min="0" value="${data[`perDay-${i}`] || ""}"></td>
@@ -143,8 +149,8 @@ const Spells = (function () {
       </tr>`);
     }
 
-    const levelTabs = SPELL_SHORT.map((label, i) =>
-      `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i}">${label}</button>`
+    const levelTabs = Array.from({ length: maxLevel + 1 }, (_, i) =>
+      `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i}">${spellShort(i)}</button>`
     ).join("");
 
     // Build prohibited schools list
@@ -194,7 +200,7 @@ const Spells = (function () {
             <div class="field"><label>Granted Power</label><textarea class="sc-domain2-power" rows="2">${data.domain2Power || ""}</textarea></div>
           </div>
         </div>
-        <table class="spell-slots-table">
+        <table class="spell-slots-table" data-max-level="${maxLevel}">
           <thead><tr>
             <th>Spell Level</th><th>Spells Known</th><th>Save DC</th><th>Spells/Day</th><th>Bonus Spells</th>
             <th class="sc-domain-col" style="${domainVis}">Domain</th>
@@ -203,7 +209,10 @@ const Spells = (function () {
           </tr></thead>
           <tbody>${rows.join("")}</tbody>
         </table>
-        <button class="btn-add sc-reset-slots" style="margin-top:0.5rem">Reset All Expended Slots</button>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+          <button class="btn-add sc-add-level">+ Add Spell Level</button>
+          <button class="btn-add sc-reset-slots">Reset All Expended Slots</button>
+        </div>
       </section>
       <section class="section">
         <h2>Spell List & Prepared Spells</h2>
@@ -215,44 +224,83 @@ const Spells = (function () {
 
   function buildSpellLists(idx, panel) {
     const container = panel.querySelector(".sc-spell-lists");
-    for (let i = 0; i <= 9; i++) {
-      const div = document.createElement("div");
-      div.className = `spell-list-content${i === 0 ? " active" : ""}`;
-      div.dataset.level = i;
-      div.innerHTML = `
-        <div class="two-column">
-          <div class="column">
-            <h3>${SPELL_LIST_LABELS[i]} - Known/Available Spells</h3>
-            <textarea class="sc-spell-text" data-lvl="${i}" rows="8" placeholder="Enter ${SPELL_LIST_LABELS[i]} spells you know, one per line..."></textarea>
-          </div>
-          <div class="column">
-            <h3>${SPELL_LIST_LABELS[i]} - Prepared Spells</h3>
-            <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${SPELL_LIST_LABELS[i]} spells, one per line. Mark used with [X]..."></textarea>
-          </div>
-        </div>
-      `;
-      container.appendChild(div);
+    const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
+    for (let i = 0; i <= maxLevel; i++) {
+      appendSpellListDiv(container, i, i === 0);
     }
 
-    // Wire reset slots button
     panel.querySelector(".sc-reset-slots").addEventListener("click", () => {
       panel.querySelectorAll(".sc-used").forEach((el) => { el.value = 0; });
-      // Note: domain/specialist slot counts are not reset — only "used" slots are reset
       recalc();
+    });
+
+    panel.querySelector(".sc-add-level").addEventListener("click", () => {
+      addSpellcastingLevel(panel);
     });
   }
 
-  function wireSpellLevelTabs(panel) {
+  function appendSpellListDiv(container, i, active) {
+    const lbl = spellListLabel(i);
+    const div = document.createElement("div");
+    div.className = `spell-list-content${active ? " active" : ""}`;
+    div.dataset.level = i;
+    div.innerHTML = `
+      <div class="two-column">
+        <div class="column">
+          <h3>${lbl} - Known/Available Spells</h3>
+          <textarea class="sc-spell-text" data-lvl="${i}" rows="8" placeholder="Enter ${lbl} spells..."></textarea>
+        </div>
+        <div class="column">
+          <h3>${lbl} - Prepared Spells</h3>
+          <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${lbl} spells. Mark used with [X]..."></textarea>
+        </div>
+      </div>
+    `;
+    container.appendChild(div);
+  }
+
+  function addSpellcastingLevel(panel) {
+    const table = panel.querySelector(".spell-slots-table");
+    const maxLevel = int(table?.dataset.maxLevel || 9) + 1;
+    if (table) table.dataset.maxLevel = maxLevel;
+    const i = maxLevel;
+
+    // Add table row
+    const domainVis = panel.querySelector(".sc-domain-toggle")?.checked ? "" : "display:none";
+    const specVis = panel.querySelector(".sc-specialist-toggle")?.checked ? "" : "display:none";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${spellOrd(i)}</td>
+      <td><input type="number" class="sc-known" data-lvl="${i}" min="0"></td>
+      <td><span class="sc-dc calc-field" data-lvl="${i}">--</span></td>
+      <td><input type="number" class="sc-per-day" data-lvl="${i}" min="0"></td>
+      <td><input type="number" class="sc-bonus" data-lvl="${i}" min="0"></td>
+      <td class="sc-domain-col" style="${domainVis}"><input type="number" class="sc-domain-slots" data-lvl="${i}" min="0"></td>
+      <td class="sc-specialist-col" style="${specVis}"><input type="number" class="sc-specialist-slots" data-lvl="${i}" min="0"></td>
+      <td><input type="number" class="sc-used" data-lvl="${i}" min="0" value="0"></td>
+      <td><span class="sc-remain calc-field" data-lvl="${i}">--</span></td>`;
+    table.querySelector("tbody").appendChild(tr);
+
+    appendDynLevelTab(panel, i);
+    appendSpellListDiv(panel.querySelector(".sc-spell-lists"), i, false);
+  }
+
+  function switchLevelTab(panel, btn, lvl) {
+    panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
+    panel.querySelectorAll(".spell-list-content").forEach((c) => c.classList.remove("active"));
+    btn.classList.add("active");
+    panel.querySelectorAll(".spell-list-content").forEach((c) => { if (c.dataset.level === String(lvl)) c.classList.add("active"); });
+    setTimeout(() => window.autoExpandAll && window.autoExpandAll(), 10);
+  }
+  function appendDynLevelTab(panel, i) {
+    const btn = document.createElement("button");
+    btn.className = "spell-level-tab"; btn.dataset.level = i; btn.textContent = spellShort(i);
+    btn.addEventListener("click", () => switchLevelTab(panel, btn, i));
+    panel.querySelector(".spell-list-tabs").appendChild(btn);
+  }
+  function wireLevelTabs(panel) {
     panel.querySelectorAll(".spell-level-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
-        panel.querySelectorAll(".spell-list-content").forEach((c) => c.classList.remove("active"));
-        btn.classList.add("active");
-        const lvl = btn.dataset.level;
-        panel.querySelectorAll(".spell-list-content").forEach((c) => {
-          if (c.dataset.level === lvl) c.classList.add("active");
-        });
-      });
+      btn.addEventListener("click", () => switchLevelTab(panel, btn, btn.dataset.level));
     });
   }
 
@@ -323,18 +371,21 @@ const Spells = (function () {
   // Base PP cost by power level (XPH Table 3-3)
   const PP_COSTS = [0, 1, 3, 5, 7, 9, 11, 13, 15, 17];
 
+  function psiPPCost(i) { return PP_COSTS[i] !== undefined ? PP_COSTS[i] : (PP_COSTS[9] + (i - 9) * 2); }
+
   function buildPsionicsHTML(idx, data) {
+    const maxLevel = data.maxLevel || 9;
     const dcRows = [];
-    for (let i = 1; i <= 9; i++) {
+    for (let i = 1; i <= maxLevel; i++) {
       dcRows.push(`<tr>
-        <td>${SPELL_LABELS[i]}</td>
-        <td class="psi-pp-cost">${PP_COSTS[i]}</td>
+        <td>${spellOrd(i)}</td>
+        <td class="psi-pp-cost">${psiPPCost(i)}</td>
         <td><span class="psi-dc calc-field" data-lvl="${i}">--</span></td>
       </tr>`);
     }
 
-    const levelTabs = SPELL_SHORT.slice(1).map((label, i) =>
-      `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i + 1}">${label}</button>`
+    const levelTabs = Array.from({ length: maxLevel }, (_, i) =>
+      `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i + 1}">${spellShort(i + 1)}</button>`
     ).join("");
 
     return `
@@ -356,10 +407,11 @@ const Spells = (function () {
           <div class="field field-sm"><label>Powers Known</label><input type="number" class="psi-powers-known" min="0" value="${data.powersKnown || ""}"></div>
           <div class="field field-sm"><label>Max Power Level</label><input type="number" class="psi-max-level" min="1" max="9" value="${data.maxLevel || ""}"></div>
         </div>
-        <table class="spell-slots-table" style="max-width:400px">
+        <table class="spell-slots-table psi-dc-table" data-max-level="${maxLevel}" style="max-width:400px">
           <thead><tr><th>Power Level</th><th>Base PP Cost</th><th>Save DC</th></tr></thead>
           <tbody>${dcRows.join("")}</tbody>
         </table>
+        <button class="btn-add psi-add-level" style="margin-top:0.5rem">+ Add Power Level</button>
       </section>
       <section class="section">
         <h2>Powers List</h2>
@@ -371,30 +423,39 @@ const Spells = (function () {
 
   function buildPsiPowerLists(idx, panel) {
     const container = panel.querySelector(".psi-power-lists");
-    for (let i = 1; i <= 9; i++) {
-      const div = document.createElement("div");
-      div.className = `spell-list-content${i === 1 ? " active" : ""}`;
-      div.dataset.level = i;
-      div.innerHTML = `
-        <h3>${SPELL_LABELS[i]} Level Powers</h3>
-        <textarea class="psi-power-text" data-lvl="${i}" rows="8" placeholder="Enter ${SPELL_LABELS[i]} level powers, one per line..."></textarea>
-      `;
-      container.appendChild(div);
+    const maxLevel = int(panel.querySelector(".psi-dc-table")?.dataset.maxLevel || 9);
+    for (let i = 1; i <= maxLevel; i++) {
+      appendPsiPowerDiv(container, i, i === 1);
     }
+    panel.querySelector(".psi-add-level").addEventListener("click", () => {
+      addPsionicsLevel(panel);
+    });
   }
 
-  function wirePsiLevelTabs(panel) {
-    panel.querySelectorAll(".spell-level-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
-        panel.querySelectorAll(".spell-list-content").forEach((c) => c.classList.remove("active"));
-        btn.classList.add("active");
-        const lvl = btn.dataset.level;
-        panel.querySelectorAll(".spell-list-content").forEach((c) => {
-          if (c.dataset.level === lvl) c.classList.add("active");
-        });
-      });
-    });
+  function appendPsiPowerDiv(container, i, active) {
+    const div = document.createElement("div");
+    div.className = `spell-list-content${active ? " active" : ""}`;
+    div.dataset.level = i;
+    div.innerHTML = `
+      <h3>${spellOrd(i)} Level Powers</h3>
+      <textarea class="psi-power-text" data-lvl="${i}" rows="8" placeholder="Enter ${spellOrd(i)} level powers, one per line..."></textarea>
+    `;
+    container.appendChild(div);
+  }
+
+  function addPsionicsLevel(panel) {
+    const table = panel.querySelector(".psi-dc-table");
+    const maxLevel = int(table?.dataset.maxLevel || 9) + 1;
+    if (table) table.dataset.maxLevel = maxLevel;
+    const i = maxLevel;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${spellOrd(i)}</td><td class="psi-pp-cost">${psiPPCost(i)}</td><td><span class="psi-dc calc-field" data-lvl="${i}">--</span></td>`;
+    table.querySelector("tbody").appendChild(tr);
+
+    appendDynLevelTab(panel, i);
+
+    appendPsiPowerDiv(panel.querySelector(".psi-power-lists"), i, false);
   }
 
   // ============================================================
@@ -449,20 +510,6 @@ const Spells = (function () {
     }
   }
 
-  function wireManeuverLevelTabs(panel) {
-    panel.querySelectorAll(".spell-level-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
-        panel.querySelectorAll(".spell-list-content").forEach((c) => c.classList.remove("active"));
-        btn.classList.add("active");
-        const lvl = btn.dataset.level;
-        panel.querySelectorAll(".spell-list-content").forEach((c) => {
-          if (c.dataset.level === lvl) c.classList.add("active");
-        });
-      });
-    });
-  }
-
   // ============================================================
   // Epic Spellcasting HTML builder
   // ============================================================
@@ -500,7 +547,7 @@ const Spells = (function () {
     return `<div class="epic-spell-entry">
       <div class="field" style="flex:1"><label>Spell Name</label><input type="text" class="epic-spell-name" value="${d.name || ""}"></div>
       <div class="field field-sm"><label>DC</label><input type="number" class="epic-spell-dc" value="${d.dc || ""}"></div>
-      <div class="field" style="flex:2"><label>Effect / Notes</label><input type="text" class="epic-spell-notes" value="${d.notes || ""}"></div>
+      <div class="field" style="flex:2"><label>Effect / Notes</label><textarea class="epic-spell-notes" rows="1">${d.notes || ""}</textarea></div>
       <button class="btn-remove epic-remove-spell" title="Remove">X</button>
     </div>`;
   }
@@ -613,8 +660,9 @@ const Spells = (function () {
       const abilityMod = ability && getAbilityMod ? getAbilityMod(ability) : 0;
       const failEl = panel.querySelector(".sc-spell-fail");
       if (failEl) failEl.textContent = spellFail + "%";
+      const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
 
-      for (let i = 0; i <= 9; i++) {
+      for (let i = 0; i <= maxLevel; i++) {
         const dcEl = panel.querySelector(`.sc-dc[data-lvl="${i}"]`);
         if (dcEl) dcEl.textContent = ability ? 10 + i + abilityMod : "--";
 
@@ -652,8 +700,9 @@ const Spells = (function () {
       const ability = panel.querySelector(".psi-ability")?.value || "";
       const abilityMod = ability && getAbilityMod ? getAbilityMod(ability) : 0;
       const manifesterLevel = int(panel.querySelector(".psi-manifester-level")?.value);
+      const maxLevel = int(panel.querySelector(".psi-dc-table")?.dataset.maxLevel || 9);
 
-      for (let i = 1; i <= 9; i++) {
+      for (let i = 1; i <= maxLevel; i++) {
         const dcEl = panel.querySelector(`.psi-dc[data-lvl="${i}"]`);
         if (dcEl) dcEl.textContent = ability ? 10 + i + abilityMod : "--";
       }
@@ -746,7 +795,6 @@ const Spells = (function () {
         caster.casterLevel = panel.querySelector(".sc-caster-level")?.value || "";
         caster.ability = panel.querySelector(".sc-ability").value;
         caster.conditional = panel.querySelector(".sc-conditional").value;
-        // Specialist / Domain toggles
         caster.specialist = panel.querySelector(".sc-specialist-toggle")?.checked || false;
         caster.specialtySchool = panel.querySelector(".sc-specialty-school")?.value || "";
         caster.prohibitedSchools = Array.from(panel.querySelectorAll(".sc-prohibited")).map((el) => el.value).filter((v) => v);
@@ -755,7 +803,9 @@ const Spells = (function () {
         caster.domain1Power = panel.querySelector(".sc-domain1-power")?.value || "";
         caster.domain2Name = panel.querySelector(".sc-domain2-name")?.value || "";
         caster.domain2Power = panel.querySelector(".sc-domain2-power")?.value || "";
-        for (let i = 0; i <= 9; i++) {
+        const scMax = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
+        caster.maxLevel = scMax;
+        for (let i = 0; i <= scMax; i++) {
           caster[`known-${i}`] = panel.querySelector(`.sc-known[data-lvl="${i}"]`)?.value || "";
           caster[`perDay-${i}`] = panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || "";
           caster[`bonus-${i}`] = panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value || "";
@@ -773,9 +823,10 @@ const Spells = (function () {
         caster.ppBase = panel.querySelector(".psi-pp-base")?.value || "";
         caster.ppSpent = panel.querySelector(".psi-pp-spent")?.value || "0";
         caster.powersKnown = panel.querySelector(".psi-powers-known")?.value || "";
-        caster.maxLevel = panel.querySelector(".psi-max-level")?.value || "";
         caster.ability = panel.querySelector(".psi-ability")?.value || "";
-        for (let i = 1; i <= 9; i++) {
+        const psiMax = int(panel.querySelector(".psi-dc-table")?.dataset.maxLevel || 9);
+        caster.maxLevel = psiMax;
+        for (let i = 1; i <= psiMax; i++) {
           caster[`power-${i}`] = panel.querySelector(`.psi-power-text[data-lvl="${i}"]`)?.value || "";
         }
       } else if (type === "maneuvers") {
@@ -856,14 +907,16 @@ const Spells = (function () {
         if (!panel) return;
 
         if (caster.type === "spellcasting") {
-          for (let i = 0; i <= 9; i++) {
+          const scMax = int(caster.maxLevel || 9);
+          for (let i = 0; i <= scMax; i++) {
             const textEl = panel.querySelector(`.sc-spell-text[data-lvl="${i}"]`);
             if (textEl && caster[`text-${i}`]) textEl.value = caster[`text-${i}`];
             const prepEl = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`);
             if (prepEl && caster[`prepared-${i}`]) prepEl.value = caster[`prepared-${i}`];
           }
         } else if (caster.type === "psionics") {
-          for (let i = 1; i <= 9; i++) {
+          const psiMax = int(caster.maxLevel || 9);
+          for (let i = 1; i <= psiMax; i++) {
             const textEl = panel.querySelector(`.psi-power-text[data-lvl="${i}"]`);
             if (textEl && caster[`power-${i}`]) textEl.value = caster[`power-${i}`];
           }

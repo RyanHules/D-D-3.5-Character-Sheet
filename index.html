@@ -482,77 +482,10 @@
 
   <!-- ==================== COMPANION TAB ==================== -->
   <div id="tab-companion" class="tab-content">
-    <section class="section">
-      <h2>Animal Companion / Familiar / Psicrystal</h2>
-      <div class="info-grid">
-        <div class="field"><label>Name</label><input type="text" id="comp-name"></div>
-        <div class="field"><label>Creature Type</label><input type="text" id="comp-type"></div>
-        <div class="field"><label>Personality</label><input type="text" id="comp-personality"></div>
-      </div>
-      <div class="two-column">
-        <div class="column">
-          <h3>Ability Scores</h3>
-          <div class="companion-abilities">
-            <div class="field field-sm"><label>STR</label><input type="number" id="comp-str"></div>
-            <div class="field field-sm"><label>DEX</label><input type="number" id="comp-dex"></div>
-            <div class="field field-sm"><label>CON</label><input type="number" id="comp-con"></div>
-            <div class="field field-sm"><label>INT</label><input type="number" id="comp-int"></div>
-            <div class="field field-sm"><label>WIS</label><input type="number" id="comp-wis"></div>
-            <div class="field field-sm"><label>CHA</label><input type="number" id="comp-cha"></div>
-          </div>
-          <div class="info-grid">
-            <div class="field field-sm"><label>HP</label><input type="number" id="comp-hp"></div>
-            <div class="field field-sm"><label>Initiative</label><input type="text" id="comp-init"></div>
-            <div class="field field-sm"><label>Speed</label><input type="text" id="comp-speed"></div>
-          </div>
-          <h3>Armor Class</h3>
-          <div class="info-grid">
-            <div class="field field-sm"><label>AC Total</label><input type="number" id="comp-ac"></div>
-            <div class="field field-sm"><label>Touch AC</label><input type="number" id="comp-touch-ac"></div>
-            <div class="field field-sm"><label>Flat-Footed</label><input type="number" id="comp-ff-ac"></div>
-          </div>
-          <h3>Saving Throws</h3>
-          <div class="info-grid">
-            <div class="field field-sm"><label>Fortitude</label><input type="text" id="comp-fort"></div>
-            <div class="field field-sm"><label>Reflex</label><input type="text" id="comp-ref"></div>
-            <div class="field field-sm"><label>Will</label><input type="text" id="comp-will"></div>
-          </div>
-          <h3>Grapple Modifier</h3>
-          <div class="field field-sm"><input type="text" id="comp-grapple"></div>
-        </div>
-        <div class="column">
-          <h3>Attacks</h3>
-          <div id="comp-attacks-container">
-            <div class="comp-attack-entry">
-              <input type="text" placeholder="Weapon" class="comp-attack-weapon">
-              <input type="text" placeholder="Attack Bonus" class="comp-attack-bonus">
-              <input type="text" placeholder="Damage" class="comp-attack-damage">
-              <input type="text" placeholder="Critical" class="comp-attack-crit">
-            </div>
-            <div class="comp-attack-entry">
-              <input type="text" placeholder="Weapon" class="comp-attack-weapon">
-              <input type="text" placeholder="Attack Bonus" class="comp-attack-bonus">
-              <input type="text" placeholder="Damage" class="comp-attack-damage">
-              <input type="text" placeholder="Critical" class="comp-attack-crit">
-            </div>
-            <div class="comp-attack-entry">
-              <input type="text" placeholder="Weapon" class="comp-attack-weapon">
-              <input type="text" placeholder="Attack Bonus" class="comp-attack-bonus">
-              <input type="text" placeholder="Damage" class="comp-attack-damage">
-              <input type="text" placeholder="Critical" class="comp-attack-crit">
-            </div>
-          </div>
-          <h3>Skills</h3>
-          <textarea id="comp-skills" rows="6" placeholder="Skill +modifier, Skill +modifier..."></textarea>
-          <h3>Feats</h3>
-          <textarea id="comp-feats" rows="4" placeholder="Feat, Feat..."></textarea>
-          <h3>Special Abilities</h3>
-          <textarea id="comp-special" rows="4" placeholder="Special abilities..."></textarea>
-          <h3>Tricks</h3>
-          <textarea id="comp-tricks" rows="3" placeholder="Attack, Come, Defend..."></textarea>
-        </div>
-      </div>
-    </section>
+    <div class="spells-tab-bar" id="companion-tab-bar">
+      <button id="btn-add-companion" class="btn-add-tab" title="Add Companion">+ Add Companion</button>
+    </div>
+    <div id="companion-content"></div>
   </div>
 
   <!-- ==================== CLASS FEATURES TAB ==================== -->

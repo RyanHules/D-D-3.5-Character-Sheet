@@ -459,6 +459,10 @@ const Equipment = (function () {
     });
     totalWeight += parseFloat($("#armor-weight").value) || 0;
     totalWeight += parseFloat($("#shield-weight").value) || 0;
+    // Coin weight: per PHB, 50 coins of any type weigh 1 lb.
+    const coinCount = ["money-cp", "money-sp", "money-gp", "money-pp"]
+      .reduce((sum, id) => sum + (parseInt($(`#${id}`)?.value) || 0), 0);
+    totalWeight += coinCount / 50;
     $("#total-weight").textContent = totalWeight.toFixed(1);
   }
 
@@ -784,6 +788,15 @@ const Equipment = (function () {
       if (el) { el.style.display = ""; el.classList.add("doll-has-item"); }
     }
   }
+
+  // ============================================================
+  // Coin / armor / shield inputs — recalc weight on change
+  // ============================================================
+  ["money-cp", "money-sp", "money-gp", "money-pp", "armor-weight", "shield-weight"]
+    .forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", recalcWeight);
+    });
 
   // ============================================================
   // Public API

@@ -1,0 +1,1457 @@
+{
+  "char-name": "MK_character_name",
+  "char-player": "MK_player",
+  "char-class": "MK_Class_and_Level",
+  "char-race": "MK_Race",
+  "char-gender": "MK_Gender",
+  "char-alignment": "MK_Alignment",
+  "char-deity": "MK_Deity",
+  "char-age": "MK_Age",
+  "char-height": "MK_Height",
+  "char-weight": "MK_Weight",
+  "char-eyes": "MK_Eyes",
+  "char-hair": "MK_Hair",
+  "char-skin": "MK_Skin",
+  "char-campaign": "MK_campaign",
+  "char-xp": "MK_experience_points",
+  "char-speed": "MK_SPEED",
+  "char-size": "Mk_Size",
+  "char-level": "",
+  "damage-reduction": "MK_Damage_Reduction",
+  "spell-resistance": "",
+  "str-score": "MK_strength",
+  "str-temp": "MK_STR_Temp_Score",
+  "dex-score": "MK_dexterity",
+  "dex-temp": "MK_Dex_Temp_Score",
+  "con-score": "MK_constitution",
+  "con-temp": "MK_Con_Temp_Score",
+  "int-score": "MK_intelligence",
+  "int-temp": "MK_Int_Temp_Score",
+  "wis-score": "MK_wisdom",
+  "wis-temp": "MK_Wis_Temp_Score",
+  "cha-score": "MK_charisma",
+  "cha-temp": "MK_CHA_Temp_Score",
+  "hp-total": "MK_hit_points",
+  "hp-current": "MK_WOUNDSCURRENT_HP",
+  "hp-temp": "",
+  "hp-nonlethal": "MK_Nonlethal_Damage",
+  "ac-natural": "MK_Natural_Armor",
+  "ac-misc": "MK_Misc_AC_Mod",
+  "fort-base": "MK_Base_Fort_Save",
+  "fort-magic": "MK_Fort_Magic_Mod",
+  "fort-misc": "MK_Fort_Misc_Mod",
+  "fort-temp": "MK_Fort_Temp_Mod",
+  "ref-base": "MK_Base_Ref_Save",
+  "ref-magic": "MK_Ref_Magic_Mod",
+  "ref-misc": "MK_Ref_Misc_Mod",
+  "ref-temp": "MK_Ref_Temp_Mod",
+  "will-base": "MK_Base_Will_Save",
+  "will-magic": "MK_Will_Magic_Mod",
+  "will-misc": "MK_Will_Misc_Mod",
+  "will-temp": "MK_Will_Temp_Mod",
+  "save-conditional": "MK_conditional_modifiers\nMK_conditional_modifiers_2\nMK_CONDITIONAL_MODIFIERS",
+  "init-misc": "MK_Initiative_Misc_Mod",
+  "bab-1": "MK_BASE_ATTACK_BONUS",
+  "grapple-misc": "MK_Grapple_Misc_Mod",
+  "attacks": [
+    {
+      "name": "MK_Attack",
+      "bonus": "MK_Attack_Bonus",
+      "damage": "MK_Damage",
+      "crit": "MK_Critical",
+      "range": "MK_Range",
+      "type": "MK_Type",
+      "notes": "MK_Notes\nAmmunition: MK_AMMUNITION"
+    },
+    {
+      "name": "MK_Attack_2",
+      "bonus": "MK_Attack_Bonus_2",
+      "damage": "MK_Damage_2",
+      "crit": "MK_Critical_2",
+      "range": "MK_Range_2",
+      "type": "MK_Type_2",
+      "notes": "MK_Notes_2\nAmmunition: MK_AMMUNITION_2"
+    },
+    {
+      "name": "MK_Attack_3",
+      "bonus": "MK_Attack_Bonus_3",
+      "damage": "MK_Damage_3",
+      "crit": "MK_Critical_3",
+      "range": "MK_Range_3",
+      "type": "MK_Type_3",
+      "notes": "MK_Notes_3\nAmmunition: MK_AMMUNITION_3"
+    },
+    {
+      "name": "MK_Attack_4",
+      "bonus": "MK_Attack_Bonus_4",
+      "damage": "MK_Damage_4",
+      "crit": "MK_Critical_4",
+      "range": "MK_Range_4",
+      "type": "MK_Type_4",
+      "notes": "MK_Notes_4\nAmmunition: MK_AMMUNITION_4"
+    },
+    {
+      "name": "MK_Attack_5",
+      "bonus": "MK_Attack_Bonus_5",
+      "damage": "MK_Damage_5",
+      "crit": "MK_Critical_5",
+      "range": "MK_Range_5",
+      "type": "MK_Type_5",
+      "notes": "MK_Notes_5\nAmmunition: MK_AMMUNITION_5"
+    }
+  ],
+  "feats": [
+    "MK_PG_1",
+    "MK_PG_2",
+    "MK_PG_3",
+    "MK_PG_4",
+    "MK_PG_5",
+    "MK_PG_6",
+    "MK_PG_7",
+    "MK_PG_8",
+    "MK_PG_9",
+    "MK_PG_10",
+    "MK_PG_11",
+    "MK_PG_12"
+  ],
+  "specialAbilities": [
+    "MK_PG_13",
+    "MK_PG_14",
+    "MK_PG_15",
+    "MK_PG_16",
+    "MK_PG_17",
+    "MK_PG_18",
+    "MK_PG_19",
+    "MK_PG_20",
+    "MK_PG_21",
+    "MK_PG_22",
+    "MK_PG_23",
+    "MK_PG_24",
+    "MK_PG_1_2",
+    "MK_PG_2_2",
+    "MK_PG_3_2",
+    "MK_PG_4_2",
+    "MK_PG_5_2",
+    "MK_PG_6_2",
+    "MK_PG_7_2",
+    "MK_PG_8_2",
+    "MK_PG_9_2",
+    "MK_PG_10_2",
+    "MK_PG_11_2",
+    "MK_PG_12_2"
+  ],
+  "languages": "MK_1_5, MK_2_5, MK_1_4, MK_2_4, MK_3_4",
+  "armor-name": "MK_Armor/Protective_Item",
+  "armor-type": "",
+  "armor-ac-bonus": "MK_Armor_Bonus",
+  "armor-max-dex": "MK_Max_Dex",
+  "armor-check-pen": "MK_Check_Penalty",
+  "armor-spell-fail": "MK_ARCANE_SPELL_FAILURE",
+  "armor-speed": "MK_Armor_Max_Speed",
+  "armor-weight": "",
+  "armor-special": "MK_Special_Properties",
+  "armor-worn": true,
+  "shield-name": "MK_Shield/Protective_Item",
+  "shield-ac-bonus": "MK_Shield_Bonus",
+  "shield-check-pen": "MK_Check_Penalty_2",
+  "shield-spell-fail": "MK_Spell_Failure_2",
+  "shield-weight": "",
+  "shield-special": "MK_Special_Properties_2",
+  "shield-worn": true,
+  "armor-touch-ac": false,
+  "shield-touch-ac": false,
+  "magicItems": [
+    {
+      "name": "MK_Protective_Item",
+      "weight": "",
+      "special": "MK_Special_Properties_3 (Legacy protective item)",
+      "slot": "",
+      "worn": true,
+      "isProtective": true,
+      "hasAbilityBonuses": false,
+      "acBonuses": [
+        {
+          "ac": "MK_AC_Bonus_3",
+          "type": "Untyped",
+          "touch": false,
+          "flatfooted": true
+        }
+      ]
+    },
+    {
+      "name": "MK_Protective_Item_2",
+      "weight": "",
+      "special": "MK_Special_Properties_4 (Legacy protective item)",
+      "slot": "",
+      "worn": true,
+      "isProtective": true,
+      "hasAbilityBonuses": false,
+      "acBonuses": [
+        {
+          "ac": "MK_AC_Bonus_4",
+          "type": "Untyped",
+          "touch": false,
+          "flatfooted": true
+        }
+      ]
+    }
+  ],
+  "slot-head": "MK_HEAD_HEADBAND_HAT_HELMET_OR_PHYLACTERY",
+  "slot-eyes": "MK_EYES_EYE_LENSES_OR_GOGGLES",
+  "slot-neck": "MK_NECK_AMULET_BROOCH_MEDALLION_PERIAPT_OR_SCARAB",
+  "slot-shoulders": "MK_SHOULDERS_CLOAK_CAPE_OR_MANTLE",
+  "slot-ring1": "MK_RING_1",
+  "slot-ring2": "MK_RING_2",
+  "slot-hands": "MK_HANDS_GLOVES_OR_GAUNTLETS",
+  "slot-arms": "MK_ARMSWRISTS_BRACERS_OR_BRACELETS",
+  "slot-body": "",
+  "slot-torso": "MK_TORSO_VEST_VESTMENT_OR_SHIRT",
+  "slot-waist": "MK_WAIST_BELT_OR_GIRDLE",
+  "slot-feet": "MK_FEET_BOOTS_SHOES_OR_SLIPPERS",
+  "slotSoulmelds": {},
+  "legacy-soulmelds": [
+    "MK_SOULMELD (mk_chakra): MK_BASE_EFFECT",
+    "MK_SOULMELD_2 (mk_chakra_2): MK_BASE_EFFECT_2",
+    "MK_SOULMELD_3 (mk_chakra_3): MK_BASE_EFFECT_3",
+    "MK_SOULMELD_4 (mk_chakra_4): MK_BASE_EFFECT_4",
+    "MK_SOULMELD_5 (mk_chakra_5): MK_BASE_EFFECT_5",
+    "MK_SOULMELD_6 (mk_chakra_6): MK_BASE_EFFECT_6",
+    "MK_SOULMELD_7 (mk_chakra_7): MK_BASE_EFFECT_7",
+    "MK_SOULMELD_8 (mk_chakra_8): MK_BASE_EFFECT_8",
+    "MK_SOULMELD_9 (mk_chakra_9): MK_BASE_EFFECT_9",
+    "MK_SOULMELD_10 (mk_chakra_10): MK_BASE_EFFECT_10"
+  ],
+  "money-cp": "MK_Copper_Pieces",
+  "money-sp": "MK_Silver_Pieces",
+  "money-gp": "MK_Gold_Pieces",
+  "money-pp": "MK_Platinum_Pieces",
+  "gear": [
+    {
+      "name": "MK_ITEMRow1",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow1_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow2_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow3",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow3_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow4",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow4_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow5",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow5_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow6",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow6_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow7",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow7_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow8",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow8_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow9",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow9_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow10",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow10_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow11",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow11_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow12",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow12_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow13",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow13_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow14",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow14_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow15",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow15_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow16",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow16_2",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_ITEMRow17",
+      "weight": "",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_1",
+      "weight": "MK_Weight_1",
+      "location": "MK_Loc_1",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_2",
+      "weight": "MK_Weight_2",
+      "location": "MK_Loc_2",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_3",
+      "weight": "MK_Weight_3",
+      "location": "MK_Loc_3",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_4",
+      "weight": "MK_Weight_4",
+      "location": "MK_Loc_4",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_5",
+      "weight": "MK_Weight_5",
+      "location": "MK_Loc_5",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_6",
+      "weight": "MK_Weight_6",
+      "location": "MK_Loc_6",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_7",
+      "weight": "MK_Weight_7",
+      "location": "MK_Loc_7",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_8",
+      "weight": "MK_Weight_8",
+      "location": "MK_Loc_8",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_9",
+      "weight": "MK_Weight_9",
+      "location": "MK_Loc_9",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_10",
+      "weight": "MK_Weight_10",
+      "location": "MK_Loc_10",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_11",
+      "weight": "MK_Weight_11",
+      "location": "MK_Loc_11",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_12",
+      "weight": "MK_Weight_12",
+      "location": "MK_Loc_12",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_13",
+      "weight": "MK_Weight_13",
+      "location": "MK_Loc_13",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_14",
+      "weight": "MK_Weight_14",
+      "location": "MK_Loc_14",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_15",
+      "weight": "MK_Weight_15",
+      "location": "MK_Loc_15",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_16",
+      "weight": "MK_Weight_16",
+      "location": "MK_Loc_16",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_17",
+      "weight": "MK_Weight_17",
+      "location": "MK_Loc_17",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_18",
+      "weight": "MK_Weight_18",
+      "location": "MK_Loc_18",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_19",
+      "weight": "MK_Weight_19",
+      "location": "MK_Loc_19",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_20",
+      "weight": "MK_Weight_20",
+      "location": "MK_Loc_20",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_21",
+      "weight": "MK_Weight_21",
+      "location": "MK_Loc_21",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_22",
+      "weight": "MK_Weight_22",
+      "location": "MK_Loc_22",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_23",
+      "weight": "MK_Weight_23",
+      "location": "MK_Loc_23",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_24",
+      "weight": "MK_Weight_24",
+      "location": "MK_Loc_24",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_25",
+      "weight": "MK_Weight_25",
+      "location": "MK_Loc_25",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_26",
+      "weight": "MK_Weight_26",
+      "location": "MK_Loc_26",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_27",
+      "weight": "MK_Weight_27",
+      "location": "MK_Loc_27",
+      "notes": ""
+    },
+    {
+      "name": "MK_Poss_28",
+      "weight": "MK_Weight_28",
+      "location": "MK_Loc_28",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_30",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_31",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_32",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_33",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_34",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_35",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_36",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_37",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_38",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_39",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_40",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_41",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_42",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_43",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_44",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_45",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_46",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_47",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_48",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_49",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_50",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_51",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_52",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_53",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_54",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_55",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_56",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_57",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_58",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_59",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_60",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_61",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_62",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_63",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_64",
+      "location": "",
+      "notes": ""
+    },
+    {
+      "name": "",
+      "weight": "MK_Weight_65",
+      "location": "",
+      "notes": ""
+    }
+  ],
+  "notes": "MK_Other_Information\n\n--- Planned Progression ---\nMK_Other_Informiation_2\n\nMK_Other_Information_3\n\nMK_Other_Information_4\n\nMK_Other_Information_5",
+  "casters": [
+    {
+      "type": "psionics",
+      "name": "MK_PRIMARY_DISCIPLINE",
+      "discipline": "MK_PRIMARY_DISCIPLINE",
+      "manifesterLevel": "",
+      "ppBase": "MK_POWER_POINTS_PER_DAY",
+      "ppSpent": "0",
+      "powersKnown": "MK_POWERS_KNOWN",
+      "ability": "INT",
+      "maxLevel": 9,
+      "notes": "Maximum power level known: MK_MAXIMUM_POWER_LEVEL_KNOWN",
+      "power-1": "MK_1st_1\nMK_1st_2\nMK_1st_3\nMK_1st_4\nMK_1st_5\nMK_1st_6\nMK_1st_7\nMK_Spells_Known_Level_1\nMK_undefined_174\nMK_ExCastList1st1\nMK_ExCastList1st2\nMK_ExCastList1st3\nMK_ExCastList1st4\nMK_ExCastList1st5\nMK_ExCastList1st6\nMK_ExCastList1st7\nMK_ExCastList1st8",
+      "power-2": "MK_2nd_1\nMK_2nd_2\nMK_2nd_3\nMK_2nd_4\nMK_2nd_5\nMK_2nd_6\nMK_Spells_Known_Level_2\nMK_undefined_175\nMK_ExCastList2nd1\nMK_ExCastList2nd2\nMK_ExCastList2nd3\nMK_ExCastList2nd4\nMK_ExCastList2nd5\nMK_ExCastList2nd6\nMK_ExCastList2nd7",
+      "power-3": "MK_3rd_1\nMK_3rd_2\nMK_3rd_3\nMK_Spells_Known_Level_3\nMK_undefined_176\nMK_ExCastList3rd1\nMK_ExCastList3rd2\nMK_ExCastList3rd3\nMK_ExCastList3rd4\nMK_ExCastList3rd5\nMK_ExCastList3rd6\nMK_ExCastList3rd7",
+      "power-4": "MK_4th_1\nMK_4th_2\nMK_4th_3\nMK_4th_4\nMK_4th_5\nMK_Spells_Known_Level_4\nMK_undefined_177\nMK_ExCastList4th1\nMK_ExCastList4th2\nMK_ExCastList4th3\nMK_ExCastList4th4\nMK_ExCastList4th5\nMK_ExCastList4th6",
+      "power-5": "MK_5th_1\nMK_5th_2\nMK_5th_3\nMK_5th_4\nMK_Spells_Known_Level_5\nMK_undefined_178\nMK_ExCastList5th1\nMK_ExCastList5th2\nMK_ExCastList5th3\nMK_ExCastList5th4\nMK_ExCastList5th5",
+      "power-6": "MK_6th_1\nMK_6th_2\nMK_6th_3\nMK_6th_4\nMK_Spells_Known_Level_6\nMK_undefined_210\nMK_ExCastList6th1\nMK_ExCastList6th2\nMK_ExCastList6th3\nMK_ExCastList6th4\nMK_ExCastList6th5",
+      "power-7": "MK_7th_1\nMK_7th_2\nMK_7th_3\nMK_Spells_Known_Level_7\nMK_undefined_211\nMK_ExCastList7th1\nMK_ExCastList7th2\nMK_ExCastList7th3\nMK_ExCastList7th4",
+      "power-8": "MK_8th_1\nMK_8th_2\nMK_Spells_Known_Level_8\nMK_undefined_212\nMK_ExCastList8th1\nMK_ExCastList8th2\nMK_ExCastList8th3",
+      "power-9": "MK_9th\nMK_Spells_Known_Level_9\nMK_undefined_213\nMK_ExCastList9th1\nMK_ExCastList9th2"
+    },
+    {
+      "type": "spellcasting",
+      "name": "Spellcasting",
+      "casterLevel": "",
+      "ability": "INT",
+      "conditional": "",
+      "specialist": true,
+      "specialtySchool": "MK_DOMAINSSPECIALTY_SCHOOL",
+      "prohibitedSchools": [
+        "MK_Prohibited_School",
+        "MK_Prohibited_School_2"
+      ],
+      "domainAccess": true,
+      "domain1Name": "MK_DOMAIN_NAME",
+      "domain1Power": "MK_GRANTED_POWER",
+      "domain2Name": "MK_DOMAIN_NAME_2",
+      "domain2Power": "MK_GRANTED_POWER_2",
+      "maxLevel": 9,
+      "notes": "",
+      "text-0": "MK_0\nMK_0_1\nMK_0_2\nMK_0_3\nMK_0_4\nMK_0_5\nMK_Spells_Known_Level_0\nMK_undefined_173",
+      "prepared-0": "MK_ExCastList0th1\nMK_ExCastList0th2\nMK_ExCastList0th3\nMK_ExCastList0th4\nMK_ExCastList0th5\nMK_ExCastList0th6",
+      "perDay-0": "",
+      "bonus-0": "",
+      "used-0": "0",
+      "known-0": "MK_Spells_Known_Level_0",
+      "text-1": "MK_1st_1\nMK_1st_2\nMK_1st_3\nMK_1st_4\nMK_1st_5\nMK_1st_6\nMK_1st_7\nMK_Spells_Known_Level_1\nMK_undefined_174",
+      "prepared-1": "MK_ExCastList1st1\nMK_ExCastList1st2\nMK_ExCastList1st3\nMK_ExCastList1st4\nMK_ExCastList1st5\nMK_ExCastList1st6\nMK_ExCastList1st7\nMK_ExCastList1st8",
+      "perDay-1": "",
+      "bonus-1": "",
+      "used-1": "0",
+      "known-1": "MK_Spells_Known_Level_1",
+      "domain-1": "",
+      "specialist-1": "",
+      "text-2": "MK_2nd_1\nMK_2nd_2\nMK_2nd_3\nMK_2nd_4\nMK_2nd_5\nMK_2nd_6\nMK_Spells_Known_Level_2\nMK_undefined_175",
+      "prepared-2": "MK_ExCastList2nd1\nMK_ExCastList2nd2\nMK_ExCastList2nd3\nMK_ExCastList2nd4\nMK_ExCastList2nd5\nMK_ExCastList2nd6\nMK_ExCastList2nd7",
+      "perDay-2": "",
+      "bonus-2": "",
+      "used-2": "0",
+      "known-2": "MK_Spells_Known_Level_2",
+      "domain-2": "",
+      "specialist-2": "",
+      "text-3": "MK_3rd_1\nMK_3rd_2\nMK_3rd_3\nMK_Spells_Known_Level_3\nMK_undefined_176\nMK_SPECIAL_ABILITIES_1\nMK_SPECIAL_ABILITIES_2\nMK_SPECIAL_ABILITIES_3",
+      "prepared-3": "MK_ExCastList3rd1\nMK_ExCastList3rd2\nMK_ExCastList3rd3\nMK_ExCastList3rd4\nMK_ExCastList3rd5\nMK_ExCastList3rd6\nMK_ExCastList3rd7",
+      "perDay-3": "",
+      "bonus-3": "",
+      "used-3": "0",
+      "known-3": "MK_Spells_Known_Level_3",
+      "domain-3": "",
+      "specialist-3": "",
+      "text-4": "MK_4th_1\nMK_4th_2\nMK_4th_3\nMK_4th_4\nMK_4th_5\nMK_Spells_Known_Level_4\nMK_undefined_177",
+      "prepared-4": "MK_ExCastList4th1\nMK_ExCastList4th2\nMK_ExCastList4th3\nMK_ExCastList4th4\nMK_ExCastList4th5\nMK_ExCastList4th6",
+      "perDay-4": "",
+      "bonus-4": "",
+      "used-4": "0",
+      "known-4": "MK_Spells_Known_Level_4",
+      "domain-4": "",
+      "specialist-4": "",
+      "text-5": "MK_5th_1\nMK_5th_2\nMK_5th_3\nMK_5th_4\nMK_Spells_Known_Level_5\nMK_undefined_178",
+      "prepared-5": "MK_ExCastList5th1\nMK_ExCastList5th2\nMK_ExCastList5th3\nMK_ExCastList5th4\nMK_ExCastList5th5",
+      "perDay-5": "",
+      "bonus-5": "",
+      "used-5": "0",
+      "known-5": "MK_Spells_Known_Level_5",
+      "domain-5": "",
+      "specialist-5": "",
+      "text-6": "MK_6th_1\nMK_6th_2\nMK_6th_3\nMK_6th_4\nMK_Spells_Known_Level_6\nMK_undefined_210",
+      "prepared-6": "MK_ExCastList6th1\nMK_ExCastList6th2\nMK_ExCastList6th3\nMK_ExCastList6th4\nMK_ExCastList6th5",
+      "perDay-6": "",
+      "bonus-6": "",
+      "used-6": "0",
+      "known-6": "MK_Spells_Known_Level_6",
+      "domain-6": "",
+      "specialist-6": "",
+      "text-7": "MK_7th_1\nMK_7th_2\nMK_7th_3\nMK_Spells_Known_Level_7\nMK_undefined_211",
+      "prepared-7": "MK_ExCastList7th1\nMK_ExCastList7th2\nMK_ExCastList7th3\nMK_ExCastList7th4",
+      "perDay-7": "",
+      "bonus-7": "",
+      "used-7": "0",
+      "known-7": "MK_Spells_Known_Level_7",
+      "domain-7": "",
+      "specialist-7": "",
+      "text-8": "MK_8th_1\nMK_8th_2\nMK_Spells_Known_Level_8\nMK_undefined_212",
+      "prepared-8": "MK_ExCastList8th1\nMK_ExCastList8th2\nMK_ExCastList8th3",
+      "perDay-8": "",
+      "bonus-8": "",
+      "used-8": "0",
+      "known-8": "MK_Spells_Known_Level_8",
+      "domain-8": "",
+      "specialist-8": "",
+      "text-9": "MK_9th\nMK_Spells_Known_Level_9\nMK_undefined_213",
+      "prepared-9": "MK_ExCastList9th1\nMK_ExCastList9th2",
+      "perDay-9": "",
+      "bonus-9": "",
+      "used-9": "0",
+      "known-9": "MK_Spells_Known_Level_9",
+      "domain-9": "",
+      "specialist-9": ""
+    }
+  ],
+  "skills": [
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Appraise_Ranks",
+      "misc": "MK_Appraise_Misc_Mod",
+      "index": 0
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Balance_Ranks",
+      "misc": "MK_Balance_Misc_Mod",
+      "index": 1
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Bluff_Ranks",
+      "misc": "MK_Bluff_Misc_Mod",
+      "index": 2
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Climb_Ranks",
+      "misc": "MK_Climb_Misc_Mod",
+      "index": 3
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Concentration_Ranks",
+      "misc": "MK_Concentration_Misc_Mod",
+      "index": 4
+    },
+    {
+      "type": "header",
+      "baseName": "Craft",
+      "index": 5
+    },
+    {
+      "type": "subtype",
+      "classSkill": true,
+      "ranks": "MK_Craft_Ranks_1",
+      "misc": "MK_Craft_Misc_Mod_1",
+      "index": 5,
+      "subtypeName": "MK_Craft"
+    },
+    {
+      "type": "subtype",
+      "classSkill": true,
+      "ranks": "MK_Craft_Ranks_2",
+      "misc": "MK_Craft_Misc_Mod_2",
+      "index": 5,
+      "subtypeName": "MK_Craft_2"
+    },
+    {
+      "type": "subtype",
+      "classSkill": true,
+      "ranks": "MK_Craft_Ranks_3",
+      "misc": "MK_Craft_Misc_Mod_3",
+      "index": 5,
+      "subtypeName": "MK_Craft_3"
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Decipher_Script_Ranks",
+      "misc": "MK_Decipher_Script_Misc_Mod",
+      "index": 6
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Diplomacy_Ranks",
+      "misc": "MK_Diplomacy_Misc_Mod",
+      "index": 7
+    },
+    {
+      "type": "skill",
+      "classSkill": true,
+      "ranks": "MK_Disable_Device_Ranks",
+      "misc": "MK_Disable_Device_Misc_Mod",
+      "index": 8
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Disguise_Ranks",
+      "misc": "MK_Disguise_Misc_Mod",
+      "index": 9
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Escape_Artist_Ranks",
+      "misc": "MK_Escape_Artist_Misc_Mod",
+      "index": 10
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Forgery_Ranks",
+      "misc": "MK_Forgery_Misc_Mod",
+      "index": 11
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Gather_Information_Ranks",
+      "misc": "MK_Gather_Information_Misc_Mod",
+      "index": 12
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Handle_Animal_Ranks",
+      "misc": "MK_Handle_Animal_Misc_Mod",
+      "index": 13
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Heal_Ranks",
+      "misc": "MK_Heal_Misc_Mod",
+      "index": 14
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Hide_Ranks",
+      "misc": "MK_Hide_Misc_Mod",
+      "index": 15
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Intimidate_Ranks",
+      "misc": "MK_Intimidate_Misc_Mod",
+      "index": 16
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Jump_Ranks",
+      "misc": "MK_Jump_Misc_Mod",
+      "index": 17
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Knowledge_Ranks_1",
+      "misc": "MK_Knowledge_Misc_Mod_1",
+      "index": 18
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Knowledge_Ranks_2",
+      "misc": "MK_Knowledge_Misc_Mod_2",
+      "index": 19
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Knowledge_Ranks_3",
+      "misc": "MK_Knowledge_Misc_Mod_3",
+      "index": 20
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Knowledge_Ranks_4",
+      "misc": "MK_Knowledge_Misc_Mod_4",
+      "index": 21
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Knowledge_Ranks_5",
+      "misc": "MK_Knowledge_Misc_Mod_5",
+      "index": 22
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Listen_Ranks",
+      "misc": "MK_Listen_Misc_Mod",
+      "index": 28
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Move_Silently_Ranks",
+      "misc": "MK_Move_Silently_Misc_Mod",
+      "index": 29
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Open_Lock_Ranks",
+      "misc": "MK_Open_Lock_Misc_Mod",
+      "index": 30
+    },
+    {
+      "type": "header",
+      "baseName": "Perform",
+      "index": 31
+    },
+    {
+      "type": "subtype",
+      "classSkill": false,
+      "ranks": "MK_Perform_Ranks_1",
+      "misc": "MK_Perform_Misc_Mod_1",
+      "index": 31,
+      "subtypeName": ""
+    },
+    {
+      "type": "subtype",
+      "classSkill": false,
+      "ranks": "MK_Perform_Ranks_2",
+      "misc": "MK_Perform_Misc_Mod_2",
+      "index": 31,
+      "subtypeName": ""
+    },
+    {
+      "type": "subtype",
+      "classSkill": false,
+      "ranks": "MK_Perform_Ranks_3",
+      "misc": "MK_Perform_Misc_Mod_3",
+      "index": 31,
+      "subtypeName": ""
+    },
+    {
+      "type": "header",
+      "baseName": "Profession",
+      "index": 32
+    },
+    {
+      "type": "subtype",
+      "classSkill": false,
+      "ranks": "MK_Profession_Ranks_1",
+      "misc": "MK_Profession_Misc_Mod_1",
+      "index": 32,
+      "subtypeName": ""
+    },
+    {
+      "type": "subtype",
+      "classSkill": false,
+      "ranks": "MK_Profession_Ranks_2",
+      "misc": "MK_Profession_Misc_Mod_2",
+      "index": 32,
+      "subtypeName": ""
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Ride_Ranks",
+      "misc": "MK_Ride_Misc_Mod",
+      "index": 33
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Search_Ranks",
+      "misc": "MK_Search_Misc_Mod",
+      "index": 34
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Sense_Motive_Ranks",
+      "misc": "MK_Sense_Motive_Misc_Mod",
+      "index": 35
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Sleight_of_Hand_Ranks",
+      "misc": "MK_Sleight_of_Hand_Misc_Mod",
+      "index": 36
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Spellcraft_Ranks",
+      "misc": "MK_Spellcraft_Misc_Mod",
+      "index": 38
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Spot_Ranks",
+      "misc": "MK_Spot_Misc_Mod",
+      "index": 39
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Survival_Ranks",
+      "misc": "MK_Survival_Misc_Mod",
+      "index": 40
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Swim_Ranks",
+      "misc": "MK_Swim_Misc_Mod",
+      "index": 41
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Tumble_Ranks",
+      "misc": "MK_Tumble_Misc_Mod",
+      "index": 42
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Use_Magic_Device_Ranks",
+      "misc": "MK_Use_Magic_Device_Misc_Mod",
+      "index": 43
+    },
+    {
+      "type": "skill",
+      "classSkill": false,
+      "ranks": "MK_Use_Rope_Ranks",
+      "misc": "MK_Use_Rope_Misc_Mod",
+      "index": 44
+    }
+  ],
+  "customSkills": [
+    {
+      "name": "Custom Skill 1",
+      "ability": "NONE",
+      "ranks": "MK_Extra_Skill_Ranks_1",
+      "misc": "MK_Extra_Skill_Misc_Mod_1",
+      "classSkill": false
+    },
+    {
+      "name": "Custom Skill 2",
+      "ability": "NONE",
+      "ranks": "MK_Extra_Skill_Ranks_2",
+      "misc": "MK_Extra_Skill_Misc_Mod_2",
+      "classSkill": false
+    },
+    {
+      "name": "Custom Skill 3",
+      "ability": "NONE",
+      "ranks": "MK_Extra_Skill_Ranks_3",
+      "misc": "MK_Extra_Skill_Misc_Mod_3",
+      "classSkill": false
+    }
+  ],
+  "turn-check": "MK_Turning_Check",
+  "turn-damage": "MK_Turning_Damage",
+  "rage-per-day": "MK_RAGESDAY",
+  "rage-duration": "MK_RAGE_DURATION",
+  "rage-str-con": "MK_RageStr",
+  "rage-will": "MK_RAGE_WILL_SAVE",
+  "rage-ac": "MK_RAGE_AC_PENALTY",
+  "rage-rounds": "MK_ROUNDS_ELAPSED",
+  "companions": [
+    {
+      "name": "MK_Companion_Name",
+      "compName": "MK_Companion_Name",
+      "compType": "MK_CREATURE_TYPE",
+      "compPersonality": "MK_Comp_Personality",
+      "isFamiliar": false,
+      "comp-str-score": "MK_Comp_Str",
+      "comp-dex-score": "MK_Comp_Dex",
+      "comp-con-score": "MK_Comp_Con",
+      "comp-int-score": "MK_Comp_Int",
+      "comp-wis-score": "MK_Comp_Wis",
+      "comp-cha-score": "MK_Comp_Cha",
+      "compHpMax": "MK_Comp_HP",
+      "compHpCur": "MK_Comp_HP",
+      "compSpeed": "MK_COMP_SPEED",
+      "compInitMisc": "MK_COMP_INITIATIVE",
+      "compAcArmor": "0",
+      "compAcShield": "0",
+      "compAcNatural": "MK_COMP_NATURAL",
+      "compAcSize": "MK_COMP_SIZE",
+      "compAcMisc": "MK_COMP_MISC",
+      "compSaveFortBase": "MK_Comp_Fort",
+      "compSaveFortMisc": "0",
+      "compSaveRefBase": "MK_Comp_Ref",
+      "compSaveRefMisc": "0",
+      "compSaveWillBase": "MK_Comp_Will",
+      "compSaveWillMisc": "0",
+      "compBab": "0",
+      "compGrappleSize": "0",
+      "compGrappleMisc": "MK_Comp_Grapple_Mod",
+      "compSpecial": "MK_Comp_Special_Abilities_1\nMK_Comp_Special_Abilities_2\nMK_Comp_Special_Abilities_3\nMK_Comp_Special_Abilities_4\nMK_Comp_Special_Abilities_5\nMK_Comp_Special_Abilities_6",
+      "compNotes": "Total AC: MK_Comp_AC\nTouch AC: MK_Comp_Touch_AC\nFlat-footed AC: MK_Comp_Flatfooted_AC\nAC Dex: MK_Comp_AC_Dex",
+      "compAttacks": [
+        {
+          "weapon": "MK_Comp_Weapon_1",
+          "bonus": "MK_Comp_Attack_Bonus_1",
+          "damage": "MK_Comp_Damage_1",
+          "crit": "MK_Comp_Crit_1"
+        },
+        {
+          "weapon": "MK_Comp_Weapon_2",
+          "bonus": "MK_Comp_Attack_Bonus_2",
+          "damage": "MK_Comp_Damage_2",
+          "crit": "MK_Comp_Crit_2"
+        },
+        {
+          "weapon": "MK_Comp_Weapon_3",
+          "bonus": "MK_Comp_Attack_Bonus_3",
+          "damage": "MK_Comp_Damage_3",
+          "crit": "MK_Comp_Crit_3"
+        }
+      ],
+      "compSkills": [
+        {
+          "name": "MK_Companion_Skill_1",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_1"
+        },
+        {
+          "name": "MK_Companion_Skill_2",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_2"
+        },
+        {
+          "name": "MK_Companion_Skill_3",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_3"
+        },
+        {
+          "name": "MK_Companion_Skill_4",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_4"
+        },
+        {
+          "name": "MK_Companion_Skill_5",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_5"
+        },
+        {
+          "name": "MK_Companion_Skill_6",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_6"
+        },
+        {
+          "name": "MK_Companion_Skill_7",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_7"
+        },
+        {
+          "name": "MK_Companion_Skill_8",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_8"
+        },
+        {
+          "name": "MK_Companion_Skill_9",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_9"
+        },
+        {
+          "name": "MK_Companion_Skill_10",
+          "ranks": "",
+          "misc": "MK_Comp_Skill_Stat_10"
+        }
+      ],
+      "compFeats": [
+        {
+          "name": "MK_Comp_Feats_1",
+          "notes": ""
+        },
+        {
+          "name": "MK_Comp_Feats_2",
+          "notes": ""
+        },
+        {
+          "name": "MK_Comp_Feats_3",
+          "notes": ""
+        },
+        {
+          "name": "MK_Comp_Feats_4",
+          "notes": ""
+        },
+        {
+          "name": "MK_Comp_Feats_5",
+          "notes": ""
+        },
+        {
+          "name": "MK_Comp_Feats_6",
+          "notes": ""
+        }
+      ],
+      "compTricks": [
+        {
+          "name": "MK_Comp_Tricks_1",
+          "known": true
+        },
+        {
+          "name": "MK_Comp_Tricks_2",
+          "known": true
+        },
+        {
+          "name": "MK_Comp_Tricks_3",
+          "known": true
+        },
+        {
+          "name": "MK_Comp_Tricks_4",
+          "known": true
+        },
+        {
+          "name": "MK_Comp_Tricks_5",
+          "known": true
+        },
+        {
+          "name": "MK_Comp_Tricks_6",
+          "known": true
+        }
+      ]
+    }
+  ]
+}

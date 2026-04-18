@@ -24,6 +24,10 @@
     $$("textarea").forEach((ta) => autoExpand(ta));
   }
 
+  // Expose for use by other modules (e.g., spells.js sub-tab switching)
+  window.autoExpand = autoExpand;
+  window.autoExpandAll = autoExpandAll;
+
   // ============================================================
   // Tab navigation
   // ============================================================
@@ -235,6 +239,7 @@
     for (let i = 0; i < 5; i++) Equipment.addGearRow();
     $("#magic-items-container").innerHTML = "";
     Spells.loadData({});
+    Companion.loadData({});
 
     recalcAll();
     showNotification("New character sheet ready.");
@@ -282,6 +287,7 @@
   $("#btn-add-maneuvers").addEventListener("click", () => Spells.addCaster("maneuvers"));
   $("#btn-add-epic").addEventListener("click", () => Spells.addCaster("epic"));
   $("#btn-add-binding").addEventListener("click", () => Spells.addCaster("binding"));
+  $("#btn-add-companion").addEventListener("click", () => Companion.addCompanion());
   $("#btn-add-attack").addEventListener("click", () => Character.addAttack());
   $("#btn-add-feat").addEventListener("click", () => Feats.addFeat());
   $("#btn-add-special-ability").addEventListener("click", () => Feats.addSpecialAbility());
@@ -324,6 +330,7 @@
   for (let i = 0; i < 5; i++) Equipment.addGearRow();
   Feats.addFeat();
   Feats.addSpecialAbility();
+  Companion.loadData({});
 
   updateCharacterSelect();
   recalcAll();
