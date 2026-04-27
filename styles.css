@@ -21,43 +21,12 @@
   --radius: 6px;
 }
 
-body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.4;
-  min-height: 100vh;
-  padding-bottom: 2rem;
-}
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.4; min-height: 100vh; padding-bottom: 2rem; }
 
 /* === Header === */
-header {
-  background: var(--bg-header);
-  border-bottom: 3px solid var(--accent);
-  padding: 0.75rem 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-header h1 {
-  font-size: 1.3rem;
-  color: var(--accent);
-  letter-spacing: 1px;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
+header { background: var(--bg-header); border-bottom: 3px solid var(--accent); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; position: sticky; top: 0; z-index: 100; }
+header h1 { font-size: 1.3rem; color: var(--accent); letter-spacing: 1px; white-space: nowrap; }
+.header-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 
 .header-actions button, .header-actions select {
   background: var(--btn-bg);
@@ -988,6 +957,12 @@ textarea {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
+/* === Shadowcaster === */
+.sh-group-header { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.sh-mystery-row { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.4rem; }
+.sh-myst-name { flex: 2; min-width: 200px; } .sh-extra-wrap { flex: 0 0 80px; }
+.sh-myst-checks { display: flex; flex-wrap: wrap; gap: 0.2rem; align-items: center; min-width: 60px; }
+.sh-myst-checks .sh-use-check { margin: 0; } .sh-unlimited { font-size: 1.4em; color: #8af; } .sh-no-uses { color: #777; }
 /* === Print === */
 @media print {
   header, .tabs { position: static; }

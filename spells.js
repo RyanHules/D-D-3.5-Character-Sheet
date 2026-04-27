@@ -22,7 +22,7 @@ const Spells = (function () {
   // ============================================================
   function addCaster(type, data = {}) {
     const idx = casterIndex++;
-    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers", epic: "Epic Spellcasting", binding: "Binding" };
+    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers", epic: "Epic Spellcasting", binding: "Binding", shadowcaster: "Shadowcasting" };
     const defaultName = DEFAULT_NAMES[type] || type;
     const name = data.name || defaultName;
 
@@ -70,6 +70,10 @@ const Spells = (function () {
       panel.innerHTML = notesHTML + buildBindingHTML(idx, data);
       container.appendChild(panel);
       wireBindingVestiges(panel);
+    } else if (type === "shadowcaster") {
+      panel.innerHTML = notesHTML + Shadowcaster.buildHTML(idx, data);
+      container.appendChild(panel);
+      Shadowcaster.wire(panel);
     }
 
     // Add remove button to tab
@@ -399,6 +403,7 @@ const Spells = (function () {
         <div class="info-grid" style="margin-top:0.4rem">
           <div class="field field-sm"><label>Base PP</label><input type="number" class="psi-pp-base" min="0" value="${data.ppBase || ""}"></div>
           <div class="field field-sm"><label>Bonus PP</label><span class="psi-pp-bonus calc-field">--</span></div>
+          <div class="field field-sm"><label>Extra PP</label><input type="number" class="psi-pp-extra" min="0" value="${data.ppExtra || ""}" placeholder="Items, etc."></div>
           <div class="field field-sm"><label>PP/Day</label><span class="psi-pp-day calc-field">--</span></div>
           <div class="field field-sm"><label>PP Spent</label><input type="number" class="psi-pp-spent" min="0" value="${data.ppSpent || "0"}"></div>
           <div class="field field-sm"><label>PP Remaining</label><span class="psi-pp-remaining calc-field">--</span></div>
@@ -712,7 +717,8 @@ const Spells = (function () {
         ? Math.max(0, Math.floor(abilityMod * manifesterLevel / 2))
         : 0;
       const basePP = int(panel.querySelector(".psi-pp-base")?.value);
-      const ppDay = basePP + bonusPP;
+      const extraPP = int(panel.querySelector(".psi-pp-extra")?.value);
+      const ppDay = basePP + bonusPP + extraPP;
       const ppSpent = int(panel.querySelector(".psi-pp-spent")?.value);
       const ppRemaining = ppDay - ppSpent;
 
@@ -821,6 +827,7 @@ const Spells = (function () {
         caster.discipline = panel.querySelector(".psi-discipline")?.value || "";
         caster.manifesterLevel = panel.querySelector(".psi-manifester-level")?.value || "";
         caster.ppBase = panel.querySelector(".psi-pp-base")?.value || "";
+        caster.ppExtra = panel.querySelector(".psi-pp-extra")?.value || "";
         caster.ppSpent = panel.querySelector(".psi-pp-spent")?.value || "0";
         caster.powersKnown = panel.querySelector(".psi-powers-known")?.value || "";
         caster.ability = panel.querySelector(".psi-ability")?.value || "";
@@ -850,6 +857,8 @@ const Spells = (function () {
           dc: entry.querySelector(".epic-spell-dc")?.value || "",
           notes: entry.querySelector(".epic-spell-notes")?.value || "",
         }));
+      } else if (type === "shadowcaster") {
+        Object.assign(caster, Shadowcaster.collect(panel));
       } else if (type === "binding") {
         caster.binderLevel = panel.querySelector(".bind-level")?.value || "";
         caster.maxVestige = panel.querySelector(".bind-max-vestige")?.value || "";
