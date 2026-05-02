@@ -102,6 +102,7 @@ const Companion = (function () {
           <div class="field field-sm"><label>Max HP</label><input type="number" class="comp-hp-max" value="${d.compHpMax || ""}"></div>
           <div class="field field-sm"><label>Current HP</label><input type="number" class="comp-hp-cur" value="${d.compHpCur || ""}"></div>
           <div class="field field-sm"><label>Speed</label><input type="text" class="comp-speed" value="${d.compSpeed || ""}"></div>
+          <span class="comp-familiar-hp-note" style="display:none;font-size:0.7rem;color:var(--accent)">HP = ½ master's</span>
         </div>
         <h3>Initiative</h3>
         <div class="info-grid">
@@ -144,6 +145,8 @@ const Companion = (function () {
           <div class="field field-sm"><label>Misc</label><input type="number" class="comp-grapple-misc" value="${d.compGrappleMisc || ""}"></div>
           <div class="field field-sm"><label>Total</label><span class="comp-grapple-total calc-field">--</span></div>
         </div>
+        <h3>Personality</h3>
+        <textarea class="comp-personality" rows="2">${d.compPersonality || ""}</textarea>
         <h3>Notes</h3>
         <textarea class="comp-notes" rows="3">${d.compNotes || ""}</textarea>
       </div>
@@ -296,6 +299,17 @@ const Companion = (function () {
     // Saves
     const saveAbility = { Fort: "CON", Ref: "DEX", Will: "WIS" };
     const isFamiliar = panel.querySelector(".comp-familiar-toggle")?.checked;
+
+    // Familiar: auto-set max HP to floor(master's max HP / 2)
+    const hpNote = panel.querySelector(".comp-familiar-hp-note");
+    if (hpNote) hpNote.style.display = isFamiliar ? "" : "none";
+    if (isFamiliar) {
+      const masterHp = int($("#hp-total")?.value);
+      if (masterHp > 0) {
+        panel.querySelector(".comp-hp-max").value = Math.floor(masterHp / 2);
+      }
+    }
+
     ["Fort","Ref","Will"].forEach((s) => {
       const ab = saveAbility[s];
       const abMod = mod(ab);
@@ -305,9 +319,9 @@ const Companion = (function () {
       if (abEl) abEl.textContent = (abMod >= 0 ? "+" : "") + abMod;
 
       let total = base + abMod + misc;
-      // Familiar: mirror main character saves
-      if (isFamiliar && _mainGetAbilityMod) {
-        const mainSave = $(`#save-${s.toLowerCase()}-total`);
+      // Familiar: use master's save if higher (PHB p.52)
+      if (isFamiliar) {
+        const mainSave = $(`#${s.toLowerCase()}-total`);
         const mainVal = mainSave ? int(mainSave.textContent) : null;
         if (mainVal !== null && mainVal > total) total = mainVal;
       }
@@ -357,6 +371,7 @@ const Companion = (function () {
       d.compBab = panel.querySelector(".comp-bab")?.value || "";
       d.compGrappleSize = panel.querySelector(".comp-grapple-size")?.value || "";
       d.compGrappleMisc = panel.querySelector(".comp-grapple-misc")?.value || "";
+      d.compPersonality = panel.querySelector(".comp-personality")?.value || "";
       d.compNotes = panel.querySelector(".comp-notes")?.value || "";
       d.compSpecial = panel.querySelector(".comp-special")?.value || "";
       d.compAttacks = Array.from(panel.querySelectorAll(".comp-attack-entry")).map((r) => ({

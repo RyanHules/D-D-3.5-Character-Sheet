@@ -19,12 +19,19 @@ const Character = (function () {
     const saveBonuses = bonuses.saves || {};
     const acBonus = bonuses.ac || 0;
 
-    // Ability modifiers (include active bonuses like rage)
+    // Ability modifiers (include active bonuses like rage + items)
     DND35.abilities.forEach((ab) => {
       const lower = ab.toLowerCase();
       const bonus = abilityBonuses[ab] || 0;
-      const baseScore = int($(`#${lower}-score`).value) + bonus;
-      const baseMod = DND35.abilityModifier(baseScore);
+      const rawScore = int($(`#${lower}-score`).value);
+      const totalScore = rawScore + bonus;
+      const baseMod = DND35.abilityModifier(totalScore);
+      // Item bonus column (show only when non-zero)
+      const itemEl = $(`#${lower}-item`);
+      if (itemEl) itemEl.textContent = bonus ? fmt(bonus) : "";
+      // Total score column
+      const totalEl = $(`#${lower}-total`);
+      if (totalEl) totalEl.textContent = rawScore ? totalScore : "";
       $(`#${lower}-mod`).textContent = fmt(baseMod);
 
       const tempVal = $(`#${lower}-temp`).value;
@@ -59,7 +66,9 @@ const Character = (function () {
 
     // ---- Carrying load penalties (Table 9-2, PHB p.162) ----
     const strScore = int($("#str-score").value) || 10;
-    const capacity = DND35.getCarryingCapacity(strScore);
+    const rawCapacity = DND35.getCarryingCapacity(strScore);
+    const carryMult = sizeData.carryMult || 1;
+    const capacity = rawCapacity.map(v => Math.floor(v * carryMult));
     let totalWeight = 0;
     $$("#gear-body tr").forEach((row) => {
       totalWeight += parseFloat(row.querySelector(".gear-weight")?.value) || 0;
@@ -97,9 +106,23 @@ const Character = (function () {
     $("#ac-dex").textContent = fmt(cappedDexMod);
     $("#ac-size").textContent = fmt(acSize);
 
+    // Ability-to-AC bonuses (e.g. Monk WIS, Paladin CHA)
+    const abilityACItems = [];
+    ["CON", "INT", "WIS", "CHA"].forEach((ab) => {
+      const lower = ab.toLowerCase();
+      if ($(`#${lower}-to-ac`)?.checked) {
+        const abMod = getAbilityMod(ab);
+        if (abMod > 0) {
+          const type = $(`#${lower}-to-ac-type`)?.value || "Untyped";
+          // Ability-to-AC applies to touch and flat-footed (dodge doesn't apply to FF)
+          abilityACItems.push({ type, ac: abMod, touch: true, flatfooted: type !== "Dodge" });
+        }
+      }
+    });
+
     // Resolve protective item bonuses with D&D 3.5 stacking rules
     // Same bonus type: take highest (except dodge, circumstance, untyped which stack)
-    const protItems = Equipment.getProtectiveItems();
+    const protItems = Equipment.getProtectiveItems().concat(abilityACItems);
     const STACKING_TYPES = ["Dodge", "Circumstance", "Untyped"];
 
     // Seed with character tab bonuses
@@ -263,10 +286,10 @@ const Character = (function () {
 
     // Character info
     [
-      "char-name", "char-player", "char-class", "char-race", "char-alignment",
-      "char-deity", "char-level", "char-size", "char-age", "char-gender",
-      "char-height", "char-weight", "char-eyes", "char-hair", "char-skin",
-      "char-campaign", "char-xp", "char-speed", "damage-reduction",
+      "char-name", "char-player", "char-class", "char-race", "char-type",
+      "char-alignment", "char-deity", "char-level", "char-size", "char-age",
+      "char-gender", "char-height", "char-weight", "char-eyes", "char-hair",
+      "char-skin", "char-campaign", "char-xp", "char-speed", "damage-reduction",
     ].forEach((id) => {
       const el = $(`#${id}`);
       if (el) data[id] = el.value;
@@ -287,6 +310,12 @@ const Character = (function () {
     // AC (natural and misc are manual inputs; armor, shield, deflection are auto-calculated)
     ["ac-natural", "ac-misc"].forEach((id) => {
       data[id] = $(`#${id}`).value;
+    });
+
+    // Ability-to-AC toggles
+    ["con", "int", "wis", "cha"].forEach((ab) => {
+      data[`${ab}-to-ac`] = $(`#${ab}-to-ac`)?.checked || false;
+      data[`${ab}-to-ac-type`] = $(`#${ab}-to-ac-type`)?.value || "Untyped";
     });
 
     // Saves
@@ -323,10 +352,10 @@ const Character = (function () {
   function loadData(data, getAbilityMod) {
     // Simple fields
     [
-      "char-name", "char-player", "char-class", "char-race", "char-alignment",
-      "char-deity", "char-level", "char-size", "char-age", "char-gender",
-      "char-height", "char-weight", "char-eyes", "char-hair", "char-skin",
-      "char-campaign", "char-xp", "char-speed", "damage-reduction",
+      "char-name", "char-player", "char-class", "char-race", "char-type",
+      "char-alignment", "char-deity", "char-level", "char-size", "char-age",
+      "char-gender", "char-height", "char-weight", "char-eyes", "char-hair",
+      "char-skin", "char-campaign", "char-xp", "char-speed", "damage-reduction",
       "hp-total", "hp-current", "hp-nonlethal",
       "ac-natural", "ac-misc",
       "save-conditional", "init-misc", "bab-1", "grapple-misc",
@@ -341,6 +370,12 @@ const Character = (function () {
       const lower = ab.toLowerCase();
       if (data[`${lower}-score`] !== undefined) $(`#${lower}-score`).value = data[`${lower}-score`];
       if (data[`${lower}-temp`] !== undefined) $(`#${lower}-temp`).value = data[`${lower}-temp`];
+    });
+
+    // Ability-to-AC toggles
+    ["con", "int", "wis", "cha"].forEach((ab) => {
+      if (data[`${ab}-to-ac`] !== undefined) $(`#${ab}-to-ac`).checked = data[`${ab}-to-ac`];
+      if (data[`${ab}-to-ac-type`] !== undefined) $(`#${ab}-to-ac-type`).value = data[`${ab}-to-ac-type`];
     });
 
     // Saves

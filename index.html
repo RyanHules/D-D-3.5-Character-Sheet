@@ -42,6 +42,7 @@
         <div class="field"><label>Character Name</label><input type="text" id="char-name"></div>
         <div class="field"><label>Player</label><input type="text" id="char-player"></div>
         <div class="field"><label>Race</label><input type="text" id="char-race"></div>
+        <div class="field"><label>Type</label><input type="text" id="char-type" placeholder="e.g. Humanoid, Outsider"></div>
         <div class="field">
           <label>Alignment</label>
           <select id="char-alignment">
@@ -90,21 +91,30 @@
             <thead>
               <tr>
                 <th>Ability</th>
-                <th>Score</th>
+                <th>Base Score</th>
+                <th>Item Bonus</th>
+                <th>Total</th>
                 <th>Modifier</th>
                 <th>Temp Score</th>
                 <th>Temp Mod</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td class="ability-label">STR<span>Strength</span></td><td><input type="number" id="str-score" class="ability-score"></td><td><span id="str-mod" class="calc-field">+0</span></td><td><input type="number" id="str-temp" class="ability-score"></td><td><span id="str-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">DEX<span>Dexterity</span></td><td><input type="number" id="dex-score" class="ability-score"></td><td><span id="dex-mod" class="calc-field">+0</span></td><td><input type="number" id="dex-temp" class="ability-score"></td><td><span id="dex-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">CON<span>Constitution</span></td><td><input type="number" id="con-score" class="ability-score"></td><td><span id="con-mod" class="calc-field">+0</span></td><td><input type="number" id="con-temp" class="ability-score"></td><td><span id="con-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">INT<span>Intelligence</span></td><td><input type="number" id="int-score" class="ability-score"></td><td><span id="int-mod" class="calc-field">+0</span></td><td><input type="number" id="int-temp" class="ability-score"></td><td><span id="int-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">WIS<span>Wisdom</span></td><td><input type="number" id="wis-score" class="ability-score"></td><td><span id="wis-mod" class="calc-field">+0</span></td><td><input type="number" id="wis-temp" class="ability-score"></td><td><span id="wis-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">CHA<span>Charisma</span></td><td><input type="number" id="cha-score" class="ability-score"></td><td><span id="cha-mod" class="calc-field">+0</span></td><td><input type="number" id="cha-temp" class="ability-score"></td><td><span id="cha-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">STR<span>Strength</span></td><td><input type="number" id="str-score" class="ability-score"></td><td><span id="str-item" class="calc-field ability-item-bonus"></span></td><td><span id="str-total" class="calc-field ability-total"></span></td><td><span id="str-mod" class="calc-field">+0</span></td><td><input type="number" id="str-temp" class="ability-score"></td><td><span id="str-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">DEX<span>Dexterity</span></td><td><input type="number" id="dex-score" class="ability-score"></td><td><span id="dex-item" class="calc-field ability-item-bonus"></span></td><td><span id="dex-total" class="calc-field ability-total"></span></td><td><span id="dex-mod" class="calc-field">+0</span></td><td><input type="number" id="dex-temp" class="ability-score"></td><td><span id="dex-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">CON<span>Constitution</span></td><td><input type="number" id="con-score" class="ability-score"></td><td><span id="con-item" class="calc-field ability-item-bonus"></span></td><td><span id="con-total" class="calc-field ability-total"></span></td><td><span id="con-mod" class="calc-field">+0</span></td><td><input type="number" id="con-temp" class="ability-score"></td><td><span id="con-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">INT<span>Intelligence</span></td><td><input type="number" id="int-score" class="ability-score"></td><td><span id="int-item" class="calc-field ability-item-bonus"></span></td><td><span id="int-total" class="calc-field ability-total"></span></td><td><span id="int-mod" class="calc-field">+0</span></td><td><input type="number" id="int-temp" class="ability-score"></td><td><span id="int-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">WIS<span>Wisdom</span></td><td><input type="number" id="wis-score" class="ability-score"></td><td><span id="wis-item" class="calc-field ability-item-bonus"></span></td><td><span id="wis-total" class="calc-field ability-total"></span></td><td><span id="wis-mod" class="calc-field">+0</span></td><td><input type="number" id="wis-temp" class="ability-score"></td><td><span id="wis-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">CHA<span>Charisma</span></td><td><input type="number" id="cha-score" class="ability-score"></td><td><span id="cha-item" class="calc-field ability-item-bonus"></span></td><td><span id="cha-total" class="calc-field ability-total"></span></td><td><span id="cha-mod" class="calc-field">+0</span></td><td><input type="number" id="cha-temp" class="ability-score"></td><td><span id="cha-tempmod" class="calc-field"></span></td></tr>
             </tbody>
           </table>
+          <div class="ability-to-ac-section">
+            <label class="ability-to-ac-label">Add to AC:</label>
+            <label class="mi-toggle"><input type="checkbox" id="con-to-ac"> CON <select id="con-to-ac-type" class="ac-type-select"><option>Untyped</option><option>Dodge</option><option>Insight</option></select></label>
+            <label class="mi-toggle"><input type="checkbox" id="int-to-ac"> INT <select id="int-to-ac-type" class="ac-type-select"><option>Untyped</option><option>Dodge</option><option>Insight</option></select></label>
+            <label class="mi-toggle"><input type="checkbox" id="wis-to-ac"> WIS <select id="wis-to-ac-type" class="ac-type-select"><option>Untyped</option><option>Dodge</option><option>Insight</option></select></label>
+            <label class="mi-toggle"><input type="checkbox" id="cha-to-ac"> CHA <select id="cha-to-ac-type" class="ac-type-select"><option>Untyped</option><option>Deflection</option><option>Dodge</option><option>Insight</option></select></label>
+          </div>
         </section>
 
         <!-- Hit Points -->
@@ -228,7 +238,7 @@
               </tr>
             </tbody>
           </table>
-          <div class="field"><label>Conditional Save Modifiers</label><input type="text" id="save-conditional" placeholder="e.g. +2 vs. enchantments"></div>
+          <div class="field"><label>Conditional Save Modifiers</label><textarea id="save-conditional" rows="1" placeholder="e.g. +2 vs. enchantments"></textarea></div>
         </section>
       </div>
     </div>
@@ -349,7 +359,7 @@
               <div class="field field-sm"><label>Speed</label><input type="text" id="armor-speed"></div>
               <div class="field field-sm"><label>Weight</label><input type="number" id="armor-weight" min="0" step="0.1"></div>
             </div>
-            <div class="field"><label>Special Properties</label><input type="text" id="armor-special"></div>
+            <div class="field"><label>Special Properties</label><textarea id="armor-special" rows="1"></textarea></div>
           </div>
         </section>
 
@@ -363,7 +373,7 @@
               <div class="field field-sm"><label>Check Penalty</label><input type="number" id="shield-check-pen" value="0" max="0"></div>
               <div class="field field-sm"><label>Spell Failure %</label><input type="number" id="shield-spell-fail" min="0" max="100"></div>
             </div>
-            <div class="field"><label>Special Properties</label><input type="text" id="shield-special"></div>
+            <div class="field"><label>Special Properties</label><textarea id="shield-special" rows="1"></textarea></div>
           </div>
         </section>
 
@@ -438,6 +448,7 @@
             </tfoot>
           </table>
           <button id="btn-add-gear" class="btn-add">+ Add Item</button>
+          <div class="field" style="margin-top:0.5rem"><label>Possessions Notes</label><textarea id="possessions-notes" rows="2" placeholder="Additional rules, item properties, etc."></textarea></div>
         </section>
 
         <!-- Carrying Capacity -->

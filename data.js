@@ -87,15 +87,15 @@ const DND35 = {
 
   // Size categories and their modifiers
   sizes: {
-    "Fine": { acMod: 8, grappleMod: -16, hideMod: 16 },
-    "Diminutive": { acMod: 4, grappleMod: -12, hideMod: 12 },
-    "Tiny": { acMod: 2, grappleMod: -8, hideMod: 8 },
-    "Small": { acMod: 1, grappleMod: -4, hideMod: 4 },
-    "Medium": { acMod: 0, grappleMod: 0, hideMod: 0 },
-    "Large": { acMod: -1, grappleMod: 4, hideMod: -4 },
-    "Huge": { acMod: -2, grappleMod: 8, hideMod: -8 },
-    "Gargantuan": { acMod: -4, grappleMod: 12, hideMod: -12 },
-    "Colossal": { acMod: -8, grappleMod: 16, hideMod: -16 },
+    "Fine": { acMod: 8, grappleMod: -16, hideMod: 16, carryMult: 1/8 },
+    "Diminutive": { acMod: 4, grappleMod: -12, hideMod: 12, carryMult: 1/4 },
+    "Tiny": { acMod: 2, grappleMod: -8, hideMod: 8, carryMult: 1/2 },
+    "Small": { acMod: 1, grappleMod: -4, hideMod: 4, carryMult: 3/4 },
+    "Medium": { acMod: 0, grappleMod: 0, hideMod: 0, carryMult: 1 },
+    "Large": { acMod: -1, grappleMod: 4, hideMod: -4, carryMult: 2 },
+    "Huge": { acMod: -2, grappleMod: 8, hideMod: -8, carryMult: 4 },
+    "Gargantuan": { acMod: -4, grappleMod: 12, hideMod: -12, carryMult: 8 },
+    "Colossal": { acMod: -8, grappleMod: 16, hideMod: -16, carryMult: 16 },
   },
 
   // Carrying capacity by STR score (light load max, medium load max, heavy load max)

@@ -301,6 +301,7 @@
     const target = e.target;
     if (
       target.closest("#tab-character") ||
+      target.closest("#tab-skills") ||
       target.closest("#tab-equipment") ||
       target.closest("#tab-spells") ||
       target.closest("#tab-class-features") ||
@@ -317,6 +318,10 @@
   $("#armor-touch-ac").addEventListener("change", recalcAll);
   $("#shield-touch-ac").addEventListener("change", recalcAll);
   $("#rage-active").addEventListener("change", recalcAll);
+  ["con","int","wis","cha"].forEach(ab => {
+    $(`#${ab}-to-ac`)?.addEventListener("change", recalcAll);
+    $(`#${ab}-to-ac-type`)?.addEventListener("change", recalcAll);
+  });
   document.addEventListener("change", (e) => {
     if (e.target.closest("#tab-equipment") || e.target.closest("#tab-spells")) recalcAll();
   });

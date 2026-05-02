@@ -56,10 +56,11 @@ const Equipment = (function () {
         <button class="btn-remove" style="align-self:flex-end" onclick="Equipment.removeMagicItem(this)">X</button>
       </div>
       <div class="mi-row">
-        <div class="field" style="flex:2"><label>Special</label><input type="text" class="mi-special" value="${data.special || ""}"></div>
+        <div class="field" style="flex:2"><label>Special</label><textarea class="mi-special" rows="1">${data.special || ""}</textarea></div>
         <label class="mi-toggle"><input type="checkbox" class="mi-worn" ${worn ? "checked" : ""}> Worn</label>
         <label class="mi-toggle"><input type="checkbox" class="mi-protective-toggle" ${isProtective ? "checked" : ""}> Protective Item</label>
         <label class="mi-toggle"><input type="checkbox" class="mi-ability-toggle" ${hasAbility ? "checked" : ""}> Ability Bonuses</label>
+        <label class="mi-toggle"><input type="checkbox" class="mi-skill-toggle" ${data.hasSkillBonuses ? "checked" : ""}> Skill Bonuses</label>
       </div>
       <div class="mi-protective-section" style="${isProtective ? "" : "display:none"}">
         <div class="mi-ac-bonuses"></div>
@@ -70,16 +71,23 @@ const Equipment = (function () {
           ${DND35.abilities.map(ab => `<div class="field field-sm"><label>${ab}</label><input type="number" class="mi-ability mi-ab-${ab.toLowerCase()}" value="${(data.abilityBonuses && data.abilityBonuses[ab]) || ""}" data-ability="${ab}"></div>`).join("")}
         </div>
       </div>
+      <div class="mi-skill-section" style="${data.hasSkillBonuses ? "" : "display:none"}">
+        <div class="mi-skill-bonuses"></div>
+        <button class="btn-add mi-btn-add-skill" style="margin-top:0.3rem">+ Add Skill Bonus</button>
+      </div>
     `;
     container.appendChild(div);
 
     // Wire toggle visibility
     const protToggle = div.querySelector(".mi-protective-toggle");
     const abilToggle = div.querySelector(".mi-ability-toggle");
+    const skillToggle = div.querySelector(".mi-skill-toggle");
     const protSection = div.querySelector(".mi-protective-section");
     const abilSection = div.querySelector(".mi-ability-section");
+    const skillSection = div.querySelector(".mi-skill-section");
     protToggle.addEventListener("change", () => protSection.style.display = protToggle.checked ? "" : "none");
     abilToggle.addEventListener("change", () => abilSection.style.display = abilToggle.checked ? "" : "none");
+    skillToggle.addEventListener("change", () => skillSection.style.display = skillToggle.checked ? "" : "none");
 
     // Wire body slot linkage
     const slotSelect = div.querySelector(".mi-slot");
@@ -91,6 +99,9 @@ const Equipment = (function () {
     // Wire add AC bonus button
     div.querySelector(".mi-btn-add-ac").addEventListener("click", () => addACBonus(div));
 
+    // Wire add skill bonus button
+    div.querySelector(".mi-btn-add-skill").addEventListener("click", () => addSkillBonus(div));
+
     // Load existing AC bonuses
     if (data.acBonuses && data.acBonuses.length > 0) {
       data.acBonuses.forEach(b => addACBonus(div, b));
@@ -100,6 +111,9 @@ const Equipment = (function () {
     } else if (isProtective) {
       addACBonus(div); // add one empty row
     }
+
+    // Load existing skill bonuses
+    if (data.skillBonuses) data.skillBonuses.forEach(sb => addSkillBonus(div, sb));
 
     // Initial slot sync
     if (data.slot) syncSlot(div);
@@ -118,6 +132,18 @@ const Equipment = (function () {
       <label class="mi-toggle"><input type="checkbox" class="mi-ac-touch" ${data.touch ? "checked" : ""}> Touch</label>
       <label class="mi-toggle"><input type="checkbox" class="mi-ac-ff" ${data.flatfooted !== false ? "checked" : ""}> Flat-Footed</label>
       <button class="btn-remove" style="font-size:0.6rem;padding:0.15rem 0.4rem" onclick="this.closest('.mi-ac-bonus-row').remove()">X</button>
+    `;
+    container.appendChild(row);
+  }
+
+  function addSkillBonus(itemDiv, data = {}) {
+    const container = itemDiv.querySelector(".mi-skill-bonuses");
+    const row = document.createElement("div");
+    row.className = "mi-row mi-skill-bonus-row";
+    row.innerHTML = `
+      <div class="field" style="flex:2"><label>Skill</label><input type="text" class="mi-skill-name" value="${data.skill || ""}" placeholder="e.g. Spot, Hide"></div>
+      <div class="field field-sm"><label>Bonus</label><input type="number" class="mi-skill-val" value="${data.bonus || "0"}"></div>
+      <button class="btn-remove" style="font-size:0.6rem;padding:0.15rem 0.4rem" onclick="this.closest('.mi-skill-bonus-row').remove()">X</button>
     `;
     container.appendChild(row);
   }
@@ -206,8 +232,8 @@ const Equipment = (function () {
             <label class="mi-toggle"><input type="checkbox" class="slot-sm-double"> Double Chakra</label>
           </div>
           <div class="slot-sm-fields">
-            <div class="field field-sm"><label>Base Effect</label><input type="text" class="slot-sm-base"></div>
-            <div class="field field-sm"><label>Bind Effect</label><input type="text" class="slot-sm-bind-effect"></div>
+            <div class="field field-sm"><label>Base Effect</label><textarea class="slot-sm-base" rows="1"></textarea></div>
+            <div class="field field-sm"><label>Bind Effect</label><textarea class="slot-sm-bind-effect" rows="1"></textarea></div>
             <div class="field field-sm"><label>Extra Capacity</label><input type="number" class="slot-sm-extra-cap" min="0" value="0"></div>
           </div>
           <div class="essentia-pips">
@@ -219,8 +245,8 @@ const Equipment = (function () {
               <label class="mi-toggle"><input type="checkbox" class="slot-sm2-bound"> Bound</label>
             </div>
             <div class="slot-sm-fields">
-              <div class="field field-sm"><label>Base Effect</label><input type="text" class="slot-sm2-base"></div>
-              <div class="field field-sm"><label>Bind Effect</label><input type="text" class="slot-sm2-bind-effect"></div>
+              <div class="field field-sm"><label>Base Effect</label><textarea class="slot-sm2-base" rows="1"></textarea></div>
+              <div class="field field-sm"><label>Bind Effect</label><textarea class="slot-sm2-bind-effect" rows="1"></textarea></div>
               <div class="field field-sm"><label>Extra Capacity</label><input type="number" class="slot-sm2-extra-cap" min="0" value="0"></div>
             </div>
             <div class="essentia-pips essentia-pips-2">
@@ -518,6 +544,16 @@ const Equipment = (function () {
           if (val) item.abilityBonuses[ab] = val;
         });
       }
+      // Skill bonuses
+      item.hasSkillBonuses = entry.querySelector(".mi-skill-toggle")?.checked || false;
+      if (item.hasSkillBonuses) {
+        item.skillBonuses = [];
+        entry.querySelectorAll(".mi-skill-bonus-row").forEach(row => {
+          const skill = row.querySelector(".mi-skill-name")?.value || "";
+          const bonus = row.querySelector(".mi-skill-val")?.value || "0";
+          if (skill) item.skillBonuses.push({ skill, bonus });
+        });
+      }
       data.magicItems.push(item);
     });
 
@@ -586,6 +622,7 @@ const Equipment = (function () {
         weight: row.querySelector(".gear-weight").value,
       });
     });
+    data["possessions-notes"] = $("#possessions-notes")?.value || "";
 
     // Money
     ["money-cp", "money-sp", "money-gp", "money-pp"].forEach((id) => {
@@ -692,6 +729,7 @@ const Equipment = (function () {
     // Gear
     $("#gear-body").innerHTML = "";
     if (data.gear) data.gear.forEach((g) => addGearRow(g));
+    if (data["possessions-notes"] !== undefined) $("#possessions-notes").value = data["possessions-notes"];
 
     // Magic items (with backwards compat for old protectiveItems format)
     $("#magic-items-container").innerHTML = "";
@@ -742,6 +780,25 @@ const Equipment = (function () {
       DND35.abilities.forEach(ab => {
         const val = parseInt(entry.querySelector(`.mi-ab-${ab.toLowerCase()}`)?.value) || 0;
         if (val) bonuses.abilities[ab] = (bonuses.abilities[ab] || 0) + val;
+      });
+    });
+    return bonuses;
+  }
+
+  // ============================================================
+  // Get active skill bonuses from worn magic items
+  // Returns { "Spot": 5, "Hide": 3, ... }
+  // ============================================================
+  function getSkillBonuses() {
+    const bonuses = {};
+    $$(".magic-item-entry").forEach((entry) => {
+      const worn = entry.querySelector(".mi-worn")?.checked;
+      const hasSkill = entry.querySelector(".mi-skill-toggle")?.checked;
+      if (!worn || !hasSkill) return;
+      entry.querySelectorAll(".mi-skill-bonus-row").forEach(row => {
+        const skill = (row.querySelector(".mi-skill-name")?.value || "").trim();
+        const val = parseInt(row.querySelector(".mi-skill-val")?.value) || 0;
+        if (skill && val) bonuses[skill] = (bonuses[skill] || 0) + val;
       });
     });
     return bonuses;
@@ -803,7 +860,7 @@ const Equipment = (function () {
   // ============================================================
   return {
     addGearRow, addMagicItem, buildMagicItemSlots, removeMagicItem,
-    recalcWeight, getProtectiveItems, getActiveBonuses, updatePaperDoll,
-    collectData, loadData,
+    recalcWeight, getProtectiveItems, getActiveBonuses, getSkillBonuses,
+    updatePaperDoll, collectData, loadData,
   };
 })();

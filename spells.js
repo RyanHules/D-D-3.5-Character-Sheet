@@ -6,7 +6,6 @@ const Spells = (function () {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
   const int = (v) => parseInt(v) || 0;
-
   let casterIndex = 0;
   let _getAbilityMod = null;
   const SPELL_LABELS = ["0 (Cantrips)", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th"];
@@ -16,10 +15,7 @@ const Spells = (function () {
   function spellOrd(i) { return i < SPELL_LABELS.length ? SPELL_LABELS[i] : i + "th"; }
   function spellListLabel(i) { return i < SPELL_LIST_LABELS.length ? SPELL_LIST_LABELS[i] : i + "th Level"; }
   function spellShort(i) { return i < SPELL_SHORT.length ? SPELL_SHORT[i] : i + "th"; }
-
-  // ============================================================
-  // Add a caster sub-tab (spellcasting or psionics)
-  // ============================================================
+  // --- Add a caster sub-tab (spellcasting or psionics) ---
   function addCaster(type, data = {}) {
     const idx = casterIndex++;
     const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers", epic: "Epic Spellcasting", binding: "Binding", shadowcaster: "Shadowcasting" };
@@ -49,6 +45,7 @@ const Spells = (function () {
     if (type === "spellcasting") {
       panel.innerHTML = notesHTML + buildSpellcastingHTML(idx, data);
       container.appendChild(panel);
+      panel._casterData = data;
       buildSpellLists(idx, panel);
       wireLevelTabs(panel);
       wireSpecialistDomainToggles(panel);
@@ -61,6 +58,7 @@ const Spells = (function () {
       panel.innerHTML = notesHTML + buildManeuversHTML(idx, data);
       container.appendChild(panel);
       buildManeuverLists(idx, panel);
+      wireReadiedManeuvers(panel, data);
       wireLevelTabs(panel);
     } else if (type === "epic") {
       panel.innerHTML = notesHTML + buildEpicHTML(idx, data);
@@ -97,7 +95,6 @@ const Spells = (function () {
     if (_getAbilityMod) recalc(_getAbilityMod);
     return idx;
   }
-
   function switchCaster(idx) {
     $$(".inner-tab[data-caster-idx]").forEach((t) => t.classList.remove("active"));
     $$("#spells-content > .inner-tab-content").forEach((c) => c.classList.remove("active"));
@@ -107,7 +104,6 @@ const Spells = (function () {
     if (panel) panel.classList.add("active");
     setTimeout(() => window.autoExpandAll && window.autoExpandAll(), 10);
   }
-
   function renameCaster(btn) {
     const removeSpan = btn.querySelector(".caster-tab-remove");
     const currentName = btn.textContent.replace("×", "").trim();
@@ -117,7 +113,6 @@ const Spells = (function () {
       btn.appendChild(removeSpan);
     }
   }
-
   function buildAbilityOptions(selected, includePhysical = true) {
     let abilities = ["", "INT", "WIS", "CHA"];
     let labels = ["-- None --", "Intelligence", "Wisdom", "Charisma"];
@@ -129,10 +124,7 @@ const Spells = (function () {
       `<option value="${ab}"${ab === selected ? " selected" : ""}>${labels[i]}</option>`
     ).join("");
   }
-
-  // ============================================================
-  // Spellcasting HTML builder
-  // ============================================================
+  // --- Spellcasting HTML builder ---
   function buildSpellcastingHTML(idx, data) {
     const domainVis = data.domainAccess ? "" : "display:none";
     const specVis = data.specialist ? "" : "display:none";
@@ -178,7 +170,7 @@ const Spells = (function () {
           <div class="field field-sm"><label>Caster Level</label><input type="number" class="sc-caster-level" min="1" value="${data.casterLevel || ""}"></div>
           <div class="field"><label>Spellcasting Ability</label><select class="sc-ability">${buildAbilityOptions(data.ability || "", false)}</select></div>
           <div class="field"><label>Arcane Spell Failure %</label><span class="sc-spell-fail calc-field">0%</span></div>
-          <div class="field"><label>Conditional Modifiers</label><input type="text" class="sc-conditional" value="${data.conditional || ""}"></div>
+          <div class="field"><label>Conditional Modifiers</label><textarea class="sc-conditional" rows="1">${data.conditional || ""}</textarea></div>
         </div>
         <div class="spell-header" style="margin-top:0.5rem">
           <label class="mi-toggle"><input type="checkbox" class="sc-specialist-toggle" ${data.specialist ? "checked" : ""}> Specialist</label>
@@ -195,14 +187,8 @@ const Spells = (function () {
           </div>
         </div>
         <div class="sc-domain-section" style="${domainVis}">
-          <div class="domain-entry">
-            <div class="field"><label>Domain Name</label><input type="text" class="sc-domain1-name" value="${data.domain1Name || ""}"></div>
-            <div class="field"><label>Granted Power</label><textarea class="sc-domain1-power" rows="2">${data.domain1Power || ""}</textarea></div>
-          </div>
-          <div class="domain-entry">
-            <div class="field"><label>Domain Name</label><input type="text" class="sc-domain2-name" value="${data.domain2Name || ""}"></div>
-            <div class="field"><label>Granted Power</label><textarea class="sc-domain2-power" rows="2">${data.domain2Power || ""}</textarea></div>
-          </div>
+          <div class="sc-domain-list"></div>
+          <button class="btn-add sc-add-domain" style="margin-top:0.3rem">+ Add Domain</button>
         </div>
         <table class="spell-slots-table" data-max-level="${maxLevel}">
           <thead><tr>
@@ -225,7 +211,6 @@ const Spells = (function () {
       </section>
     `;
   }
-
   function buildSpellLists(idx, panel) {
     const container = panel.querySelector(".sc-spell-lists");
     const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
@@ -242,7 +227,6 @@ const Spells = (function () {
       addSpellcastingLevel(panel);
     });
   }
-
   function appendSpellListDiv(container, i, active) {
     const lbl = spellListLabel(i);
     const div = document.createElement("div");
@@ -262,7 +246,6 @@ const Spells = (function () {
     `;
     container.appendChild(div);
   }
-
   function addSpellcastingLevel(panel) {
     const table = panel.querySelector(".spell-slots-table");
     const maxLevel = int(table?.dataset.maxLevel || 9) + 1;
@@ -288,7 +271,6 @@ const Spells = (function () {
     appendDynLevelTab(panel, i);
     appendSpellListDiv(panel.querySelector(".sc-spell-lists"), i, false);
   }
-
   function switchLevelTab(panel, btn, lvl) {
     panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
     panel.querySelectorAll(".spell-list-content").forEach((c) => c.classList.remove("active"));
@@ -307,7 +289,6 @@ const Spells = (function () {
       btn.addEventListener("click", () => switchLevelTab(panel, btn, btn.dataset.level));
     });
   }
-
   function wireSpecialistDomainToggles(panel) {
     const specToggle = panel.querySelector(".sc-specialist-toggle");
     const domToggle = panel.querySelector(".sc-domain-toggle");
@@ -335,8 +316,9 @@ const Spells = (function () {
 
     // Wire prohibited schools add/remove
     wireProhibitedSchools(panel);
+    // Wire dynamic domain entries
+    wireDomainEntries(panel, panel._casterData || {});
   }
-
   function wireProhibitedSchools(panel) {
     const list = panel.querySelector(".sc-prohibited-list");
     if (!list) return;
@@ -349,7 +331,6 @@ const Spells = (function () {
       btn.addEventListener("click", () => removeProhibitedEntry(btn));
     });
   }
-
   function addProhibitedEntry(list, value) {
     const div = document.createElement("div");
     div.className = "prohibited-entry";
@@ -357,7 +338,6 @@ const Spells = (function () {
     list.insertBefore(div, list.querySelector(".sc-add-prohibited"));
     div.querySelector(".sc-remove-prohibited").addEventListener("click", () => removeProhibitedEntry(div.querySelector(".sc-remove-prohibited")));
   }
-
   function removeProhibitedEntry(btn) {
     const list = btn.closest(".sc-prohibited-list");
     const entries = list.querySelectorAll(".prohibited-entry");
@@ -368,10 +348,53 @@ const Spells = (function () {
     }
     btn.closest(".prohibited-entry").remove();
   }
+  function addDomainEntry(container, data = {}) {
+    const div = document.createElement("div");
+    div.className = "domain-entry";
+    div.innerHTML = `
+      <div class="field"><label>Domain Name</label><input type="text" class="sc-domain-name" value="${data.name || ""}"></div>
+      <div class="field"><label>Granted Power</label><textarea class="sc-domain-power" rows="2">${data.power || ""}</textarea></div>
+      <button class="btn-remove sc-remove-domain" title="Remove">X</button>
+    `;
+    container.appendChild(div);
+    div.querySelector(".sc-remove-domain").addEventListener("click", () => {
+      const entries = container.querySelectorAll(".domain-entry");
+      if (entries.length <= 1) {
+        div.querySelector(".sc-domain-name").value = "";
+        div.querySelector(".sc-domain-power").value = "";
+        return;
+      }
+      div.remove();
+    });
+    const ta = div.querySelector(".sc-domain-power");
+    if (window.autoExpand) window.autoExpand(ta);
+  }
+  function wireDomainEntries(panel, data = {}) {
+    const container = panel.querySelector(".sc-domain-list");
+    const addBtn = panel.querySelector(".sc-add-domain");
+    if (!container || !addBtn) return;
 
-  // ============================================================
-  // Psionics HTML builder
-  // ============================================================
+    // Load data — support new array format and legacy domain1/domain2 format
+    const domains = data.domains || [];
+    if (domains.length > 0) {
+      domains.forEach(d => addDomainEntry(container, d));
+    } else if (data.domain1Name || data.domain2Name) {
+      // Backwards compat: legacy hardcoded 2-domain format
+      if (data.domain1Name || data.domain1Power) {
+        addDomainEntry(container, { name: data.domain1Name || "", power: data.domain1Power || "" });
+      }
+      if (data.domain2Name || data.domain2Power) {
+        addDomainEntry(container, { name: data.domain2Name || "", power: data.domain2Power || "" });
+      }
+      if (!container.children.length) addDomainEntry(container);
+    } else {
+      addDomainEntry(container);
+      addDomainEntry(container);
+    }
+
+    addBtn.addEventListener("click", () => addDomainEntry(container));
+  }
+  // --- Psionics HTML builder ---
   // Base PP cost by power level (XPH Table 3-3)
   const PP_COSTS = [0, 1, 3, 5, 7, 9, 11, 13, 15, 17];
 
@@ -425,7 +448,6 @@ const Spells = (function () {
       </section>
     `;
   }
-
   function buildPsiPowerLists(idx, panel) {
     const container = panel.querySelector(".psi-power-lists");
     const maxLevel = int(panel.querySelector(".psi-dc-table")?.dataset.maxLevel || 9);
@@ -436,7 +458,6 @@ const Spells = (function () {
       addPsionicsLevel(panel);
     });
   }
-
   function appendPsiPowerDiv(container, i, active) {
     const div = document.createElement("div");
     div.className = `spell-list-content${active ? " active" : ""}`;
@@ -447,13 +468,11 @@ const Spells = (function () {
     `;
     container.appendChild(div);
   }
-
   function addPsionicsLevel(panel) {
     const table = panel.querySelector(".psi-dc-table");
     const maxLevel = int(table?.dataset.maxLevel || 9) + 1;
     if (table) table.dataset.maxLevel = maxLevel;
     const i = maxLevel;
-
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${spellOrd(i)}</td><td class="psi-pp-cost">${psiPPCost(i)}</td><td><span class="psi-dc calc-field" data-lvl="${i}">--</span></td>`;
     table.querySelector("tbody").appendChild(tr);
@@ -462,10 +481,7 @@ const Spells = (function () {
 
     appendPsiPowerDiv(panel.querySelector(".psi-power-lists"), i, false);
   }
-
-  // ============================================================
-  // Tome of Battle Maneuvers HTML builder
-  // ============================================================
+  // --- Tome of Battle Maneuvers HTML builder ---
   function buildManeuversHTML(idx, data) {
     const levelTabs = SPELL_SHORT.slice(1).map((label, i) =>
       `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i + 1}">${label}</button>`
@@ -488,11 +504,57 @@ const Spells = (function () {
       </section>
       <section class="section">
         <h2>Readied Maneuvers</h2>
-        <textarea class="tom-readied" rows="8" placeholder="List readied maneuvers here. Mark expended with [X]...">${data.readied || ""}</textarea>
+        <div class="tom-readied-list"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.3rem">
+          <button class="btn-add tom-add-readied">+ Add Readied Maneuver</button>
+          <button class="btn-add tom-reset-readied">Reset Expended</button>
+        </div>
       </section>
     `;
   }
+  function addReadiedManeuver(container, data = {}) {
+    const row = document.createElement("div");
+    row.className = "tom-readied-row";
+    row.innerHTML = `
+      <label class="tom-expended-label" title="Expended">
+        <input type="checkbox" class="tom-expended"${data.expended ? " checked" : ""}>
+      </label>
+      <input type="text" class="tom-readied-name" placeholder="Maneuver name" value="${data.name || ""}">
+      <textarea class="tom-readied-desc" rows="1" placeholder="Description / notes">${data.desc || ""}</textarea>
+      <button class="btn-remove tom-remove-readied" title="Remove">X</button>
+    `;
+    container.appendChild(row);
+    row.querySelector(".tom-remove-readied").addEventListener("click", () => row.remove());
+    const cb = row.querySelector(".tom-expended");
+    cb.addEventListener("change", () => row.classList.toggle("expended", cb.checked));
+    if (data.expended) row.classList.add("expended");
+    const ta = row.querySelector(".tom-readied-desc");
+    if (window.autoExpand) window.autoExpand(ta);
+  }
+  function wireReadiedManeuvers(panel, data = {}) {
+    const container = panel.querySelector(".tom-readied-list");
+    const addBtn = panel.querySelector(".tom-add-readied");
+    const resetBtn = panel.querySelector(".tom-reset-readied");
 
+    // Load existing data (backwards compat: old string format → convert)
+    const readiedArr = data.readiedManeuvers || [];
+    if (readiedArr.length > 0) {
+      readiedArr.forEach(m => addReadiedManeuver(container, m));
+    } else if (data.readied && typeof data.readied === "string" && data.readied.trim()) {
+      // Backwards compat: old single textarea format — split lines into entries
+      data.readied.split("\n").filter(l => l.trim()).forEach(line => {
+        addReadiedManeuver(container, { name: line.trim() });
+      });
+    } else {
+      addReadiedManeuver(container);
+    }
+
+    addBtn.addEventListener("click", () => addReadiedManeuver(container));
+    resetBtn.addEventListener("click", () => {
+      container.querySelectorAll(".tom-expended").forEach(cb => { cb.checked = false; });
+      container.querySelectorAll(".tom-readied-row").forEach(r => r.classList.remove("expended"));
+    });
+  }
   function buildManeuverLists(idx, panel) {
     const container = panel.querySelector(".tom-maneuver-lists");
     for (let i = 1; i <= 9; i++) {
@@ -514,10 +576,7 @@ const Spells = (function () {
       container.appendChild(div);
     }
   }
-
-  // ============================================================
-  // Epic Spellcasting HTML builder
-  // ============================================================
+  // --- Epic Spellcasting HTML builder ---
   function buildEpicHTML(idx, data) {
     const spellRows = (data.epicSpells || [""]).map((s, i) => epicSpellRow(s, i)).join("");
     return `
@@ -536,7 +595,7 @@ const Spells = (function () {
         </div>
         <div class="info-grid" style="margin-top:0.4rem">
           <div class="field field-sm"><label>Spellcraft Ranks</label><input type="number" class="epic-spellcraft" min="0" value="${data.epicSpellcraft || ""}" placeholder="For seed DCs"></div>
-          <div class="field"><label>Conditional Modifiers</label><input type="text" class="epic-conditional" value="${data.epicConditional || ""}"></div>
+          <div class="field"><label>Conditional Modifiers</label><textarea class="epic-conditional" rows="1">${data.epicConditional || ""}</textarea></div>
         </div>
       </section>
       <section class="section">
@@ -546,7 +605,6 @@ const Spells = (function () {
       </section>
     `;
   }
-
   function epicSpellRow(data = "", index = 0) {
     const d = typeof data === "object" ? data : { name: data };
     return `<div class="epic-spell-entry">
@@ -556,7 +614,6 @@ const Spells = (function () {
       <button class="btn-remove epic-remove-spell" title="Remove">X</button>
     </div>`;
   }
-
   function wireEpicSpells(panel) {
     panel.querySelector(".epic-add-spell").addEventListener("click", () => {
       const list = panel.querySelector(".epic-spell-list");
@@ -570,10 +627,7 @@ const Spells = (function () {
       btn.addEventListener("click", () => btn.closest(".epic-spell-entry").remove());
     });
   }
-
-  // ============================================================
-  // Vestige Binding HTML builder
-  // ============================================================
+  // --- Vestige Binding HTML builder ---
   function buildBindingHTML(idx, data) {
     const vestigeRows = (data.vestiges || [""]).map((v, i) => vestigeRow(v)).join("");
     return `
@@ -587,7 +641,7 @@ const Spells = (function () {
         </div>
         <div class="info-grid" style="margin-top:0.4rem">
           <div class="field field-sm"><label>Currently Bound</label><span class="bind-count calc-field">0</span></div>
-          <div class="field"><label>Conditional Modifiers</label><input type="text" class="bind-conditional" value="${data.bindConditional || ""}"></div>
+          <div class="field"><label>Conditional Modifiers</label><textarea class="bind-conditional" rows="1">${data.bindConditional || ""}</textarea></div>
         </div>
       </section>
       <section class="section">
@@ -597,7 +651,6 @@ const Spells = (function () {
       </section>
     `;
   }
-
   function vestigeRow(data = "") {
     const d = typeof data === "object" ? data : { name: data };
     return `<div class="vestige-entry">
@@ -614,7 +667,6 @@ const Spells = (function () {
       </div>
     </div>`;
   }
-
   function wireBindingVestiges(panel) {
     panel.querySelector(".bind-add-vestige").addEventListener("click", () => {
       const list = panel.querySelector(".vestige-list");
@@ -627,7 +679,6 @@ const Spells = (function () {
     });
     panel.querySelectorAll(".vestige-entry").forEach((entry) => wireVestigeEntry(entry));
   }
-
   function wireVestigeEntry(entry) {
     entry.querySelector(".bind-remove-vestige").addEventListener("click", () => {
       const panel = entry.closest(".inner-tab-content");
@@ -640,7 +691,6 @@ const Spells = (function () {
       pactInfo.style.display = goodPact.checked ? "none" : "";
     });
   }
-
   function recalcBindCount(panel) {
     const count = panel.querySelectorAll(".vestige-entry").length;
     const el = panel.querySelector(".bind-count");
@@ -650,10 +700,7 @@ const Spells = (function () {
       el.classList.toggle("counter-over", max > 0 && count > max);
     }
   }
-
-  // ============================================================
-  // Recalculate DCs and slot tracking for all casters
-  // ============================================================
+  // --- Recalculate DCs and slot tracking for all casters ---
   function recalc(getAbilityMod) {
     if (getAbilityMod) _getAbilityMod = getAbilityMod;
     // Get arcane spell failure from character tab
@@ -721,7 +768,6 @@ const Spells = (function () {
       const ppDay = basePP + bonusPP + extraPP;
       const ppSpent = int(panel.querySelector(".psi-pp-spent")?.value);
       const ppRemaining = ppDay - ppSpent;
-
       const bonusEl = panel.querySelector(".psi-pp-bonus");
       if (bonusEl) bonusEl.textContent = (ability && manifesterLevel > 0) ? bonusPP : "--";
 
@@ -744,11 +790,9 @@ const Spells = (function () {
 
     recalcEpicAndBinding();
   }
-
   function resetSlots() {
     $$(".sc-used").forEach((el) => { el.value = 0; });
   }
-
   function recalcEpicAndBinding() {
     // Epic spellcasting: slots/day = floor(ranks / 10) per ELH p.72
     $$("[data-caster-type='epic']").forEach((panel) => {
@@ -779,10 +823,7 @@ const Spells = (function () {
 
   // No-op stub for app.js backward compat
   function buildSpellListsLegacy() {}
-
-  // ============================================================
-  // Collect / Load
-  // ============================================================
+  // --- Collect / Load ---
   function collectData() {
     const data = { casters: [] };
 
@@ -805,10 +846,10 @@ const Spells = (function () {
         caster.specialtySchool = panel.querySelector(".sc-specialty-school")?.value || "";
         caster.prohibitedSchools = Array.from(panel.querySelectorAll(".sc-prohibited")).map((el) => el.value).filter((v) => v);
         caster.domainAccess = panel.querySelector(".sc-domain-toggle")?.checked || false;
-        caster.domain1Name = panel.querySelector(".sc-domain1-name")?.value || "";
-        caster.domain1Power = panel.querySelector(".sc-domain1-power")?.value || "";
-        caster.domain2Name = panel.querySelector(".sc-domain2-name")?.value || "";
-        caster.domain2Power = panel.querySelector(".sc-domain2-power")?.value || "";
+        caster.domains = Array.from(panel.querySelectorAll(".domain-entry")).map(entry => ({
+          name: entry.querySelector(".sc-domain-name")?.value || "",
+          power: entry.querySelector(".sc-domain-power")?.value || "",
+        }));
         const scMax = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
         caster.maxLevel = scMax;
         for (let i = 0; i <= scMax; i++) {
@@ -841,7 +882,11 @@ const Spells = (function () {
         caster.knownCount = panel.querySelector(".tom-known-count")?.value || "";
         caster.readiedCount = panel.querySelector(".tom-readied-count")?.value || "";
         caster.stancesCount = panel.querySelector(".tom-stances-count")?.value || "";
-        caster.readied = panel.querySelector(".tom-readied")?.value || "";
+        caster.readiedManeuvers = Array.from(panel.querySelectorAll(".tom-readied-row")).map(row => ({
+          name: row.querySelector(".tom-readied-name")?.value || "",
+          desc: row.querySelector(".tom-readied-desc")?.value || "",
+          expended: row.querySelector(".tom-expended")?.checked || false,
+        }));
         for (let i = 1; i <= 9; i++) {
           caster[`maneuver-${i}`] = panel.querySelector(`.tom-maneuver-text[data-lvl="${i}"]`)?.value || "";
           caster[`stance-${i}`] = panel.querySelector(`.tom-stance-text[data-lvl="${i}"]`)?.value || "";
@@ -880,7 +925,6 @@ const Spells = (function () {
 
     return data;
   }
-
   function loadData(data) {
     // Clear existing
     $("#spells-tab-bar").innerHTML = "";
@@ -901,10 +945,10 @@ const Spells = (function () {
             }
             if (data["domain1-name"]) {
               caster.domainAccess = true;
-              caster.domain1Name = data["domain1-name"];
-              caster.domain1Power = data["domain1-power"] || "";
-              caster.domain2Name = data["domain2-name"] || "";
-              caster.domain2Power = data["domain2-power"] || "";
+              caster.domains = [
+                { name: data["domain1-name"], power: data["domain1-power"] || "" },
+                { name: data["domain2-name"] || "", power: data["domain2-power"] || "" },
+              ];
             }
             legacyMigrated = true;
           }
@@ -942,10 +986,7 @@ const Spells = (function () {
 
     recalc();
   }
-
-  // ============================================================
-  // Public API
-  // ============================================================
+  // --- Public API ---
   return {
     addCaster,
     buildSpellLists: buildSpellListsLegacy,

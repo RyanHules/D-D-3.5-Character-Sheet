@@ -266,7 +266,14 @@ textarea {
 
 .ability-table td { padding: 0.25rem 0.3rem;text-align: center;}
 
-.ability-table input { width: 60px; text-align: center; }
+.ability-table input { width: 50px; text-align: center; }
+
+.ability-item-bonus { color: var(--accent); font-size: 0.8rem; min-width: 30px; display: inline-block; }
+.ability-total { font-weight: 600; min-width: 30px; display: inline-block; }
+
+.ability-to-ac-section { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.4rem; padding: 0.3rem 0; font-size: 0.75rem; }
+.ability-to-ac-label { font-weight: 600; color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; }
+.ac-type-select { font-size: 0.7rem; padding: 0.1rem 0.2rem; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; margin-left: 0.2rem; }
 
 .ability-label {
   text-align: left !important;
@@ -699,6 +706,30 @@ textarea {
 }
 .epic-spell-entry .btn-remove { flex-shrink: 0; margin-bottom: 0.2rem; }
 
+/* === Readied Maneuvers === */
+.tom-readied-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin-bottom: 0.3rem;
+  padding: 0.3rem 0.4rem;
+  background: rgba(0,0,0,0.1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tom-readied-row.expended { opacity: 0.5; }
+.tom-expended-label {
+  display: flex;
+  align-items: center;
+  padding-top: 0.25rem;
+  cursor: pointer;
+}
+.tom-expended-label input { width: auto; margin: 0; }
+.tom-readied-name { flex: 1; min-width: 120px; }
+.tom-readied-desc { flex: 2; min-width: 150px; }
+.tom-readied-row .btn-remove { flex-shrink: 0; margin-top: 0.15rem; }
+.tom-reset-readied { background: var(--accent-dark) !important; }
+
 .vestige-entry {
   background: rgba(0,0,0,0.1);
   border: 1px solid var(--border);
@@ -787,6 +818,12 @@ textarea {
   border-radius: var(--radius);
   padding: 0.5rem;
   margin-bottom: 0.5rem;
+  position: relative;
+}
+.domain-entry .btn-remove {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
 }
 
 /* === Soulmelds in Magic Item Slots === */

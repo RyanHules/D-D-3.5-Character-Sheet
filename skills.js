@@ -207,6 +207,7 @@ const Skills = (function () {
   // ============================================================
   function recalc(getAbilityMod) {
     const acPenalty = int($("#armor-check-penalty").value);
+    const equipSkillBonuses = (typeof Equipment !== "undefined" && Equipment.getSkillBonuses) ? Equipment.getSkillBonuses() : {};
 
     // First pass: gather all skill ranks for synergy calculation
     const rankMap = {};
@@ -295,7 +296,10 @@ const Skills = (function () {
       const situational = synergies.filter(s => s.situational);
       const synergyBonus = unconditional.reduce((sum, s) => sum + s.bonus, 0);
 
-      const total = abilityMod + ranks + misc + penalty + synergyBonus;
+      // Equipment skill bonuses (from worn magic items)
+      const equipBonus = equipSkillBonuses[skillName] || 0;
+
+      const total = abilityMod + ranks + misc + penalty + synergyBonus + equipBonus;
       const abilityModEl = row.querySelector(".skill-ability-mod");
       if (abilityModEl) abilityModEl.textContent = fmt(abilityMod);
       const totalEl = row.querySelector(".skill-total");
@@ -461,45 +465,61 @@ const Skills = (function () {
     tbodyR.innerHTML = "";
 
     const midpoint = Math.ceil(DND35.skills.length / 2);
-    let currentSkillDef = null;
+
+    // Index saved entries by their skill index for fast lookup.
+    // Each index maps to an array: [header?, subtype*, skill?]
+    const byIndex = {};
     skillsData.forEach((entry) => {
-      if (entry.type === "header") {
-        currentSkillDef = DND35.skills[entry.index];
-        if (currentSkillDef && currentSkillDef.editableSubtype) {
-          const tbody = entry.index < midpoint ? tbodyL : tbodyR;
-          const headerTr = document.createElement("tr");
-          headerTr.className = "subtype-header-row";
-          headerTr.dataset.subtypeBase = currentSkillDef.name;
-          headerTr.dataset.skillIndex = entry.index;
-          headerTr.innerHTML = `
-            <td colspan="7" style="padding:0.3rem 0.25rem 0.1rem">
-              <span style="font-weight:600;font-size:0.8rem;">${currentSkillDef.name}</span>
-              <span class="skill-untrained-marker">${currentSkillDef.untrained ? "U" : ""}</span>
-              <button class="btn-add-subtype" data-skill-name="${currentSkillDef.name}" data-skill-index="${entry.index}">+ add subtype</button>
-            </td>
-          `;
-          tbody.appendChild(headerTr);
-          headerTr.querySelector(".btn-add-subtype").addEventListener("click", () => {
-            addSubtypeEntry(tbody, currentSkillDef, entry.index, "");
+      if (!byIndex[entry.index]) byIndex[entry.index] = [];
+      byIndex[entry.index].push(entry);
+    });
+
+    // Walk every DND35.skills entry in order. Use saved data when present,
+    // otherwise create the skill with defaults. This prevents partial
+    // imports (e.g. from PDF) from deleting skills that weren't in the
+    // source, while keeping the correct display order.
+    DND35.skills.forEach((skill, i) => {
+      const tbody = i < midpoint ? tbodyL : tbodyR;
+      const saved = byIndex[i] || [];
+
+      if (skill.editableSubtype) {
+        // Subtype group (Craft, Perform, Profession)
+        const header = saved.find(e => e.type === "header");
+        const subtypes = saved.filter(e => e.type === "subtype");
+        // Always create the header row
+        const headerTr = document.createElement("tr");
+        headerTr.className = "subtype-header-row";
+        headerTr.dataset.subtypeBase = skill.name;
+        headerTr.dataset.skillIndex = i;
+        headerTr.innerHTML = `
+          <td colspan="7" style="padding:0.3rem 0.25rem 0.1rem">
+            <span style="font-weight:600;font-size:0.8rem;">${skill.name}</span>
+            <span class="skill-untrained-marker">${skill.untrained ? "U" : ""}</span>
+            <button class="btn-add-subtype" data-skill-name="${skill.name}" data-skill-index="${i}">+ add subtype</button>
+          </td>
+        `;
+        tbody.appendChild(headerTr);
+        headerTr.querySelector(".btn-add-subtype").addEventListener("click", () => {
+          addSubtypeEntry(tbody, skill, i, "");
+        });
+        // Add saved subtypes, or one empty default if none saved
+        if (subtypes.length > 0) {
+          subtypes.forEach((entry) => {
+            const tr = addSubtypeEntry(tbody, skill, i, entry.subtypeName || "", entry);
+            if (entry.notes) {
+              const toggleBtn = tr.querySelector(".skill-notes-toggle");
+              toggleBtn.dataset.notes = entry.notes;
+              toggleBtn.classList.add("has-notes");
+            }
           });
-        }
-      } else if (entry.type === "subtype") {
-        const skillDef = DND35.skills[entry.index];
-        if (skillDef) {
-          const tbody = entry.index < midpoint ? tbodyL : tbodyR;
-          const tr = addSubtypeEntry(tbody, skillDef, entry.index, entry.subtypeName || "", entry);
-          if (entry.notes) {
-            const toggleBtn = tr.querySelector(".skill-notes-toggle");
-            toggleBtn.dataset.notes = entry.notes;
-            toggleBtn.classList.add("has-notes");
-          }
+        } else {
+          addSubtypeEntry(tbody, skill, i, "");
         }
       } else {
         // Regular skill
-        const skillDef = DND35.skills[entry.index];
-        if (skillDef) {
-          const tbody = entry.index < midpoint ? tbodyL : tbodyR;
-          const tr = addSkillRow(tbody, skillDef, entry.index, getAbilityMod);
+        const entry = saved.find(e => e.type === "skill");
+        const tr = addSkillRow(tbody, skill, i, getAbilityMod);
+        if (entry) {
           tr.querySelector(".skill-class-check").checked = entry.classSkill;
           tr.querySelector(".skill-ranks").value = entry.ranks;
           tr.querySelector(".skill-misc").value = entry.misc;

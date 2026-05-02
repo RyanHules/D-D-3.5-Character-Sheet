@@ -2,3 +2,4 @@
 *.md
 !README.md
 imported_characters/**
+exported_characters/**
