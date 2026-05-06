@@ -376,7 +376,8 @@ def map_pdf_to_json(f: dict[str, str]) -> dict:
     data["char-skin"] = as_text(f.get("Skin"))
     data["char-campaign"] = as_text(f.get("Campaign") or f.get("campaign"))
     data["char-xp"] = as_text(
-        f.get("XP") or f.get("Experience") or f.get("experience points") or f.get("Exp")
+        f.get("MK_experience_points") or f.get("XP") or f.get("Experience")
+        or f.get("experience points") or f.get("Exp")
     )
     data["char-speed"] = as_text(f.get("SPEED"))
     data["char-size"] = normalize_size(as_text(f.get("size")))

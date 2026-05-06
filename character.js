@@ -356,7 +356,7 @@ const Character = (function () {
       "char-alignment", "char-deity", "char-level", "char-size", "char-age",
       "char-gender", "char-height", "char-weight", "char-eyes", "char-hair",
       "char-skin", "char-campaign", "char-xp", "char-speed", "damage-reduction",
-      "hp-total", "hp-current", "hp-nonlethal",
+      "hp-total", "hp-current", "hp-temp", "hp-nonlethal",
       "ac-natural", "ac-misc",
       "save-conditional", "init-misc", "bab-1", "grapple-misc",
       "spell-resistance", "languages",
