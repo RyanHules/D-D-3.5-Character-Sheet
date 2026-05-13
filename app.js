@@ -60,7 +60,11 @@
     const ab = ability.toLowerCase();
     const temp = $(`#${ab}-temp`).value;
     const base = $(`#${ab}-score`).value;
+    const race = $(`#${ab}-race`)?.value;
+    const tpl  = $(`#${ab}-template`)?.value;
     let score = temp !== "" ? parseInt(temp) || 0 : parseInt(base) || 0;
+    score += parseInt(race) || 0;  // racial adjustment always applies
+    score += parseInt(tpl)  || 0;  // template adjustment (Half-Dragon, etc.)
     if (abilityBonuses) score += abilityBonuses[ability] || 0;
     return DND35.abilityModifier(score);
   }

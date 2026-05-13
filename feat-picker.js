@@ -1,0 +1,270 @@
+// feat-picker.js — Autocomplete feat search + info panel + add button,
+// injected into the Feats & Abilities tab above "+ Add Feat".
+//
+// Data quirks handled:
+//   * All feat `name` values in the DB are stored UPPER CASE
+//     ("POWER ATTACK"). We Title-Case for display + autocomplete; lookup
+//     is case-insensitive so manually-typed "power attack" still finds
+//     the row.
+//   * Both 3.5 and 3.0 versions exist for many feats (separate rows).
+//     Deduped case-insensitively, with 3.5 preferred (as in spell-picker).
+//   * `types_csv` is comma-separated and case-fragmented (GENERAL vs
+//     General). Normalized to Title Case for the type filter; the filter
+//     matches if ANY of the row's types matches the selected one.
+//
+// UI inserted into #tab-feats (between the Feats section header and
+// the "+ Add Feat" button):
+//   #feat-lookup           (input)   — feat name autocomplete
+//   #feat-lookup-type      (select)  — filter by type (Any / General / Metamagic / …)
+//   #feat-lookup-add       (button)  — append to Feats list
+//   #feat-info             (div)     — feat detail panel
+//   <datalist id="feat-options">     — autocomplete options
+
+(function () {
+  if (!window.DB) {
+    console.warn('[feat-picker] DB module not loaded');
+    return;
+  }
+
+  // Title-case "POWER ATTACK" → "Power Attack"; preserve apostrophes,
+  // hyphens, and parenthesized clauses ("Mounted Combat (Special)").
+  // Lowercase short connectives.
+  const SMALL_WORDS = new Set([
+    'of', 'the', 'and', 'or', 'a', 'an', 'in', 'on', 'to',
+    'for', 'with', 'by', 'at', 'from', 'as', 'is',
+  ]);
+  function titleCase(s) {
+    if (!s) return '';
+    const lower = String(s).toLowerCase();
+    return lower.replace(/\b([a-z])([a-z'-]*)/gi, (m, first, rest, idx) => {
+      const word = first.toLowerCase() + rest.toLowerCase();
+      if (idx > 0 && SMALL_WORDS.has(word)) return word;
+      return first.toUpperCase() + rest.toLowerCase();
+    });
+  }
+
+  // canonicalNameLower → { displayName, primary: row, allRows: [...] }
+  let featIndex = new Map();
+  // canonical type (Title Case) → { count, raw: [original strings...] }
+  let typeIndex = new Map();
+  // sorted display names for the datalist
+  let displayNames = [];
+
+  function normalizeType(raw) {
+    if (!raw) return null;
+    const trimmed = String(raw).trim();
+    if (!trimmed) return null;
+    return titleCase(trimmed);
+  }
+
+  function buildIndex() {
+    const rows = DB.query(
+      "SELECT feat_id, name, version, types_csv FROM feat " +
+      "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "name COLLATE NOCASE"
+    );
+    featIndex = new Map();
+    typeIndex = new Map();
+    for (const r of rows) {
+      if (!r.name) continue;
+      const key = r.name.toLowerCase();
+      const display = titleCase(r.name);
+      if (!featIndex.has(key)) {
+        featIndex.set(key, { displayName: display, primary: r, allRows: [r] });
+      } else {
+        featIndex.get(key).allRows.push(r);
+      }
+      if (r.types_csv) {
+        for (const t of String(r.types_csv).split(/\s*,\s*/)) {
+          const norm = normalizeType(t);
+          if (!norm) continue;
+          if (!typeIndex.has(norm)) typeIndex.set(norm, 0);
+          typeIndex.set(norm, typeIndex.get(norm) + 1);
+        }
+      }
+    }
+    displayNames = [...featIndex.values()]
+      .map(v => v.displayName)
+      .sort((a, b) => a.localeCompare(b));
+    console.log(`[feat-picker] indexed ${rows.length} feat rows → ` +
+      `${featIndex.size} distinct feats, ${typeIndex.size} types`);
+  }
+
+  // Returns true iff `entry`'s types include the chosen type (case-
+  // insensitive). "" = no filter (Any).
+  function matchesType(entry, chosenType) {
+    if (!chosenType) return true;
+    const raw = entry.primary.types_csv || '';
+    return String(raw)
+      .split(/\s*,\s*/)
+      .map(t => normalizeType(t))
+      .some(t => t && t.toLowerCase() === chosenType.toLowerCase());
+  }
+
+  function refreshDatalist(datalist, chosenType) {
+    datalist.innerHTML = '';
+    let n = 0;
+    for (const display of displayNames) {
+      const entry = featIndex.get(display.toLowerCase());
+      if (!entry) continue;
+      if (!matchesType(entry, chosenType)) continue;
+      const opt = document.createElement('option');
+      opt.value = display;
+      opt.label = entry.primary.types_csv
+        ? titleCase(entry.primary.types_csv) : '';
+      datalist.appendChild(opt);
+      n++;
+    }
+    return n;
+  }
+
+  function fullFeatRow(featId) {
+    return DB.queryOne("SELECT * FROM feat WHERE feat_id = ?", [featId]);
+  }
+
+  function init() {
+    const feats = document.querySelector('#tab-feats .section');
+    const addBtn = document.getElementById('btn-add-feat');
+    if (!feats || !addBtn) {
+      console.warn('[feat-picker] feats UI not found');
+      return;
+    }
+    buildIndex();
+
+    // Build type-filter options from index, sorted by count desc but
+    // capped at the most common ones; rest gets bucketed under "More…"
+    // (just shown alphabetically below the top group).
+    const sortedTypes = [...typeIndex.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+    const wrap = document.createElement('div');
+    wrap.className = 'feat-picker';
+    wrap.style.cssText =
+      'padding:0.5rem; margin-bottom:0.5rem; ' +
+      'background:rgba(255,255,255,0.04); border-left:3px solid #aa8a6a; ' +
+      'border-radius:3px;';
+    wrap.innerHTML = `
+      <div style="display:flex;gap:0.4rem;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="flex:2 1 14rem;min-width:12rem">
+          <label>Feat Lookup</label>
+          <input type="text" id="feat-lookup" list="feat-options"
+                 placeholder="e.g. Power Attack" autocomplete="off">
+          <datalist id="feat-options"></datalist>
+        </div>
+        <div class="field" style="flex:1 1 8rem;min-width:7rem">
+          <label>Type Filter</label>
+          <select id="feat-lookup-type">
+            <option value="">Any type</option>
+            ${sortedTypes.map(([t, c]) =>
+              `<option value="${t}">${t} (${c})</option>`
+            ).join('')}
+          </select>
+        </div>
+        <button type="button" id="feat-lookup-add" class="btn-add"
+                style="height:2rem">+ Add to Feats</button>
+      </div>
+      <div id="feat-info"
+           style="display:none;font-size:0.85em;color:#ccc;margin-top:0.4rem">
+      </div>
+    `;
+    addBtn.parentElement.insertBefore(wrap, addBtn);
+
+    const featInput = document.getElementById('feat-lookup');
+    const typeSelect = document.getElementById('feat-lookup-type');
+    const addLookupBtn = document.getElementById('feat-lookup-add');
+    const info = document.getElementById('feat-info');
+    const datalist = document.getElementById('feat-options');
+
+    refreshDatalist(datalist, '');
+
+    typeSelect.addEventListener('change', () => {
+      const n = refreshDatalist(datalist, typeSelect.value);
+      featInput.placeholder = typeSelect.value
+        ? `${n} ${typeSelect.value} feat${n === 1 ? '' : 's'}`
+        : 'e.g. Power Attack';
+    });
+
+    function updateInfo() {
+      const typed = featInput.value.trim();
+      if (!typed) { info.style.display = 'none'; info.innerHTML = ''; return; }
+      const entry = featIndex.get(typed.toLowerCase());
+      if (!entry) { info.style.display = 'none'; info.innerHTML = ''; return; }
+      const full = fullFeatRow(entry.primary.feat_id);
+      if (!full) { info.style.display = 'none'; info.innerHTML = ''; return; }
+
+      const bits = [];
+      bits.push(`<b>${escapeHtml(entry.displayName)}</b>` +
+        ` <span style="opacity:.7">(${escapeHtml(full.version || '?')})</span>`);
+      if (full.types_csv) {
+        const types = String(full.types_csv).split(/\s*,\s*/)
+          .map(t => normalizeType(t)).filter(Boolean).join(', ');
+        if (types) bits.push(`<b>Type:</b> ${escapeHtml(types)}`);
+      }
+      if (full.prerequisites && full.prerequisites.trim()) {
+        bits.push(`<b>Prereq:</b> ${escapeHtml(full.prerequisites)}`);
+      }
+      if (full.benefit && full.benefit.trim()) {
+        bits.push(`<b>Benefit:</b> ${escapeHtml(full.benefit)}`);
+      }
+      if (full.normal && full.normal.trim()) {
+        bits.push(`<b>Normal:</b> ${escapeHtml(full.normal)}`);
+      }
+      if (full.special && full.special.trim()) {
+        bits.push(`<b>Special:</b> ${escapeHtml(full.special)}`);
+      }
+      info.innerHTML = bits.join('<br>');
+      info.style.display = 'block';
+    }
+    featInput.addEventListener('input', updateInfo);
+    featInput.addEventListener('change', updateInfo);
+
+    function flash(msg, color) {
+      const note = document.createElement('div');
+      note.style.cssText = `margin-top:0.3rem;color:${color};font-style:italic`;
+      note.textContent = msg;
+      info.appendChild(note);
+      info.style.display = 'block';
+      setTimeout(() => note.remove(), 3500);
+    }
+
+    addLookupBtn.addEventListener('click', () => {
+      const typed = featInput.value.trim();
+      if (!typed) { flash('Pick a feat first.', '#a66'); return; }
+      // Use the canonical Title-Case display name if found in the index
+      // so the entered text is consistent across DB-known feats; allow
+      // fully custom ("homebrew") entries through unchanged.
+      const entry = featIndex.get(typed.toLowerCase());
+      const text = entry ? entry.displayName : typed;
+      // Dedup vs existing feat-entries (case-insensitive whole-text match).
+      const existing = Array.from(
+        document.querySelectorAll('#feats-container .feat-entry')
+      ).map(t => (t.value || '').trim().toLowerCase());
+      if (existing.includes(text.toLowerCase())) {
+        flash(`"${text}" already in Feats list.`, '#aa8');
+        return;
+      }
+      // Reuse the first empty row if there is one (so an initial blank
+      // row added by app.js doesn't get left behind).
+      const blanks = Array.from(
+        document.querySelectorAll('#feats-container .feat-entry')
+      ).filter(t => !(t.value || '').trim());
+      if (blanks.length) {
+        blanks[0].value = text;
+        blanks[0].dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        Feats.addFeat(text);
+      }
+      flash(`Added "${text}" to Feats.`, '#7a9');
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  DB.ready.then((db) => {
+    if (db) init();
+  });
+})();

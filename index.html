@@ -78,7 +78,19 @@
         <div class="field"><label>Campaign</label><input type="text" id="char-campaign"></div>
         <div class="field field-sm"><label>Experience Points</label><input type="text" id="char-xp" inputmode="numeric"></div>
       </div>
-      <div class="field" style="margin-top:0.5rem"><label>Class & Level</label><textarea id="char-class" rows="1" placeholder="e.g. Fighter 5 / Wizard 3"></textarea></div>
+      <div class="field sql-picker-row" style="margin-top:0.5rem"><label>Class & Level</label><textarea id="char-class" rows="1" placeholder="e.g. Fighter 5 / Wizard 3"></textarea></div>
+      <div class="sql-picker-row class-lookup-row">
+        <div class="field" style="flex:1 1 14rem; min-width:10rem">
+          <label>Class Lookup</label>
+          <input type="text" id="class-lookup" placeholder="e.g. Wizard">
+        </div>
+        <div class="field" style="flex:0 0 5.5rem">
+          <label>Level</label>
+          <input type="number" id="class-lookup-level" min="1" max="40" value="1">
+        </div>
+        <button type="button" id="class-lookup-apply" class="btn-add btn-add-inline">Apply to Sheet</button>
+      </div>
+      <div id="class-info" class="race-info" style="display: none;"></div>
     </section>
 
     <div class="two-column">
@@ -92,6 +104,8 @@
               <tr>
                 <th>Ability</th>
                 <th>Base Score</th>
+                <th>Race</th>
+                <th>Template</th>
                 <th>Item Bonus</th>
                 <th>Total</th>
                 <th>Modifier</th>
@@ -100,12 +114,12 @@
               </tr>
             </thead>
             <tbody>
-              <tr><td class="ability-label">STR<span>Strength</span></td><td><input type="number" id="str-score" class="ability-score"></td><td><span id="str-item" class="calc-field ability-item-bonus"></span></td><td><span id="str-total" class="calc-field ability-total"></span></td><td><span id="str-mod" class="calc-field">+0</span></td><td><input type="number" id="str-temp" class="ability-score"></td><td><span id="str-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">DEX<span>Dexterity</span></td><td><input type="number" id="dex-score" class="ability-score"></td><td><span id="dex-item" class="calc-field ability-item-bonus"></span></td><td><span id="dex-total" class="calc-field ability-total"></span></td><td><span id="dex-mod" class="calc-field">+0</span></td><td><input type="number" id="dex-temp" class="ability-score"></td><td><span id="dex-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">CON<span>Constitution</span></td><td><input type="number" id="con-score" class="ability-score"></td><td><span id="con-item" class="calc-field ability-item-bonus"></span></td><td><span id="con-total" class="calc-field ability-total"></span></td><td><span id="con-mod" class="calc-field">+0</span></td><td><input type="number" id="con-temp" class="ability-score"></td><td><span id="con-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">INT<span>Intelligence</span></td><td><input type="number" id="int-score" class="ability-score"></td><td><span id="int-item" class="calc-field ability-item-bonus"></span></td><td><span id="int-total" class="calc-field ability-total"></span></td><td><span id="int-mod" class="calc-field">+0</span></td><td><input type="number" id="int-temp" class="ability-score"></td><td><span id="int-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">WIS<span>Wisdom</span></td><td><input type="number" id="wis-score" class="ability-score"></td><td><span id="wis-item" class="calc-field ability-item-bonus"></span></td><td><span id="wis-total" class="calc-field ability-total"></span></td><td><span id="wis-mod" class="calc-field">+0</span></td><td><input type="number" id="wis-temp" class="ability-score"></td><td><span id="wis-tempmod" class="calc-field"></span></td></tr>
-              <tr><td class="ability-label">CHA<span>Charisma</span></td><td><input type="number" id="cha-score" class="ability-score"></td><td><span id="cha-item" class="calc-field ability-item-bonus"></span></td><td><span id="cha-total" class="calc-field ability-total"></span></td><td><span id="cha-mod" class="calc-field">+0</span></td><td><input type="number" id="cha-temp" class="ability-score"></td><td><span id="cha-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">STR<span>Strength</span></td><td><input type="number" id="str-score" class="ability-score"></td><td><input type="number" id="str-race" class="ability-score ability-race"></td><td><input type="number" id="str-template" class="ability-score ability-template"></td><td><span id="str-item" class="calc-field ability-item-bonus"></span></td><td><span id="str-total" class="calc-field ability-total"></span></td><td><span id="str-mod" class="calc-field">+0</span></td><td><input type="number" id="str-temp" class="ability-score"></td><td><span id="str-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">DEX<span>Dexterity</span></td><td><input type="number" id="dex-score" class="ability-score"></td><td><input type="number" id="dex-race" class="ability-score ability-race"></td><td><input type="number" id="dex-template" class="ability-score ability-template"></td><td><span id="dex-item" class="calc-field ability-item-bonus"></span></td><td><span id="dex-total" class="calc-field ability-total"></span></td><td><span id="dex-mod" class="calc-field">+0</span></td><td><input type="number" id="dex-temp" class="ability-score"></td><td><span id="dex-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">CON<span>Constitution</span></td><td><input type="number" id="con-score" class="ability-score"></td><td><input type="number" id="con-race" class="ability-score ability-race"></td><td><input type="number" id="con-template" class="ability-score ability-template"></td><td><span id="con-item" class="calc-field ability-item-bonus"></span></td><td><span id="con-total" class="calc-field ability-total"></span></td><td><span id="con-mod" class="calc-field">+0</span></td><td><input type="number" id="con-temp" class="ability-score"></td><td><span id="con-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">INT<span>Intelligence</span></td><td><input type="number" id="int-score" class="ability-score"></td><td><input type="number" id="int-race" class="ability-score ability-race"></td><td><input type="number" id="int-template" class="ability-score ability-template"></td><td><span id="int-item" class="calc-field ability-item-bonus"></span></td><td><span id="int-total" class="calc-field ability-total"></span></td><td><span id="int-mod" class="calc-field">+0</span></td><td><input type="number" id="int-temp" class="ability-score"></td><td><span id="int-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">WIS<span>Wisdom</span></td><td><input type="number" id="wis-score" class="ability-score"></td><td><input type="number" id="wis-race" class="ability-score ability-race"></td><td><input type="number" id="wis-template" class="ability-score ability-template"></td><td><span id="wis-item" class="calc-field ability-item-bonus"></span></td><td><span id="wis-total" class="calc-field ability-total"></span></td><td><span id="wis-mod" class="calc-field">+0</span></td><td><input type="number" id="wis-temp" class="ability-score"></td><td><span id="wis-tempmod" class="calc-field"></span></td></tr>
+              <tr><td class="ability-label">CHA<span>Charisma</span></td><td><input type="number" id="cha-score" class="ability-score"></td><td><input type="number" id="cha-race" class="ability-score ability-race"></td><td><input type="number" id="cha-template" class="ability-score ability-template"></td><td><span id="cha-item" class="calc-field ability-item-bonus"></span></td><td><span id="cha-total" class="calc-field ability-total"></span></td><td><span id="cha-mod" class="calc-field">+0</span></td><td><input type="number" id="cha-temp" class="ability-score"></td><td><span id="cha-tempmod" class="calc-field"></span></td></tr>
             </tbody>
           </table>
           <div class="ability-to-ac-section">
@@ -494,7 +508,8 @@
 
   <!-- ==================== COMPANION TAB ==================== -->
   <div id="tab-companion" class="tab-content">
-    <div class="spells-tab-bar" id="companion-tab-bar">
+    <div class="inner-tabs">
+      <span id="companion-tab-bar"></span>
       <button id="btn-add-companion" class="btn-add-tab" title="Add Companion">+ Add Companion</button>
     </div>
     <div id="companion-content"></div>
@@ -556,5 +571,16 @@
   <script src="companion.js"></script>
   <script src="class-features.js"></script>
   <script src="app.js"></script>
+
+  <!-- D&D 3.5 database (sql.js + dnd35.db). Purely additive: failing to
+       load these leaves the sheet operating in manual-entry mode. -->
+  <script src="vendor/sql-wasm.js"></script>
+  <script src="database.js"></script>
+  <script src="race-picker.js"></script>
+  <script src="template-picker.js"></script>
+  <script src="class-picker.js"></script>
+  <script src="spell-picker.js"></script>
+  <script src="feat-picker.js"></script>
+  <script src="item-picker.js"></script>
 </body>
 </html>

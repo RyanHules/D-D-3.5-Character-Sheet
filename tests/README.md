@@ -1,0 +1,81 @@
+# Tests
+
+Smoke tests for the character sheet's database integration.
+
+## Layer 2: picker query smoke test
+
+`test_pickers.js` — Node.js script that runs the EXACT SQL each
+`*-picker.js` issues against `data/dnd35.db` via the same sql.js
+library the browser uses. No npm install needed (uses vendored
+`vendor/sql-wasm.js`).
+
+```bash
+node tests/test_pickers.js
+```
+
+Exits 0 on all-pass, 1 on any failure.
+
+### What it covers (22 tests)
+
+| Group | Tests | What it verifies |
+|---|---|---|
+| `database.js` load-time queries | 4 | Counts of races / spells / feats / items > 0 |
+| `feat-picker.js` | 2 | List query + detail-by-id query work |
+| `item-picker.js` | 2 | List + detail |
+| `spell-picker.js` | 3 | Distinct class names; spell list join (Sor 3); detail by name |
+| `race-picker.js` | 2 | Base list + detail (sub-table queries are flagged as needing adaptation) |
+| `template-picker.js` | 1 | List query (sub-table queries flagged) |
+| `class-picker.js` | 2 | View query works; class_table is in entry.data JSON (path forward documented) |
+| Tags | 2 | combat-maneuver feats; evocation school via tag mirror |
+| Errata | 2 | Applied count; lookup by entry name |
+| Spell access | 2 | Spellthief derived spells; Beguiler native + derived |
+
+### Adding tests
+
+Each test is registered with `test('name', (db) => {...})`. Use:
+
+- `assert(cond, msg)` — boolean assertion
+- `assertGE(actual, expected, msg)` — numeric ≥
+- `assertNotEmpty(arr, msg)` — array length > 0
+- `execAll(db, sql, params)` — returns array of row objects
+- `execOne(db, sql, params)` — returns first row or null
+
+When a picker is adapted, add tests covering the new query patterns.
+When a new picker is added (deity, domain, plane, etc.), add a section
+of tests for it.
+
+## Layer 1: DB regression suite (Database project)
+
+The sibling [D&D 3.5 Database](../../D&D%203.5%20Database/) project
+has a comprehensive Python test suite at
+`databases/manual/test_db.py` (61 tests) covering schema integrity,
+referential integrity, tag taxonomy, errata kinds, spell access
+provenance, etc. Run after every DB rebuild:
+
+```bash
+cd "../../D&D 3.5 Database/databases/manual"
+python test_db.py
+```
+
+## When to run which
+
+| Event | Run |
+|---|---|
+| Pulled a new `data/dnd35.db` | `node tests/test_pickers.js` |
+| Adapted a picker module | `node tests/test_pickers.js` |
+| About to add a new picker | Both layers |
+| Rebuilt the DB upstream | Both layers |
+
+## Why two layers?
+
+- **Layer 1 (Python)** — comprehensive DB-level regression coverage.
+  Lives in the Database project; fires on every rebuild before the
+  DB is even copied here.
+- **Layer 2 (Node)** — picker integration smoke test. Lives here.
+  Verifies the JS code path (sql.js, query syntax, expected schema)
+  works against the actual DB file shipped with the character sheet.
+
+A failure in Layer 1 means the DB is bad. A failure in Layer 2 means
+the picker code expectations don't match the DB shape — most often
+during schema migrations like the one currently underway for race,
+template, and class pickers.

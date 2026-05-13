@@ -994,6 +994,73 @@ textarea {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
+/* === SQL pickers (race / template / class / spell / feat / item) === */
+.btn-add.btn-add-inline,
+.feat-picker .btn-add,
+.spell-picker .btn-add,
+.item-picker .btn-add,
+.class-lookup-row .btn-add,
+#template-picker .btn-add {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.4rem 0.8rem;
+}
+.class-lookup-row,
+#template-picker > div:first-child {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+.class-lookup-row .field { margin-bottom: 0; }
+.class-lookup-row .btn-add { height: 2rem; }
+.race-info {
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.85em;
+  color: #ccc;
+  background: rgba(255,255,255,0.04);
+  border-left: 3px solid #6a8aaa;
+  border-radius: 3px;
+}
+.mc-class-chip,
+.template-chip {
+  background: rgba(106,138,170,0.2);
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.template-chip { background: rgba(170,106,106,0.2); }
+#mc-classes-list,
+#template-applied-list {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.25rem;
+  min-height: 1.6rem;
+}
+.spell-picker,
+.feat-picker,
+.item-picker {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+}
+.spell-picker  { border-left: 3px solid #8a6a8a; }
+.feat-picker   { border-left: 3px solid #aa8a6a; }
+.item-picker   { border-left: 3px solid #6aaa8a; }
+#template-picker {
+  padding: 0.4rem 0;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+}
+
 /* === Shadowcaster === */
 .sh-group-header { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .sh-mystery-row { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.4rem; }
@@ -1009,3 +1076,4 @@ textarea {
   .calc-field { background: #eee; color: #333; }
   input, select, textarea { border: 1px solid #999; background: white; color: black; }
 }
+

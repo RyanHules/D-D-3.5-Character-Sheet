@@ -19,24 +19,27 @@ const Character = (function () {
     const saveBonuses = bonuses.saves || {};
     const acBonus = bonuses.ac || 0;
 
-    // Ability modifiers (include active bonuses like rage + items)
+    // Ability modifiers (include active bonuses like rage + items + race)
     DND35.abilities.forEach((ab) => {
       const lower = ab.toLowerCase();
-      const bonus = abilityBonuses[ab] || 0;
+      const bonus = abilityBonuses[ab] || 0;            // active/item bonus
       const rawScore = int($(`#${lower}-score`).value);
-      const totalScore = rawScore + bonus;
+      const raceMod = int($(`#${lower}-race`)?.value);  // racial adjustment
+      const tplMod  = int($(`#${lower}-template`)?.value); // template (Half-Dragon, etc.)
+      const totalScore = rawScore + raceMod + tplMod + bonus;
       const baseMod = DND35.abilityModifier(totalScore);
       // Item bonus column (show only when non-zero)
       const itemEl = $(`#${lower}-item`);
       if (itemEl) itemEl.textContent = bonus ? fmt(bonus) : "";
-      // Total score column
+      // Total score column — only show when there's a base score
       const totalEl = $(`#${lower}-total`);
       if (totalEl) totalEl.textContent = rawScore ? totalScore : "";
       $(`#${lower}-mod`).textContent = fmt(baseMod);
 
       const tempVal = $(`#${lower}-temp`).value;
       if (tempVal !== "") {
-        $(`#${lower}-tempmod`).textContent = fmt(DND35.abilityModifier(int(tempVal) + bonus));
+        $(`#${lower}-tempmod`).textContent =
+          fmt(DND35.abilityModifier(int(tempVal) + raceMod + tplMod + bonus));
       } else {
         $(`#${lower}-tempmod`).textContent = "";
       }
@@ -295,10 +298,12 @@ const Character = (function () {
       if (el) data[id] = el.value;
     });
 
-    // Ability scores
+    // Ability scores (base, racial adjustment, temp)
     DND35.abilities.forEach((ab) => {
       const lower = ab.toLowerCase();
       data[`${lower}-score`] = $(`#${lower}-score`).value;
+      data[`${lower}-race`] = $(`#${lower}-race`)?.value || "";
+      data[`${lower}-template`] = $(`#${lower}-template`)?.value || "";
       data[`${lower}-temp`] = $(`#${lower}-temp`).value;
     });
 
@@ -365,10 +370,18 @@ const Character = (function () {
       if (el && data[id] !== undefined) el.value = data[id];
     });
 
-    // Abilities
+    // Abilities (base, racial adjustment, temp)
     DND35.abilities.forEach((ab) => {
       const lower = ab.toLowerCase();
       if (data[`${lower}-score`] !== undefined) $(`#${lower}-score`).value = data[`${lower}-score`];
+      if (data[`${lower}-race`] !== undefined) {
+        const el = $(`#${lower}-race`);
+        if (el) el.value = data[`${lower}-race`];
+      }
+      if (data[`${lower}-template`] !== undefined) {
+        const el = $(`#${lower}-template`);
+        if (el) el.value = data[`${lower}-template`];
+      }
       if (data[`${lower}-temp`] !== undefined) $(`#${lower}-temp`).value = data[`${lower}-temp`];
     });
 
