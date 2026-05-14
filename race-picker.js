@@ -57,9 +57,18 @@
 
     // 3. Populate options from DB.
     // No `race` view any more — query `entry WHERE type='race'`.
+    // For duplicate names (e.g. Aasimar in Planar Handbook + FRCS),
+    // sort newest source first so the most recent printing wins.
+    // 3.5 wins over 3.0 first; then publication_date DESC.
     const races = DB.query(
-      "SELECT id AS race_id, name, version FROM entry "
-      + "WHERE type = 'race' ORDER BY name"
+      "SELECT e.id AS race_id, e.name, e.version, e.source, "
+      + "       b.publication_date "
+      + "FROM entry e "
+      + "LEFT JOIN book b ON b.name = e.source "
+      + "WHERE e.type = 'race' "
+      + "ORDER BY e.name, "
+      + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+      + "         b.publication_date DESC"
     );
     raceIndex = new Map();
     for (const r of races) {

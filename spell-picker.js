@@ -104,40 +104,45 @@
     const variants = canonical.get(canonicalName);
     if (!variants || !variants.length) return [];
     const placeholders = variants.map(() => '?').join(',');
-    // Order 3.5 rows first so case-insensitive dedup picks the 3.5 form
-    // (e.g. "Fireball" wins over the 3.0 duplicate "FIREBALL").
-    // No `spell` view any more — query the unified `entry` table.
+    // Order 3.5 rows first, then newest publication date, so the
+    // case-insensitive dedup picks the canonical 3.5 form (e.g.
+    // Spell Compendium "Cure Light Wounds" wins over PHB if both
+    // exist, since SC is newer).
     return DB.query(
-      "SELECT DISTINCT e.id AS spell_id, e.name, e.school, e.version " +
+      "SELECT DISTINCT e.id AS spell_id, e.name, e.school, e.version, " +
+      "       e.source, b.publication_date " +
       "FROM entry e JOIN spell_class_level scl ON e.id = scl.entry_id " +
+      "LEFT JOIN book b ON b.name = e.source " +
       "WHERE e.type = 'spell' " +
       `AND scl.class_name IN (${placeholders}) AND scl.level = ? ` +
       "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
-      "e.name COLLATE NOCASE",
+      "         b.publication_date DESC, " +
+      "         e.name COLLATE NOCASE",
       [...variants, level]
     );
   }
 
   function spellByName(name) {
     // Case-insensitive match so "Fireball" matches both 3.5 "Fireball"
-    // and 3.0 "FIREBALL"; 3.5 wins via the ORDER BY.
-    // Per-field columns inlined via json_extract (no `spell` view).
+    // and 3.0 "FIREBALL"; 3.5 wins via the ORDER BY, then newest book.
     return DB.queryOne(
-      "SELECT id AS spell_id, name, source, version, school, subschool, "
-      + "descriptor, "
-      + "json_extract(data, '$.components')        AS components, "
-      + "json_extract(data, '$.casting_time')      AS casting_time, "
-      + "json_extract(data, '$.range')             AS range, "
-      + "json_extract(data, '$.target')            AS target, "
-      + "json_extract(data, '$.area')              AS area, "
-      + "json_extract(data, '$.effect')            AS effect, "
-      + "json_extract(data, '$.duration')          AS duration, "
-      + "json_extract(data, '$.saving_throw')      AS saving_throw, "
-      + "json_extract(data, '$.spell_resistance')  AS spell_resistance, "
-      + "json_extract(data, '$.description')       AS description "
-      + "FROM entry "
-      + "WHERE type = 'spell' AND name = ? COLLATE NOCASE "
-      + "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END LIMIT 1",
+      "SELECT e.id AS spell_id, e.name, e.source, e.version, "
+      + "e.school, e.subschool, e.descriptor, "
+      + "json_extract(e.data, '$.components')        AS components, "
+      + "json_extract(e.data, '$.casting_time')      AS casting_time, "
+      + "json_extract(e.data, '$.range')             AS range, "
+      + "json_extract(e.data, '$.target')            AS target, "
+      + "json_extract(e.data, '$.area')              AS area, "
+      + "json_extract(e.data, '$.effect')            AS effect, "
+      + "json_extract(e.data, '$.duration')          AS duration, "
+      + "json_extract(e.data, '$.saving_throw')      AS saving_throw, "
+      + "json_extract(e.data, '$.spell_resistance')  AS spell_resistance, "
+      + "json_extract(e.data, '$.description')       AS description "
+      + "FROM entry e "
+      + "LEFT JOIN book b ON b.name = e.source "
+      + "WHERE e.type = 'spell' AND e.name = ? COLLATE NOCASE "
+      + "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+      + "         b.publication_date DESC LIMIT 1",
       [name]
     );
   }
@@ -170,14 +175,38 @@
     return dl;
   }
 
+  // Tag → Set<spell_id> + counts for fast filtering.
+  const spellTagIndex = new Map();
+  const spellTagCounts = new Map();
+  let spellTagsBuilt = false;
+
+  function buildSpellTagIndex() {
+    if (spellTagsBuilt) return;
+    spellTagsBuilt = true;
+    const rows = DB.query(
+      "SELECT t.tag, t.entry_id FROM tag t "
+      + "JOIN entry e ON e.id = t.entry_id WHERE e.type = 'spell'"
+    );
+    for (const r of rows) {
+      if (!spellTagIndex.has(r.tag)) spellTagIndex.set(r.tag, new Set());
+      spellTagIndex.get(r.tag).add(r.entry_id);
+      spellTagCounts.set(r.tag, (spellTagCounts.get(r.tag) || 0) + 1);
+    }
+  }
+
   function injectPicker(panel) {
     if (!panel || panel.querySelector('.spell-picker')) return;
     const tabsEl = panel.querySelector('.spell-list-tabs');
     if (!tabsEl) return; // panel not ready yet
 
     buildSharedClassDatalist();
+    buildSpellTagIndex();
 
     const dlId = `spell-picker-spells-${++datalistCounter}`;
+    // Top tags only — keep the dropdown tractable.
+    const sortedTags = [...spellTagCounts.entries()]
+      .filter(([, c]) => c >= 20)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const wrap = document.createElement('div');
     wrap.className = 'spell-picker';
     wrap.style.cssText =
@@ -194,6 +223,15 @@
         <div class="field field-sm" style="width:5rem">
           <label>Level</label>
           <input type="number" class="sp-level" min="0" max="9" value="0">
+        </div>
+        <div class="field" style="flex:1 1 8rem;min-width:7rem">
+          <label>Tag</label>
+          <select class="sp-tag">
+            <option value="">Any tag</option>
+            ${sortedTags.map(([t, c]) =>
+              `<option value="${escapeHtml(t)}">${escapeHtml(t)} (${c})</option>`
+            ).join('')}
+          </select>
         </div>
         <div class="field" style="flex:2 1 14rem;min-width:12rem">
           <label>Spell</label>
@@ -222,6 +260,7 @@
   function wirePicker(panel, picker, dlId) {
     const classInput = picker.querySelector('.sp-class');
     const levelInput = picker.querySelector('.sp-level');
+    const tagSelect  = picker.querySelector('.sp-tag');
     const spellInput = picker.querySelector('.sp-spell');
     const info       = picker.querySelector('.sp-info');
     const addKnown   = picker.querySelector('.sp-add-known');
@@ -234,6 +273,8 @@
     function refreshSpellList() {
       const cls = normalizeClass(classInput.value);
       const lvl = parseInt(levelInput.value, 10);
+      const tag = tagSelect.value;
+      const tagSet = tag ? spellTagIndex.get(tag) : null;
       datalist.innerHTML = '';
       currentSpells = [];
       currentByName = new Map();
@@ -244,8 +285,10 @@
       currentSpells = spellsFor(cls, lvl);
       // Dedupe by case-insensitive name; prefer 3.5 over 3.0 since the
       // ORDER BY in spellsFor puts 3.5 rows first, so the FIRST entry
-      // for each name is the canonical (3.5) form.
+      // for each name is the canonical (3.5) form. Also apply the
+      // tag filter if set.
       for (const s of currentSpells) {
+        if (tagSet && !tagSet.has(s.spell_id)) continue;
         const k = s.name.toLowerCase();
         if (currentByName.has(k)) continue;
         currentByName.set(k, s);
@@ -254,10 +297,12 @@
         opt.label = s.school || '';
         datalist.appendChild(opt);
       }
+      const n = currentByName.size;
+      const suffix = tag ? ` (tag:${tag})` : '';
       spellInput.placeholder =
-        currentSpells.length
-          ? `${currentSpells.length} ${cls} ${lvl} spell${currentSpells.length === 1 ? '' : 's'}`
-          : `(no ${cls} ${lvl} spells found)`;
+        n
+          ? `${n} ${cls} ${lvl} spell${n === 1 ? '' : 's'}${suffix}`
+          : `(no ${cls} ${lvl} spells${suffix})`;
       updateInfoPanel();
     }
 
@@ -290,6 +335,7 @@
 
     classInput.addEventListener('input', refreshSpellList);
     levelInput.addEventListener('input', refreshSpellList);
+    tagSelect.addEventListener('change', refreshSpellList);
     spellInput.addEventListener('input', updateInfoPanel);
     spellInput.addEventListener('change', updateInfoPanel);
 

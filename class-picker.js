@@ -307,19 +307,22 @@
       classInput.parentElement.appendChild(datalist);
     }
 
-    // 2. Populate options. Prefer 3.5 versions; fall back to 3.0 if no 3.5
-    // exists for that class name.
-    // No class_table view any more — query unified `entry` table for
-    // class + prc entries, extract progression strings from JSON.
+    // 2. Populate options. Prefer 3.5 versions; ties broken by newest
+    // publication date so e.g. Player's Handbook II Bard wins over
+    // 3.0 reprints when both exist under the same display name.
     const rows = DB.query(
-      "SELECT id AS class_id, name AS class, version, source, "
-      + "json_extract(data, '$.bab_progression')  AS bab_progression, "
-      + "json_extract(data, '$.fort_progression') AS fort_progression, "
-      + "json_extract(data, '$.ref_progression')  AS ref_progression, "
-      + "json_extract(data, '$.will_progression') AS will_progression, "
-      + "json_extract(data, '$.table_caption')    AS table_caption "
-      + "FROM entry WHERE type IN ('class', 'prc') "
-      + "ORDER BY name, CASE version WHEN '3.5' THEN 0 ELSE 1 END"
+      "SELECT e.id AS class_id, e.name AS class, e.version, e.source, "
+      + "json_extract(e.data, '$.bab_progression')  AS bab_progression, "
+      + "json_extract(e.data, '$.fort_progression') AS fort_progression, "
+      + "json_extract(e.data, '$.ref_progression')  AS ref_progression, "
+      + "json_extract(e.data, '$.will_progression') AS will_progression, "
+      + "json_extract(e.data, '$.table_caption')    AS table_caption "
+      + "FROM entry e "
+      + "LEFT JOIN book b ON b.name = e.source "
+      + "WHERE e.type IN ('class', 'prc') "
+      + "ORDER BY e.name, "
+      + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+      + "         b.publication_date DESC"
     );
     classIndex = new Map();
     for (const r of rows) {

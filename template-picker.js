@@ -39,19 +39,21 @@
       return;
     }
 
-    // Index templates (3.5 preferred over 3.0 if collisions exist).
-    // No `template` view any more — query `entry WHERE type='template'`,
-    // expose JSON sub-fields via json_extract.
+    // Index templates (3.5 preferred over 3.0 if collisions exist;
+    // ties broken by newest publication date).
     const rows = DB.query(
-      "SELECT id AS template_id, name, source, version, "
-      + "json_extract(data, '$.template_type')      AS template_type, "
-      + "json_extract(data, '$.level_adjustment')   AS level_adjustment, "
-      + "COALESCE(json_extract(data, '$.new_creature_type'), "
-      + "         json_extract(data, '$.type_change')) AS new_creature_type, "
-      + "json_extract(data, '$.description')        AS description "
-      + "FROM entry WHERE type = 'template' "
-      + "ORDER BY name COLLATE NOCASE, "
-      + "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
+      "SELECT e.id AS template_id, e.name, e.source, e.version, "
+      + "json_extract(e.data, '$.template_type')      AS template_type, "
+      + "json_extract(e.data, '$.level_adjustment')   AS level_adjustment, "
+      + "COALESCE(json_extract(e.data, '$.new_creature_type'), "
+      + "         json_extract(e.data, '$.type_change')) AS new_creature_type, "
+      + "json_extract(e.data, '$.description')        AS description "
+      + "FROM entry e "
+      + "LEFT JOIN book b ON b.name = e.source "
+      + "WHERE e.type = 'template' "
+      + "ORDER BY e.name COLLATE NOCASE, "
+      + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+      + "         b.publication_date DESC"
     );
     templateIndex = new Map();
     for (const r of rows) {
@@ -129,6 +131,11 @@
     try { parsed = JSON.parse(row.data || '{}'); }
     catch (e) { console.warn('[template-picker] bad data JSON', e); }
 
+    // `type_change` text is verbose ("Augmented (dragon) base creature",
+    // "Undead (template added to evil dragon)", etc.). We keep the raw
+    // text for the info panel but expose a cleaned-up version
+    // (`new_creature_type_clean`) for stamping into `#char-type`.
+    const rawType = parsed.new_creature_type || parsed.type_change || null;
     const tpl = {
       template_id: row.template_id,
       name: row.name,
@@ -136,7 +143,8 @@
       version: row.version,
       template_type: parsed.template_type || null,
       level_adjustment: parsed.level_adjustment || null,
-      new_creature_type: parsed.new_creature_type || parsed.type_change || null,
+      new_creature_type: rawType,
+      new_creature_type_clean: cleanCreatureType(rawType),
       // Pull natural-armor bonus out of either a structured bonuses row
       // OR the free-form armor_class text ("Natural armor +N", "+N natural").
       natural_armor_bonus: deriveNaturalArmor(parsed),
@@ -231,8 +239,70 @@
   }
 
   // Parse a speed-change string like "Fly 30 ft (perfect)" into one or
-  // more movement-mode records. Returns an empty list for non-strings
-  // or strings we can't decode.
+  // Reduce the verbose SRD `type_change` text down to something
+  // suitable for the `#char-type` field. Returns null when the text
+  // is a placeholder ("Template") or prose that doesn't describe a
+  // clean type change. Patterns covered:
+  //   "Augmented (X) base creature"       → "Augmented (X)"  (cap subtype)
+  //   "X (template added to Y)"           → "X"
+  //   "X (... type changes to Y)"         → "X"
+  //   "X (Augmented)"                     → "X (Augmented)"
+  //   "Type changes to X..."              → "X"
+  //   "X - augmented"                     → "X"
+  //   "Template" / "Retains creature type"→ null
+  function cleanCreatureType(typeChange) {
+    if (!typeChange || typeof typeChange !== 'string') return null;
+    const s = typeChange.trim();
+    if (!s) return null;
+
+    if (/^template$/i.test(s)) return null;
+    if (/^retains creature type/i.test(s)) return null;
+
+    // "Augmented (X) base creature"  — title-case the subtype list.
+    let m = s.match(/^Augmented\s*\(([^)]+)\)\s*base creature\.?$/i);
+    if (m) return `Augmented (${titleCaseSubtype(m[1])})`;
+
+    // "X (template added to ...)" or "X (type changes to ...)".
+    m = s.match(
+      /^([A-Z][A-Za-z][A-Za-z ]*?)\s*\((?:template added to|type changes to)\b/i);
+    if (m) return m[1].trim();
+
+    // "X - augmented" — return X (already includes subtype).
+    m = s.match(/^(.+?)\s*-\s*augmented\.?$/i);
+    if (m) return m[1].trim();
+
+    // "Type changes to X." — X greedy up to the first period (so
+    // parenthetical subtypes like "(native subtype)" are preserved).
+    m = s.match(/^Type changes to\s+([^.]+)/i);
+    if (m) return titleCaseHead(m[1].trim());
+
+    // "X (Augmented)" — pass through.
+    if (/^[A-Z]\w+(?:\s+\w+)*\s*\(Augmented\)\.?$/i.test(s)) {
+      return s.replace(/\.?$/, '');
+    }
+
+    // Fallback: pass through (don't lose info).
+    return s;
+  }
+
+  // Title-case the subtype slug inside `Augmented (...)`. Slashes and
+  // commas are kept as separators; everything else gets the first
+  // letter of each word capitalized.
+  function titleCaseSubtype(s) {
+    return s.split(/([,/])/)
+      .map(part => /^[,/]$/.test(part)
+        ? part
+        : part.replace(/\b[a-z]/g, c => c.toUpperCase()))
+      .join('');
+  }
+
+  // Capitalize the first letter of the leading type word, leave any
+  // parenthetical subtype contents unchanged (the SRD uses lower-case
+  // there sometimes; preserving as-is keeps the source data honest).
+  function titleCaseHead(s) {
+    return s.replace(/^([a-z])/, c => c.toUpperCase());
+  }
+
   function parseSpeedChange(s) {
     if (typeof s !== 'string') return [];
     const out = [];
@@ -352,12 +422,16 @@
       }
     }
 
-    // 3. Override creature type if specified.
-    if (full.new_creature_type) {
+    // 3. Override creature type if specified. Use the cleaned form
+    // (e.g. "Augmented (Dragon)" instead of the raw "Augmented
+    // (dragon) base creature" the SRD wording uses) so #char-type
+    // stays readable. Skip if cleanup decided there's no real type
+    // change (templates with type_change == "Template" placeholder).
+    if (full.new_creature_type_clean) {
       const tf = document.getElementById('char-type');
       if (tf) {
         reversal.creatureTypeBefore = tf.value || '';
-        tf.value = full.new_creature_type;
+        tf.value = full.new_creature_type_clean;
         tf.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }

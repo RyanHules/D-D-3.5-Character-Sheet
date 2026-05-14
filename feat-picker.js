@@ -57,13 +57,34 @@
     return titleCase(trimmed);
   }
 
-  function buildIndex() {
-    // No per-type views any more — query the unified `entry` table.
+  // Tag → Set<feat_id> for fast filtering, plus per-tag counts.
+  const tagIndex = new Map();
+  const tagCounts = new Map();
+
+  function buildTagIndex() {
     const rows = DB.query(
-      "SELECT id AS feat_id, name, version, types_csv FROM entry " +
-      "WHERE type IN ('feat', 'acf', 'skill_trick') " +
-      "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END, " +
-      "name COLLATE NOCASE"
+      "SELECT t.tag, t.entry_id FROM tag t "
+      + "JOIN entry e ON e.id = t.entry_id "
+      + "WHERE e.type IN ('feat', 'acf', 'skill_trick')"
+    );
+    for (const r of rows) {
+      if (!tagIndex.has(r.tag)) tagIndex.set(r.tag, new Set());
+      tagIndex.get(r.tag).add(r.entry_id);
+      tagCounts.set(r.tag, (tagCounts.get(r.tag) || 0) + 1);
+    }
+  }
+
+  function buildIndex() {
+    // Query the unified `entry` table. Ties between same-named feats
+    // resolve to 3.5 first, then newest publication date.
+    const rows = DB.query(
+      "SELECT e.id AS feat_id, e.name, e.version, e.types_csv " +
+      "FROM entry e " +
+      "LEFT JOIN book b ON b.name = e.source " +
+      "WHERE e.type IN ('feat', 'acf', 'skill_trick') " +
+      "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "         b.publication_date DESC, " +
+      "         e.name COLLATE NOCASE"
     );
     featIndex = new Map();
     typeIndex = new Map();
@@ -103,13 +124,22 @@
       .some(t => t && t.toLowerCase() === chosenType.toLowerCase());
   }
 
-  function refreshDatalist(datalist, chosenType) {
+  function matchesTag(entry, chosenTag) {
+    if (!chosenTag) return true;
+    const set = tagIndex.get(chosenTag);
+    if (!set) return false;
+    // Match if ANY versioned row (3.5 or 3.0) has this tag.
+    return entry.allRows.some(r => set.has(r.feat_id));
+  }
+
+  function refreshDatalist(datalist, chosenType, chosenTag) {
     datalist.innerHTML = '';
     let n = 0;
     for (const display of displayNames) {
       const entry = featIndex.get(display.toLowerCase());
       if (!entry) continue;
       if (!matchesType(entry, chosenType)) continue;
+      if (!matchesTag(entry, chosenTag)) continue;
       const opt = document.createElement('option');
       opt.value = display;
       opt.label = entry.primary.types_csv
@@ -142,11 +172,16 @@
       return;
     }
     buildIndex();
+    buildTagIndex();
 
     // Build type-filter options from index, sorted by count desc but
     // capped at the most common ones; rest gets bucketed under "More…"
     // (just shown alphabetically below the top group).
     const sortedTypes = [...typeIndex.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    // Top tags only — keep the list tractable (>=5 feats per tag).
+    const sortedTags = [...tagCounts.entries()]
+      .filter(([, c]) => c >= 5)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
     const wrap = document.createElement('div');
@@ -172,6 +207,15 @@
             ).join('')}
           </select>
         </div>
+        <div class="field" style="flex:1 1 8rem;min-width:7rem">
+          <label>Tag Filter</label>
+          <select id="feat-lookup-tag">
+            <option value="">Any tag</option>
+            ${sortedTags.map(([t, c]) =>
+              `<option value="${t}">${t} (${c})</option>`
+            ).join('')}
+          </select>
+        </div>
         <button type="button" id="feat-lookup-add" class="btn-add"
                 style="height:2rem">+ Add to Feats</button>
       </div>
@@ -183,18 +227,28 @@
 
     const featInput = document.getElementById('feat-lookup');
     const typeSelect = document.getElementById('feat-lookup-type');
+    const tagSelect = document.getElementById('feat-lookup-tag');
     const addLookupBtn = document.getElementById('feat-lookup-add');
     const info = document.getElementById('feat-info');
     const datalist = document.getElementById('feat-options');
 
-    refreshDatalist(datalist, '');
-
-    typeSelect.addEventListener('change', () => {
-      const n = refreshDatalist(datalist, typeSelect.value);
-      featInput.placeholder = typeSelect.value
-        ? `${n} ${typeSelect.value} feat${n === 1 ? '' : 's'}`
+    function refreshPlaceholder(n) {
+      const parts = [];
+      if (typeSelect.value) parts.push(typeSelect.value);
+      if (tagSelect.value)  parts.push(`tag:${tagSelect.value}`);
+      featInput.placeholder = parts.length
+        ? `${n} ${parts.join(' + ')} feat${n === 1 ? '' : 's'}`
         : 'e.g. Power Attack';
-    });
+    }
+    function applyFilters() {
+      const n = refreshDatalist(datalist, typeSelect.value, tagSelect.value);
+      refreshPlaceholder(n);
+    }
+
+    applyFilters();
+
+    typeSelect.addEventListener('change', applyFilters);
+    tagSelect.addEventListener('change', applyFilters);
 
     function updateInfo() {
       const typed = featInput.value.trim();

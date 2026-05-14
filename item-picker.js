@@ -66,12 +66,18 @@
   }
 
   function buildIndex() {
-    // No per-type views any more — query the unified `entry` table.
+    // Query the unified `entry` table. Tiebreak: 3.5 > 3.0, then by
+    // newest publication date (so the most recent printing wins for
+    // duplicate-named items).
     const rows = DB.query(
-      "SELECT id AS item_id, name, version, item_type AS type FROM entry " +
-      "WHERE type IN ('item', 'weapon', 'armor', 'gear') " +
-      "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END, " +
-      "name COLLATE NOCASE"
+      "SELECT e.id AS item_id, e.name, e.version, " +
+      "       e.item_type AS type " +
+      "FROM entry e " +
+      "LEFT JOIN book b ON b.name = e.source " +
+      "WHERE e.type IN ('item', 'weapon', 'armor', 'gear') " +
+      "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "         b.publication_date DESC, " +
+      "         e.name COLLATE NOCASE"
     );
     itemIndex = new Map();
     typeIndex = new Map();
@@ -106,13 +112,32 @@
       + "FROM entry WHERE id = ?", [itemId]);
   }
 
-  function refreshDatalist(datalist, chosenType) {
+  // Tag → Set<item_id> and per-tag counts for fast filtering.
+  const tagIndex = new Map();
+  const tagCounts = new Map();
+
+  function buildTagIndex() {
+    const rows = DB.query(
+      "SELECT t.tag, t.entry_id FROM tag t "
+      + "JOIN entry e ON e.id = t.entry_id "
+      + "WHERE e.type IN ('item','weapon','armor','gear')"
+    );
+    for (const r of rows) {
+      if (!tagIndex.has(r.tag)) tagIndex.set(r.tag, new Set());
+      tagIndex.get(r.tag).add(r.entry_id);
+      tagCounts.set(r.tag, (tagCounts.get(r.tag) || 0) + 1);
+    }
+  }
+
+  function refreshDatalist(datalist, chosenType, chosenTag) {
     datalist.innerHTML = '';
+    const tagSet = chosenTag ? tagIndex.get(chosenTag) : null;
     let n = 0;
     for (const display of displayNames) {
       const entry = itemIndex.get(display.toLowerCase());
       if (!entry) continue;
       if (chosenType && entry.primaryRow.type !== chosenType) continue;
+      if (tagSet && !tagSet.has(entry.primaryRow.item_id)) continue;
       const opt = document.createElement('option');
       opt.value = display;
       opt.label = entry.primaryRow.type || '';
@@ -129,8 +154,12 @@
       return;
     }
     buildIndex();
+    buildTagIndex();
 
     const sortedTypes = [...typeIndex.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const sortedTags = [...tagCounts.entries()]
+      .filter(([, c]) => c >= 5)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
     const wrap = document.createElement('div');
@@ -156,6 +185,15 @@
             ).join('')}
           </select>
         </div>
+        <div class="field" style="flex:1 1 8rem;min-width:7rem">
+          <label>Tag Filter</label>
+          <select id="item-lookup-tag">
+            <option value="">Any tag</option>
+            ${sortedTags.map(([t, c]) =>
+              `<option value="${escapeHtml(t)}">${escapeHtml(t)} (${c})</option>`
+            ).join('')}
+          </select>
+        </div>
         <button type="button" id="item-add-gear" class="btn-add"
                 title="Add to Possessions list (mundane gear / weapons / consumables)"
                 style="height:2rem">+ Gear</button>
@@ -171,19 +209,24 @@
 
     const itemInput = document.getElementById('item-lookup');
     const typeSel   = document.getElementById('item-lookup-type');
+    const tagSel    = document.getElementById('item-lookup-tag');
     const addGear   = document.getElementById('item-add-gear');
     const addMagic  = document.getElementById('item-add-magic');
     const info      = document.getElementById('item-info');
     const datalist  = document.getElementById('item-options');
 
-    refreshDatalist(datalist, '');
-
-    typeSel.addEventListener('change', () => {
-      const n = refreshDatalist(datalist, typeSel.value);
-      itemInput.placeholder = typeSel.value
-        ? `${n} ${typeSel.value} item${n === 1 ? '' : 's'}`
+    function applyFilters() {
+      const n = refreshDatalist(datalist, typeSel.value, tagSel.value);
+      const parts = [];
+      if (typeSel.value) parts.push(typeSel.value);
+      if (tagSel.value)  parts.push(`tag:${tagSel.value}`);
+      itemInput.placeholder = parts.length
+        ? `${n} ${parts.join(' + ')} item${n === 1 ? '' : 's'}`
         : 'e.g. Cloak of Resistance';
-    });
+    }
+    applyFilters();
+    typeSel.addEventListener('change', applyFilters);
+    tagSel.addEventListener('change', applyFilters);
 
     function updateInfo() {
       const typed = itemInput.value.trim();

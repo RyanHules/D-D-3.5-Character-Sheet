@@ -216,9 +216,50 @@ test('spell-picker: spell detail by name', (db) => {
 
 test('race-picker: list query (init)', (db) => {
   const rows = execAll(db,
-    "SELECT id AS race_id, name, version FROM entry "
-    + "WHERE type = 'race' ORDER BY name");
+    "SELECT e.id AS race_id, e.name, e.version, e.source, "
+    + "       b.publication_date "
+    + "FROM entry e "
+    + "LEFT JOIN book b ON b.name = e.source "
+    + "WHERE e.type = 'race' "
+    + "ORDER BY e.name, "
+    + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+    + "         b.publication_date DESC");
   assertGE(rows.length, 80);
+  // Every row should have a publication_date (book table coverage).
+  const missing = rows.filter(r => !r.publication_date).map(r => r.source);
+  const missingSet = new Set(missing);
+  assert(missingSet.size === 0,
+    `race rows missing book metadata: ${[...missingSet].slice(0, 5)}`);
+});
+
+test('race-picker: Aasimar tiebreak prefers Planar Handbook (2004) over FRCS (2001)', (db) => {
+  const rows = execAll(db,
+    "SELECT e.id, e.source, b.publication_date "
+    + "FROM entry e LEFT JOIN book b ON b.name = e.source "
+    + "WHERE e.type = 'race' AND e.name = 'Aasimar' "
+    + "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+    + "         b.publication_date DESC");
+  if (rows.length < 2) return; // skip if only one Aasimar
+  assert(rows[0].source.includes('Planar'),
+    `expected Planar Handbook first, got ${rows[0].source}`);
+});
+
+test('book table: every entry.source has a matching book row', (db) => {
+  const orphans = execAll(db,
+    "SELECT DISTINCT source FROM entry "
+    + "WHERE source NOT IN (SELECT name FROM book)");
+  assert(orphans.length === 0,
+    `${orphans.length} sources without book metadata: `
+    + orphans.slice(0, 5).map(r => r.source).join(', '));
+});
+
+test('book table: 29+ rows seeded, all with valid ISO publication_date', (db) => {
+  const rows = execAll(db, "SELECT name, publication_date FROM book");
+  assertGE(rows.length, 29);
+  for (const r of rows) {
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(r.publication_date || ''),
+      `bad date for ${r.name}: ${r.publication_date}`);
+  }
 });
 
 test('race-picker: detail query (entry + JSON.parse-able data)', (db) => {
@@ -426,6 +467,172 @@ test('class-picker: Barbarian class_features include Rage', (db) => {
   const names = features.map(f => f.name || '');
   assert(names.some(n => /^rage$/i.test(n)),
     'Barbarian should have Rage at L1');
+});
+
+// ---- tests: power-picker.js -----------------------------------------------
+
+test('power-picker: list query (init)', (db) => {
+  const rows = execAll(db,
+    "SELECT id AS power_id, name, source, version, discipline, "
+    + "json_extract(data, '$.level')              AS level_json, "
+    + "json_extract(data, '$.power_points')       AS power_points, "
+    + "json_extract(data, '$.description')        AS description "
+    + "FROM entry WHERE type = 'power' "
+    + "ORDER BY name COLLATE NOCASE, "
+    + "CASE version WHEN '3.5' THEN 0 ELSE 1 END");
+  assertGE(rows.length, 100);
+  // Disciplines present
+  const disciplines = new Set(rows.map(r => r.discipline).filter(Boolean));
+  assertGE(disciplines.size, 5, '5+ disciplines (the 6 psionic ones)');
+});
+
+test('power-picker: level dict shape', (db) => {
+  const r = execOne(db,
+    "SELECT json_extract(data, '$.level') AS lvl "
+    + "FROM entry WHERE type = 'power' AND name = 'Adrenaline Boost'");
+  assert(r && r.lvl);
+  const lvl = JSON.parse(r.lvl);
+  assert(typeof lvl === 'object' && !Array.isArray(lvl),
+    'power.level is a {className: level} dict');
+  assert(Object.keys(lvl).length >= 1);
+});
+
+// ---- tests: mystery-picker.js ---------------------------------------------
+
+test('mystery-picker: list query (init)', (db) => {
+  const rows = execAll(db,
+    "SELECT id AS mystery_id, name, source, version, "
+    + "json_extract(data, '$.path')                 AS path, "
+    + "json_extract(data, '$.mystery_level')        AS mystery_level, "
+    + "json_extract(data, '$.level_in_progression') AS progression, "
+    + "json_extract(data, '$.school')               AS school "
+    + "FROM entry WHERE type = 'mystery' "
+    + "ORDER BY name COLLATE NOCASE");
+  assertGE(rows.length, 65);
+  // Progressions present
+  const progs = new Set(rows.map(r => r.progression).filter(Boolean));
+  assert(progs.has('Fundamental'));
+  assert(progs.has('Apprentice'));
+  assert(progs.has('Initiate'));
+  assert(progs.has('Master'));
+});
+
+test('mystery-picker: filter by path + progression', (db) => {
+  const rows = execAll(db,
+    "SELECT name FROM entry WHERE type = 'mystery' "
+    + "AND json_extract(data, '$.level_in_progression') = 'Fundamental'");
+  assertGE(rows.length, 5, 'Fundamentals exist');
+});
+
+// ---- tests: soulmeld-picker.js --------------------------------------------
+
+test('soulmeld-picker: list query (init)', (db) => {
+  const rows = execAll(db,
+    "SELECT id AS soulmeld_id, name, source, version, "
+    + "json_extract(data, '$.chakra')       AS chakra, "
+    + "json_extract(data, '$.classes_csv')  AS classes_csv, "
+    + "json_extract(data, '$.description')  AS description "
+    + "FROM entry WHERE type = 'soulmeld' "
+    + "ORDER BY name COLLATE NOCASE");
+  assertGE(rows.length, 80);
+  // Chakras present
+  const chakras = new Set(rows.map(r => (r.chakra || '').split(/\s*\(/)[0].trim()).filter(Boolean));
+  assert(chakras.size >= 8, `expected 8+ distinct chakras, got ${chakras.size}`);
+});
+
+test('soulmeld-picker: description has Base / Chakra Bind structure', (db) => {
+  const r = execOne(db,
+    "SELECT json_extract(data, '$.description') AS d "
+    + "FROM entry WHERE type = 'soulmeld' AND name = 'Acrobat Boots'");
+  assert(r && r.d);
+  assert(/Base:/i.test(r.d), 'has Base: section');
+  assert(/Essentia:/i.test(r.d), 'has Essentia: section');
+  assert(/Chakra Bind/i.test(r.d), 'has Chakra Bind section');
+});
+
+// ---- tests: vestige-picker.js ---------------------------------------------
+
+test('vestige-picker: list query (init)', (db) => {
+  const rows = execAll(db,
+    "SELECT id AS vestige_id, name, source, version, "
+    + "json_extract(data, '$.vestige_level') AS vestige_level, "
+    + "json_extract(data, '$.binding_dc')    AS binding_dc, "
+    + "json_extract(data, '$.granted_abilities') AS granted_abilities_json "
+    + "FROM entry WHERE type = 'vestige' "
+    + "ORDER BY CAST(json_extract(data, '$.vestige_level') AS INTEGER), "
+    + "         name COLLATE NOCASE");
+  assertGE(rows.length, 30);
+  // Levels span 1-8.
+  const levels = new Set(rows.map(r => r.vestige_level));
+  assertGE(levels.size, 6, '6+ distinct vestige levels');
+});
+
+test('vestige-picker: Acererak has granted_abilities as a list of records', (db) => {
+  const r = execOne(db,
+    "SELECT json_extract(data, '$.granted_abilities') AS abil "
+    + "FROM entry WHERE type = 'vestige' AND name = 'Acererak, the Devourer'");
+  assert(r && r.abil);
+  const abilities = JSON.parse(r.abil);
+  assert(Array.isArray(abilities), 'granted_abilities is a list');
+  assertGE(abilities.length, 2);
+  assert('name' in abilities[0] && 'description' in abilities[0],
+    'ability rows have {name, description}');
+});
+
+// ---- tests: invocation-picker.js ------------------------------------------
+
+test('invocation-picker: list query (init)', (db) => {
+  const rows = execAll(db,
+    "SELECT id AS invocation_id, name, source, version, "
+    + "json_extract(data, '$.grade')                  AS grade, "
+    + "json_extract(data, '$.spell_level_equivalent') AS spell_level_equivalent, "
+    + "json_extract(data, '$.subcategory')            AS subcategory, "
+    + "json_extract(data, '$.description')            AS description "
+    + "FROM entry WHERE type = 'invocation' "
+    + "ORDER BY name COLLATE NOCASE");
+  assertGE(rows.length, 45);
+  const grades = new Set(rows.map(r => r.grade).filter(Boolean));
+  // Canonical four grades present.
+  assert(grades.has('Least'));
+  assert(grades.has('Lesser'));
+  assert(grades.has('Greater'));
+  assert(grades.has('Dark'));
+});
+
+test('invocation-picker: filter by grade (Lesser invocations >= 8)', (db) => {
+  const rows = execAll(db,
+    "SELECT COUNT(*) AS n FROM entry "
+    + "WHERE type = 'invocation' "
+    + "AND json_extract(data, '$.grade') = 'Lesser'");
+  assertGE(rows[0].n, 8);
+});
+
+// ---- tests: tag filtering -------------------------------------------------
+
+test('feat-picker: tag filter (combat-maneuver feats >= 60)', (db) => {
+  const rows = execAll(db,
+    "SELECT COUNT(*) AS n FROM entry e "
+    + "JOIN tag t ON t.entry_id = e.id "
+    + "WHERE e.type IN ('feat','acf','skill_trick') "
+    + "AND t.tag = 'combat-maneuver'");
+  assertGE(rows[0].n, 60);
+});
+
+test('item-picker: tag filter (slotless items >= 500)', (db) => {
+  const rows = execAll(db,
+    "SELECT COUNT(*) AS n FROM entry e "
+    + "JOIN tag t ON t.entry_id = e.id "
+    + "WHERE e.type IN ('item','weapon','armor','gear') "
+    + "AND t.tag = 'slotless'");
+  assertGE(rows[0].n, 500);
+});
+
+test('spell-picker: tag filter (mind-affecting spells >= 100)', (db) => {
+  const rows = execAll(db,
+    "SELECT COUNT(*) AS n FROM entry e "
+    + "JOIN tag t ON t.entry_id = e.id "
+    + "WHERE e.type = 'spell' AND t.tag = 'mind-affecting'");
+  assertGE(rows[0].n, 100);
 });
 
 // ---- tests: NEW capabilities (tags, errata, spell-access provenance) ------
