@@ -89,9 +89,7 @@
     for (const v of maneuverIndex.values()) {
       const opt = document.createElement('option');
       opt.value = v.name;
-      opt.label = v.discipline
-        ? `${v.discipline} ${v.type || ''} L${v.level ?? '?'}`
-        : '';
+      // No opt.label — Firefox renders it as visible suggestion text.
       dl.appendChild(opt);
     }
     document.body.appendChild(dl);
@@ -232,7 +230,7 @@
       for (const m of filtered) {
         const opt = document.createElement('option');
         opt.value = m.name;
-        opt.label = `${m.type || ''} ${m.discipline || ''} L${m.level ?? '?'}`;
+        // No opt.label — Firefox renders it as visible suggestion text.
         datalist.appendChild(opt);
       }
       manIn.placeholder = filtered.length

@@ -72,7 +72,7 @@
     for (const v of domainIndex.values()) {
       const opt = document.createElement('option');
       opt.value = v.name;
-      opt.label = v.source || '';
+      // No opt.label — Firefox renders it as visible suggestion text.
       datalistEl.appendChild(opt);
     }
     document.body.appendChild(datalistEl);

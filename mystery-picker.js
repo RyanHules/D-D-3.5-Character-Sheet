@@ -77,7 +77,7 @@
     for (const m of mysteryIndex.values()) {
       const opt = document.createElement('option');
       opt.value = m.name;
-      opt.label = `${m.progression || ''} L${m.mystery_level ?? '?'}`;
+      // No opt.label — Firefox renders it as visible suggestion text.
       dl.appendChild(opt);
     }
     document.body.appendChild(dl);
@@ -225,7 +225,7 @@
         if (prog && m.progression !== prog) continue;
         const opt = document.createElement('option');
         opt.value = m.name;
-        opt.label = `${m.progression || ''} L${m.mystery_level ?? '?'}`;
+        // No opt.label — Firefox renders it as visible suggestion text.
         datalist.appendChild(opt);
         n++;
       }

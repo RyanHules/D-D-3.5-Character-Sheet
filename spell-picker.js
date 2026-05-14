@@ -294,7 +294,7 @@
         currentByName.set(k, s);
         const opt = document.createElement('option');
         opt.value = s.name;
-        opt.label = s.school || '';
+        // No opt.label — Firefox renders it as visible suggestion text.
         datalist.appendChild(opt);
       }
       const n = currentByName.size;

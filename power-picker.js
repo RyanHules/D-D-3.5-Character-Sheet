@@ -186,7 +186,7 @@
         seen.add(k);
         const opt = document.createElement('option');
         opt.value = rec.name;
-        opt.label = `${rec.discipline || ''} L${level ?? '?'}`;
+        // No opt.label — Firefox renders it as visible suggestion text.
         datalist.appendChild(opt);
       }
       pwrIn.placeholder = list.length

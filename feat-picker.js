@@ -142,8 +142,11 @@
       if (!matchesTag(entry, chosenTag)) continue;
       const opt = document.createElement('option');
       opt.value = display;
-      opt.label = entry.primary.types_csv
-        ? titleCase(entry.primary.types_csv) : '';
+      // Don't set opt.label — Firefox renders it as visible suggestion
+      // text alongside the value, so a label like "General, Fighter"
+      // looks like the completion text rather than metadata. (Same
+      // bug we hit on soulmeld-picker.) Feat-type info is already
+      // shown in the info panel below.
       datalist.appendChild(opt);
       n++;
     }

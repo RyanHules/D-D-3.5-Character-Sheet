@@ -86,7 +86,7 @@
     for (const v of vestigeIndex.values()) {
       const opt = document.createElement('option');
       opt.value = v.name;
-      opt.label = `L${v.vestige_level ?? '?'} DC${v.binding_dc ?? '?'}`;
+      // No opt.label — Firefox renders it as visible suggestion text.
       dl.appendChild(opt);
     }
     document.body.appendChild(dl);
@@ -239,7 +239,7 @@
         if (wantLevel && Number(v.vestige_level) !== lvl) continue;
         const opt = document.createElement('option');
         opt.value = v.name;
-        opt.label = `L${v.vestige_level ?? '?'} DC${v.binding_dc ?? '?'}`;
+        // No opt.label — Firefox renders it as visible suggestion text.
         datalist.appendChild(opt);
         n++;
       }

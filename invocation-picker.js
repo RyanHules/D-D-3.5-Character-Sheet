@@ -139,8 +139,7 @@
         if (s && r.subcategory !== s) continue;
         const opt = document.createElement('option');
         opt.value = r.name;
-        opt.label = [r.grade, r.subcategory].filter(Boolean).join(' / ')
-          || `L${r.spell_level_equivalent ?? '?'}`;
+        // No opt.label — Firefox renders it as visible suggestion text.
         datalist.appendChild(opt);
         n++;
       }

@@ -140,7 +140,7 @@
       if (tagSet && !tagSet.has(entry.primaryRow.item_id)) continue;
       const opt = document.createElement('option');
       opt.value = display;
-      opt.label = entry.primaryRow.type || '';
+      // No opt.label — Firefox renders it as visible suggestion text.
       datalist.appendChild(opt);
       n++;
     }
