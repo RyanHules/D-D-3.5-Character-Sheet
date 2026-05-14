@@ -17,7 +17,11 @@
   // index.html is served at "/" or behind a sub-path (and regardless of
   // a `?bust=...` cache-buster on the URL).
   const BASE = new URL('.', document.baseURI).href;
-  const DB_PATH = BASE + 'data/dnd35.db';
+  // Cache-bust the DB blob — Chrome/Firefox aggressively cache the
+  // 14 MB file otherwise, so a rebuilt DB on disk doesn't reach the
+  // page until a hard refresh. Bump this when dnd35.db changes.
+  const DB_VERSION = '20260514d';
+  const DB_PATH = BASE + 'data/dnd35.db?v=' + DB_VERSION;
   const SQLJS_WASM_PATH = BASE + 'vendor/sql-wasm.wasm';
 
   let db = null;
