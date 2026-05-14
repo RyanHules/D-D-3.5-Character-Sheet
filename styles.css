@@ -1168,7 +1168,11 @@ textarea {
   gap: 0.3rem;
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid #3a3a3a;
-  min-height: 0; /* Phase 2 will populate */
+  /* Don't let the flex-column parent shrink the chips container —
+     when chips wrap to a second row, the container must grow with
+     them. Without this, the row-2 chip (e.g. "Race (117)") overlaps
+     the first result row. */
+  flex: 0 0 auto;
 }
 .lookup-chip {
   padding: 0.15rem 0.55rem;
@@ -1220,8 +1224,6 @@ textarea {
 }
 .lookup-row.expanded {
   background: rgba(106, 138, 170, 0.12);
-  flex-direction: column;
-  align-items: stretch;
 }
 
 .lookup-footer {
@@ -1269,12 +1271,15 @@ textarea {
 /* Phase 3: inline expand detail panel for the universal lookup. */
 .lookup-row.expanded {
   background: rgba(106, 138, 170, 0.12);
-  flex-direction: column;
-  align-items: stretch;
   padding-bottom: 0.6rem;
 }
 .lookup-row-detail {
+  /* Force the detail panel onto its own line beneath the title row by
+     consuming the full cross-axis width — combined with the parent
+     row's `flex-wrap: wrap`, this drops the panel to a new flex line
+     while the type/name/meta stay inline above it. */
   width: 100%;
+  flex-basis: 100%;
   margin-top: 0.4rem;
   padding: 0.6rem 0.8rem;
   border-top: 1px dashed #444;
