@@ -690,6 +690,98 @@ test('spell-access: Beguiler has both native + derived', (db) => {
   assertGE(total, 80);
 });
 
+// ---- tests: universal lookup modal ---------------------------------------
+
+// The lookup modal builds its index from two queries at DB.ready.
+// Both are verbatim from lookup.js#buildIndex.
+test('lookup: cross-type index covers all major types', (db) => {
+  const rows = execAll(db,
+    "SELECT id, name, type, source FROM entry WHERE name IS NOT NULL");
+  // Every entry in the DB should be searchable — the modal lists
+  // ~10,500 today and we expect that to keep growing.
+  assertGE(rows.length, 10000);
+  // At least one row for each primary type the modal shows chips for.
+  const seen = new Set(rows.map(r => r.type));
+  for (const t of ['spell', 'feat', 'item', 'creature', 'rule',
+                   'class', 'prc', 'race']) {
+    assert(seen.has(t), `expected at least one '${t}' entry in lookup index`);
+  }
+});
+
+test('lookup: type counts populated for chip strip', (db) => {
+  const rows = execAll(db,
+    "SELECT type, COUNT(*) AS n FROM entry " +
+    "WHERE name IS NOT NULL GROUP BY type");
+  // Sanity-check the chip-strip primary types: each should have a
+  // user-visible number of rows (spells/feats/items dominate).
+  const map = new Map(rows.map(r => [r.type, r.n]));
+  assertGE(map.get('spell') || 0, 1000);
+  assertGE(map.get('feat')  || 0, 500);
+  assertGE(map.get('rule')  || 0, 100);
+});
+
+test('lookup: tag fanout query returns rows per entry', (db) => {
+  // lookup.js#buildIndex does `SELECT entry_id, tag FROM tag` to build
+  // a Map<entry_id, Set<tag>>. Verify the table has columns the code
+  // expects and that the join distribution is plausible.
+  const rows = execAll(db,
+    "SELECT entry_id, tag FROM tag LIMIT 100");
+  assertNotEmpty(rows);
+  for (const r of rows) {
+    assert(typeof r.entry_id === 'number',
+      'tag.entry_id should be an integer');
+    assert(r.tag && typeof r.tag === 'string',
+      'tag.tag should be a non-empty string');
+  }
+  // At least 200 distinct entries are tagged — this powers the
+  // `tag:mind-affecting` prefix syntax.
+  const distinct = execOne(db,
+    "SELECT COUNT(DISTINCT entry_id) AS n FROM tag");
+  assertGE(distinct.n, 200);
+});
+
+test('lookup: errata badge index covers known applied entries', (db) => {
+  // The badge module queries `SELECT entry_id, applied FROM errata`
+  // at first use and builds two Sets. Make sure the table has both
+  // applied + advisory records, and no orphan FKs.
+  const counts = execOne(db,
+    "SELECT " +
+    "  COUNT(*) AS total, " +
+    "  SUM(CASE WHEN applied = 1 THEN 1 ELSE 0 END) AS n_applied, " +
+    "  COUNT(DISTINCT entry_id) AS n_entries " +
+    "FROM errata");
+  assertGE(counts.total, 100);
+  assertGE(counts.n_applied, 50);
+  assertGE(counts.n_entries, 100);
+  const orphans = execOne(db,
+    "SELECT COUNT(*) AS n FROM errata " +
+    "WHERE entry_id NOT IN (SELECT id FROM entry)");
+  assert(orphans.n === 0,
+    `errata has ${orphans.n} orphan entry_id references`);
+});
+
+test('lookup: errata popover query returns ordered records', (db) => {
+  // openPopover() runs this query — verbatim. The ORDER BY puts
+  // applied rows first, then groups by kind+field for readability.
+  const firstEntryWithErrata = execOne(db,
+    "SELECT entry_id FROM errata WHERE applied = 1 LIMIT 1");
+  assert(firstEntryWithErrata, 'expected at least one applied errata');
+  const records = execAll(db,
+    "SELECT source, kind, field, from_text, to_text, applied, note " +
+    "FROM errata WHERE entry_id = ? " +
+    "ORDER BY applied DESC, kind, field",
+    [firstEntryWithErrata.entry_id]);
+  assertNotEmpty(records);
+  // Applied rows must come before advisory.
+  let seenAdvisory = false;
+  for (const r of records) {
+    if (!r.applied) seenAdvisory = true;
+    if (seenAdvisory && r.applied) {
+      throw new Error('applied row appeared after advisory in popover order');
+    }
+  }
+});
+
 // ---- runner ---------------------------------------------------------------
 
 (async function main() {

@@ -320,6 +320,10 @@
     }
 
     panel.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    // race-picker's info panel doesn't repeat the race name (it's in
+    // the input). Prepend the errata badge so the ✦ sits at the top
+    // of the panel, above the property bits.
+    if (window.ErrataBadge) ErrataBadge.attach(panel, race.race_id, { position: 'prepend', applied: false });
     panel.style.display = bits.length ? 'block' : 'none';
   }
 

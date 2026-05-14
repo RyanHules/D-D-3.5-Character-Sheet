@@ -369,6 +369,7 @@
       bits.push(`<b>Traits:</b> ${t}${more}`);
     }
     panel.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    if (window.ErrataBadge) ErrataBadge.attach(panel, tpl.template_id);
     panel.style.display = 'block';
   }
 

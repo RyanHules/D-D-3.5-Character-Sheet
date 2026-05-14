@@ -253,6 +253,7 @@
         bits.push(`<b>Description:</b> ${escapeHtml(trimmed)}`);
       }
       info.innerHTML = bits.join('<br>');
+      if (window.ErrataBadge) ErrataBadge.attach(info, entry.primaryRow.item_id);
       info.style.display = 'block';
     }
     itemInput.addEventListener('input', updateInfo);

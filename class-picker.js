@@ -1028,6 +1028,7 @@
     }
 
     panel.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    if (window.ErrataBadge) ErrataBadge.attach(panel, cls.class_id);
     panel.style.display = 'block';
   }
 

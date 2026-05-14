@@ -330,6 +330,7 @@
       if (full.saving_throw)  bits.push(`<b>Save:</b> ${escapeHtml(full.saving_throw)}`);
       if (full.spell_resistance) bits.push(`<b>SR:</b> ${escapeHtml(full.spell_resistance)}`);
       info.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+      if (window.ErrataBadge) ErrataBadge.attach(info, full.spell_id);
       info.style.display = 'block';
     }
 

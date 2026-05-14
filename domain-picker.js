@@ -158,6 +158,7 @@
       entry.appendChild(info);
     }
     info.innerHTML = renderInfo(dom);
+    if (window.ErrataBadge) ErrataBadge.attach(info, dom.domain_id);
   }
 
   function renderInfo(dom) {

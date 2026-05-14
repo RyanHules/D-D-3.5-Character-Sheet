@@ -279,6 +279,7 @@
         bits.push(`<b>Special:</b> ${escapeHtml(full.special)}`);
       }
       info.innerHTML = bits.join('<br>');
+      if (window.ErrataBadge) ErrataBadge.attach(info, entry.primary.feat_id);
       info.style.display = 'block';
     }
     featInput.addEventListener('input', updateInfo);

@@ -199,6 +199,7 @@
       if (!rec) { info.style.display = 'none'; info.innerHTML = ''; return; }
       info.style.display = 'block';
       info.innerHTML = renderInfo(rec);
+      if (window.ErrataBadge) ErrataBadge.attach(info, rec.power_id);
     }
 
     function appendKnown() {

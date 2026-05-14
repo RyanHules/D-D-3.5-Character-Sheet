@@ -157,6 +157,7 @@
       if (!r) { info.style.display = 'none'; info.innerHTML = ''; return; }
       info.style.display = 'block';
       info.innerHTML = renderInfo(r);
+      if (window.ErrataBadge) ErrataBadge.attach(info, r.invocation_id);
     }
 
     function addToSpecials() {

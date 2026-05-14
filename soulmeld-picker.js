@@ -7,11 +7,16 @@
 // Some slots also support Double Chakra, exposing `.slot-sm2-name`.
 // The Totemist totem block has the same shape with id-prefixed inputs.
 //
-// Strategy: shared datalist on every `.slot-sm-name` / `.slot-sm2-name`
-// input. On exact match, parse the soulmeld's description into Base /
-// Chakra Bind portions and auto-fill `.slot-sm-base` and
-// `.slot-sm-bind-effect`. MutationObserver re-syncs the `list`
-// attribute when new soulmeld inputs appear.
+// Strategy: **per-slot datalist** — one `<datalist>` per body-slot id
+// (head, neck, shoulders, …, totem) containing only the soulmelds
+// whose chakra is valid for that slot. The input's `list=` attribute
+// points to the matching datalist based on its closest
+// `.magic-item-slot[data-slot-id]`. This both narrows suggestions to
+// chakra-valid soulmelds AND avoids Firefox rendering option labels
+// (chakra names like "Throat" / "Feet") as if they were suggestions.
+// On exact match, parse the soulmeld's description into Base / Chakra
+// Bind portions and auto-fill `.slot-sm-base` / `.slot-sm-bind-effect`.
+// MutationObserver re-syncs `list=` when new inputs appear.
 
 (function () {
   if (!window.DB) {
@@ -21,6 +26,23 @@
 
   // Lower-case name → soulmeld record (see init() for shape).
   const soulmeldIndex = new Map();
+
+  // Map equipment.js body-slot IDs to the chakra keywords soulmelds
+  // use. Slots with multiple chakras (head → Crown OR Brow) gather
+  // soulmelds whose chakra is any of them.
+  const SLOT_TO_CHAKRAS = {
+    head:      ['Crown', 'Brow'],
+    eyes:      ['Brow'],
+    neck:      ['Throat'],
+    shoulders: ['Shoulders'],
+    hands:     ['Hands'],
+    arms:      ['Arms'],
+    body:      ['Heart'],
+    torso:     ['Heart'],
+    waist:     ['Waist'],
+    feet:      ['Feet'],
+    totem:     ['Totem'],
+  };
 
   function init() {
     const rows = DB.query(
@@ -53,7 +75,7 @@
     }
     console.log(`[soulmeld-picker] indexed ${soulmeldIndex.size} soulmelds`);
 
-    buildDatalist();
+    buildPerSlotDatalists();
     syncInputs();
     wireDelegation();
     observeNew();
@@ -97,18 +119,94 @@
     return out;
   }
 
-  function buildDatalist() {
-    let dl = document.getElementById('soulmeld-picker-options');
-    if (dl) return;
-    dl = document.createElement('datalist');
-    dl.id = 'soulmeld-picker-options';
+  // Decompose a soulmeld's `chakra` string into a list of normalized
+  // chakra tokens. Handles all the shapes the data uses:
+  //   "Throat"                              → ["throat"]
+  //   "Throat (totem)"                      → ["throat", "totem"]
+  //   "Crown or Brow"                       → ["crown", "brow"]
+  //   "Brow, crown, or throat"              → ["brow", "crown", "throat"]
+  //   "Arms, feet, heart, or shoulders (totem)"
+  //                                         → ["arms", "feet", "heart", "shoulders", "totem"]
+  //   "Soul or waist"                       → ["soul", "waist"]
+  function parseChakras(chakraStr) {
+    if (!chakraStr) return [];
+    return String(chakraStr)
+      .toLowerCase()
+      .replace(/[()]/g, ',')   // pull "(totem)" inline
+      .replace(/\s+or\s+/g, ',')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  // Build one datalist per body slot containing only soulmelds whose
+  // chakra is valid for that slot. Plus an `-all` fallback datalist
+  // for any inputs that don't sit inside a known slot container.
+  // Crucially: NO `opt.label` — labels render as visible suggestions
+  // in Firefox and (along with the value) confused users into thinking
+  // the picker was offering slot names like "Throat" or "Totem".
+  function buildPerSlotDatalists() {
+    // Group soulmelds by chakra token.
+    const byChakra = new Map();
+    for (const sm of soulmeldIndex.values()) {
+      for (const c of parseChakras(sm.chakra)) {
+        if (!byChakra.has(c)) byChakra.set(c, []);
+        byChakra.get(c).push(sm);
+      }
+    }
+
+    // One datalist per slot.
+    for (const [slotId, validChakras] of Object.entries(SLOT_TO_CHAKRAS)) {
+      const id = `soulmeld-picker-options-${slotId}`;
+      let dl = document.getElementById(id);
+      if (!dl) {
+        dl = document.createElement('datalist');
+        dl.id = id;
+        document.body.appendChild(dl);
+      }
+      dl.innerHTML = '';
+      const seen = new Set();
+      for (const c of validChakras) {
+        for (const sm of (byChakra.get(c.toLowerCase()) || [])) {
+          if (seen.has(sm.name)) continue;
+          seen.add(sm.name);
+          const opt = document.createElement('option');
+          opt.value = sm.name;
+          dl.appendChild(opt);
+        }
+      }
+    }
+
+    // Fallback "all" datalist — used when an input isn't inside a
+    // known slot (defensive; shouldn't happen with current UI).
+    let dlAll = document.getElementById('soulmeld-picker-options-all');
+    if (!dlAll) {
+      dlAll = document.createElement('datalist');
+      dlAll.id = 'soulmeld-picker-options-all';
+      document.body.appendChild(dlAll);
+    }
+    dlAll.innerHTML = '';
     for (const sm of soulmeldIndex.values()) {
       const opt = document.createElement('option');
       opt.value = sm.name;
-      opt.label = sm.chakra || '';
-      dl.appendChild(opt);
+      dlAll.appendChild(opt);
     }
-    document.body.appendChild(dl);
+  }
+
+  // Resolve the right datalist id for one input by walking up to its
+  // enclosing `.magic-item-slot[data-slot-id]`, or recognizing the
+  // totem-block id prefix. Inputs we can't classify get the `-all`
+  // fallback.
+  function datalistFor(input) {
+    if (input.id === 'totem-sm-name' || input.id === 'totem-sm2-name') {
+      return 'soulmeld-picker-options-totem';
+    }
+    const slot = input.closest('.magic-item-slot');
+    const slotId = slot?.dataset?.slotId;
+    if (slotId && SLOT_TO_CHAKRAS[slotId]) {
+      return `soulmeld-picker-options-${slotId}`;
+    }
+    return 'soulmeld-picker-options-all';
   }
 
   function syncInputs() {
@@ -116,8 +214,9 @@
       '.slot-sm-name, .slot-sm2-name, #totem-sm-name, #totem-sm2-name'
     );
     for (const inp of inputs) {
-      if (inp.getAttribute('list') !== 'soulmeld-picker-options') {
-        inp.setAttribute('list', 'soulmeld-picker-options');
+      const want = datalistFor(inp);
+      if (inp.getAttribute('list') !== want) {
+        inp.setAttribute('list', want);
         inp.setAttribute('autocomplete', 'off');
       }
     }
@@ -145,22 +244,6 @@
     document.addEventListener('input', handler);
     document.addEventListener('change', handler);
   }
-
-  // Map equipment.js body-slot IDs to the chakra keywords soulmelds
-  // use. Some slots map to multiple chakras; we prefer the first match.
-  const SLOT_TO_CHAKRAS = {
-    head:      ['Crown', 'Brow'],
-    eyes:      ['Brow'],
-    neck:      ['Throat'],
-    shoulders: ['Shoulders'],
-    hands:     ['Hands'],
-    arms:      ['Arms'],
-    body:      ['Heart'],
-    torso:     ['Heart'],
-    waist:     ['Waist'],
-    feet:      ['Feet'],
-    totem:     ['Totem'],
-  };
 
   function fillFromSoulmeld(input, sm, isSecond) {
     const slot = input.closest('.magic-item-slot');

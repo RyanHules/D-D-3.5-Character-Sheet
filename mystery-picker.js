@@ -239,6 +239,7 @@
       if (!m) { info.style.display = 'none'; info.innerHTML = ''; return; }
       info.style.display = 'block';
       info.innerHTML = renderInfo(m);
+      if (window.ErrataBadge) ErrataBadge.attach(info, m.mystery_id);
     }
 
     function add() {

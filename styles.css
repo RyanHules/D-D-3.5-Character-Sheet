@@ -1077,3 +1077,506 @@ textarea {
   input, select, textarea { border: 1px solid #999; background: white; color: black; }
 }
 
+
+/* ==================== Universal Lookup Modal ==================== */
+/* The lookup modal is a Spotlight-style overlay opened with Ctrl+K
+   or via the "?" button in the header. Built incrementally in
+   lookup.js; CSS here mirrors the dark-themed rest of the sheet. */
+
+.lookup-trigger {
+  margin-left: auto;
+  padding: 0.2rem 0.55rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.lookup-trigger:hover { background: rgba(255, 255, 255, 0.15); }
+.lookup-trigger-floating {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 998;
+  font-size: 1.1rem;
+}
+
+.lookup-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4rem 1rem 1rem;
+}
+.lookup-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+}
+.lookup-card {
+  position: relative;
+  width: min(720px, 100%);
+  max-height: calc(100vh - 5rem);
+  background: #222;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lookup-search-row {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 0.6rem 0.4rem;
+  border-bottom: 1px solid #3a3a3a;
+}
+#lookup-input {
+  flex: 1;
+  font-size: 1.05rem;
+  padding: 0.4rem 0.6rem;
+  background: #1a1a1a;
+  color: #eee;
+  border: 1px solid #444;
+  border-radius: 4px;
+}
+#lookup-input:focus {
+  outline: none;
+  border-color: #6a8aaa;
+}
+.lookup-close {
+  background: transparent;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 4px;
+  font-size: 1.1rem;
+  width: 2rem;
+  cursor: pointer;
+}
+.lookup-close:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+
+.lookup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #3a3a3a;
+  min-height: 0; /* Phase 2 will populate */
+}
+.lookup-chip {
+  padding: 0.15rem 0.55rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid #444;
+  border-radius: 12px;
+  font-size: 0.85em;
+  cursor: pointer;
+  user-select: none;
+}
+.lookup-chip:hover { background: rgba(255, 255, 255, 0.12); }
+.lookup-chip.active {
+  background: #6a8aaa;
+  border-color: #6a8aaa;
+  color: #fff;
+}
+
+.lookup-results {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.4rem 0;
+}
+.lookup-empty {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: #999;
+  font-style: italic;
+}
+
+.lookup-row {
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.lookup-row:hover { background: rgba(255, 255, 255, 0.04); }
+.lookup-row.selected {
+  background: rgba(106, 138, 170, 0.18);
+  border-left-color: #6a8aaa;
+}
+.lookup-row-name { font-weight: 600; }
+.lookup-row-meta {
+  font-size: 0.85em;
+  color: #aaa;
+  flex: 1 1 auto;
+}
+.lookup-row.expanded {
+  background: rgba(106, 138, 170, 0.12);
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.lookup-footer {
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid #3a3a3a;
+  font-size: 0.8em;
+  color: #888;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.lookup-hint kbd {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  margin: 0 0.05rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid #444;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.95em;
+}
+
+/* Phase 2: result rows show a type badge before the name. */
+.lookup-row-type {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  margin-right: 0.3rem;
+  background: rgba(106, 138, 170, 0.25);
+  border: 1px solid rgba(106, 138, 170, 0.5);
+  border-radius: 3px;
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #cce;
+  min-width: 3.5rem;
+  text-align: center;
+}
+.lookup-chip-clear {
+  background: rgba(170, 90, 90, 0.18);
+  border-color: rgba(170, 90, 90, 0.5);
+  color: #fcc;
+}
+.lookup-chip-clear:hover { background: rgba(170, 90, 90, 0.35); }
+
+/* Phase 3: inline expand detail panel for the universal lookup. */
+.lookup-row.expanded {
+  background: rgba(106, 138, 170, 0.12);
+  flex-direction: column;
+  align-items: stretch;
+  padding-bottom: 0.6rem;
+}
+.lookup-row-detail {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  border-top: 1px dashed #444;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 0 0 4px 4px;
+  font-size: 0.92em;
+  line-height: 1.45;
+  cursor: text;
+}
+.lookup-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.82em;
+  color: #aab;
+}
+.lookup-detail-type {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #cce;
+}
+.lookup-detail-source { color: #aab; }
+.lookup-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.92em;
+  color: #ccd;
+}
+.lookup-meta-item b { color: #fff; font-weight: 600; }
+.lookup-detail-desc {
+  white-space: pre-wrap;
+  margin-bottom: 0.4rem;
+  color: #ddd;
+}
+.lookup-detail-extra {
+  margin-top: 0.3rem;
+  color: #ccd;
+}
+.lookup-detail-tags {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.lookup-tag {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  background: rgba(106, 138, 170, 0.18);
+  color: #cce;
+  border-radius: 10px;
+  font-size: 0.72em;
+}
+
+/* --- Errata badge + popover ------------------------------------------ */
+
+/* Subtle marker beside entry names in lists. Non-interactive — just
+   signals "this entry has errata; expand for details." */
+.errata-indicator {
+  display: inline-block;
+  margin-left: 0.25rem;
+  color: #ffd76b;
+  font-size: 0.9em;
+  line-height: 1;
+  cursor: help;
+}
+
+/* Clickable button used in detail-panel headers and (future)
+   per-picker info panels. Looks like a small pill. */
+.errata-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  padding: 0.1rem 0.5rem;
+  background: rgba(255, 215, 107, 0.12);
+  color: #ffd76b;
+  border: 1px solid rgba(255, 215, 107, 0.4);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.78em;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.errata-badge:hover,
+.errata-badge:focus-visible {
+  background: rgba(255, 215, 107, 0.22);
+  outline: none;
+}
+/* Variant used by per-picker info panels. The default badge uses
+   `margin-left: auto` to float right inside a flex header — inside
+   a plain block info panel we want it to sit inline with the title
+   instead, so we drop that and use a small left margin. */
+.errata-badge.errata-badge-inline {
+  margin-left: 0.4rem;
+  vertical-align: baseline;
+}
+
+/* The popover that opens when the badge is clicked. Position is set
+   inline by errata-badge.js — these rules just style the card. */
+.errata-popover {
+  position: fixed;
+  z-index: 10001;
+  max-width: 420px;
+  background: #1a1f29;
+  color: #ddd;
+  border: 1px solid #44516a;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  font-size: 0.88em;
+  overflow: hidden;
+}
+.errata-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  background: rgba(255, 215, 107, 0.08);
+  border-bottom: 1px solid #2c3344;
+  color: #ffd76b;
+}
+.errata-popover-head b { font-weight: 600; }
+.errata-popover-close {
+  background: transparent;
+  border: 0;
+  color: #aab;
+  font-size: 1.2em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+.errata-popover-close:hover { color: #fff; }
+.errata-popover-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0.4rem 0.6rem;
+}
+
+.errata-record {
+  padding: 0.4rem 0;
+  border-top: 1px solid #232a38;
+}
+.errata-record:first-child { border-top: 0; }
+.errata-record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.9em;
+}
+.errata-applied {
+  display: inline-block;
+  padding: 0.02rem 0.35rem;
+  background: rgba(120, 200, 120, 0.18);
+  color: #9ed79e;
+  border-radius: 8px;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.errata-advisory {
+  display: inline-block;
+  padding: 0.02rem 0.35rem;
+  background: rgba(180, 180, 200, 0.14);
+  color: #c7c7d0;
+  border-radius: 8px;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.errata-kind {
+  color: #cce;
+  font-style: italic;
+  font-size: 0.85em;
+}
+.errata-field {
+  color: #ffd76b;
+  font-size: 0.85em;
+}
+.errata-field::before { content: '· '; color: #556; }
+.errata-source {
+  margin-left: auto;
+  color: #889;
+  font-size: 0.8em;
+}
+.errata-diff {
+  margin-top: 0.2rem;
+  padding: 0.3rem 0.45rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-left: 2px solid #44516a;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+.errata-from { color: #d68a8a; }
+.errata-to   { color: #9ed79e; }
+.errata-note {
+  margin-top: 0.25rem;
+  color: #bbb;
+  font-size: 0.88em;
+  font-style: italic;
+}
+
+/* --- Empty state (recent searches + browse by type) ---------------- */
+
+.lookup-empty-state {
+  padding: 0.4rem 0.2rem;
+  color: #ccd;
+}
+.lookup-empty-section {
+  margin-bottom: 1rem;
+}
+.lookup-empty-section:last-child { margin-bottom: 0; }
+.lookup-empty-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #aab;
+}
+.lookup-empty-total {
+  font-size: 0.92em;
+  color: #889;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.lookup-empty-clear {
+  background: transparent;
+  border: 0;
+  color: #889;
+  font-size: 0.85em;
+  cursor: pointer;
+  padding: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.lookup-empty-clear:hover { color: #cce; }
+
+.lookup-empty-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.lookup-recent-chip {
+  background: rgba(106, 138, 170, 0.18);
+  color: #cce;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 0.18rem 0.7rem;
+  font: inherit;
+  font-size: 0.88em;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.lookup-recent-chip:hover,
+.lookup-recent-chip:focus-visible {
+  background: rgba(106, 138, 170, 0.32);
+  border-color: rgba(170, 200, 230, 0.4);
+  outline: none;
+}
+
+.lookup-empty-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.4rem;
+}
+.lookup-type-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #2c3344;
+  border-radius: 6px;
+  color: #ddd;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.lookup-type-tile:hover,
+.lookup-type-tile:focus-visible {
+  background: rgba(106, 138, 170, 0.16);
+  border-color: #44516a;
+  outline: none;
+}
+.lookup-type-tile-name {
+  font-size: 0.92em;
+  color: #eef;
+}
+.lookup-type-tile-count {
+  color: #889;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+}
