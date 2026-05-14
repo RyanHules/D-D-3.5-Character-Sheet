@@ -58,8 +58,10 @@
   }
 
   function buildIndex() {
+    // No per-type views any more — query the unified `entry` table.
     const rows = DB.query(
-      "SELECT feat_id, name, version, types_csv FROM feat " +
+      "SELECT id AS feat_id, name, version, types_csv FROM entry " +
+      "WHERE type IN ('feat', 'acf', 'skill_trick') " +
       "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END, " +
       "name COLLATE NOCASE"
     );
@@ -119,7 +121,17 @@
   }
 
   function fullFeatRow(featId) {
-    return DB.queryOne("SELECT * FROM feat WHERE feat_id = ?", [featId]);
+    // The picker uses {prerequisites, benefit, normal, special,
+    // description} — all live inside entry.data as JSON.
+    const row = DB.queryOne(
+      "SELECT id AS feat_id, name, source, version, types_csv, "
+      + "json_extract(data, '$.prerequisites') AS prerequisites, "
+      + "json_extract(data, '$.benefit')       AS benefit, "
+      + "json_extract(data, '$.normal')        AS normal, "
+      + "json_extract(data, '$.special')       AS special, "
+      + "json_extract(data, '$.description')   AS description "
+      + "FROM entry WHERE id = ?", [featId]);
+    return row;
   }
 
   function init() {

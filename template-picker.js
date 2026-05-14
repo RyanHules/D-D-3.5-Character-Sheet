@@ -40,12 +40,18 @@
     }
 
     // Index templates (3.5 preferred over 3.0 if collisions exist).
+    // No `template` view any more — query `entry WHERE type='template'`,
+    // expose JSON sub-fields via json_extract.
     const rows = DB.query(
-      "SELECT template_id, name, source, version, template_type, " +
-      "level_adjustment, new_creature_type, natural_armor_bonus, " +
-      "description FROM template " +
-      "ORDER BY name COLLATE NOCASE, " +
-      "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
+      "SELECT id AS template_id, name, source, version, "
+      + "json_extract(data, '$.template_type')      AS template_type, "
+      + "json_extract(data, '$.level_adjustment')   AS level_adjustment, "
+      + "COALESCE(json_extract(data, '$.new_creature_type'), "
+      + "         json_extract(data, '$.type_change')) AS new_creature_type, "
+      + "json_extract(data, '$.description')        AS description "
+      + "FROM entry WHERE type = 'template' "
+      + "ORDER BY name COLLATE NOCASE, "
+      + "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
     );
     templateIndex = new Map();
     for (const r of rows) {
@@ -113,27 +119,133 @@
   }
 
   function templateDetail(templateId) {
-    const tpl = DB.queryOne(
-      "SELECT * FROM template WHERE template_id = ?", [templateId]
+    // No sub-tables any more — everything lives in entry.data JSON.
+    const row = DB.queryOne(
+      "SELECT id AS template_id, name, source, version, data "
+      + "FROM entry WHERE id = ?", [templateId]
     );
-    if (!tpl) return null;
-    const mods = DB.query(
-      "SELECT ability, modifier FROM template_ability_mod " +
-      "WHERE template_id = ?", [templateId]
-    );
-    const traits = DB.query(
-      "SELECT name, description FROM template_trait " +
-      "WHERE template_id = ?", [templateId]
-    );
-    const movement = DB.query(
-      "SELECT mode, speed_ft, maneuverability FROM template_movement " +
-      "WHERE template_id = ?", [templateId]
-    );
-    const resistance = DB.query(
-      "SELECT damage_type, amount FROM template_resistance " +
-      "WHERE template_id = ?", [templateId]
-    );
+    if (!row) return null;
+    let parsed = {};
+    try { parsed = JSON.parse(row.data || '{}'); }
+    catch (e) { console.warn('[template-picker] bad data JSON', e); }
+
+    const tpl = {
+      template_id: row.template_id,
+      name: row.name,
+      source: row.source,
+      version: row.version,
+      template_type: parsed.template_type || null,
+      level_adjustment: parsed.level_adjustment || null,
+      new_creature_type: parsed.new_creature_type || parsed.type_change || null,
+      // Pull natural-armor bonus out of either a structured bonuses row
+      // OR the free-form armor_class text ("Natural armor +N", "+N natural").
+      natural_armor_bonus: deriveNaturalArmor(parsed),
+      description: parsed.description || null,
+    };
+
+    // ability_changes: dict like {Str: "+4", Cha: "+2"} → list of
+    // {ability, modifier:int} rows for the existing apply loop.
+    const mods = [];
+    if (parsed.ability_changes && typeof parsed.ability_changes === 'object'
+        && !Array.isArray(parsed.ability_changes)) {
+      for (const [ab, raw] of Object.entries(parsed.ability_changes)) {
+        const n = parseInt(String(raw).replace(/^\+/, ''), 10);
+        if (!Number.isFinite(n) || n === 0) continue;
+        mods.push({ ability: ab, modifier: n });
+      }
+    }
+
+    // Traits: union of special_qualities_added + special_attacks_added.
+    // Each item may be a string ("Name: description") or {name, description}.
+    const traits = [];
+    const seen = new Set();
+    const push = (raw) => {
+      if (typeof raw === 'string') {
+        const idx = raw.indexOf(': ');
+        const name = idx > 0 ? raw.slice(0, idx) : raw;
+        const description = idx > 0 ? raw.slice(idx + 2) : '';
+        const key = name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        traits.push({ name, description });
+      } else if (raw && typeof raw === 'object') {
+        const name = raw.name || '';
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        traits.push({ name, description: raw.description || '' });
+      }
+    };
+    if (Array.isArray(parsed.special_qualities_added)) {
+      parsed.special_qualities_added.forEach(push);
+    }
+    if (Array.isArray(parsed.special_attacks_added)) {
+      parsed.special_attacks_added.forEach(push);
+    }
+
+    // Movement: best-effort parse of `speed_change` string for fly/swim
+    // modes. Picker only uses {mode, speed_ft, maneuverability}.
+    const movement = parseSpeedChange(parsed.speed_change);
+
+    // Energy resistance: legacy dict shape `{cold: 10, fire: 10}` OR
+    // structured bonuses rows with bonus_type='energy_resistance'.
+    const resistance = [];
+    if (parsed.energy_resistance &&
+        typeof parsed.energy_resistance === 'object' &&
+        !Array.isArray(parsed.energy_resistance)) {
+      for (const [k, v] of Object.entries(parsed.energy_resistance)) {
+        resistance.push({ damage_type: k, amount: v });
+      }
+    }
+    if (Array.isArray(parsed.bonuses)) {
+      for (const b of parsed.bonuses) {
+        if (b?.bonus_type === 'energy_resistance' && b.target) {
+          resistance.push({ damage_type: b.target, amount: b.amount });
+        }
+      }
+    }
     return { tpl, mods, traits, movement, resistance };
+  }
+
+  // Pull a numeric natural-armor bonus out of either the bonuses list or
+  // the `armor_class` free-form description ("+4 natural armor",
+  // "Natural armor as base creature, +2"). Returns 0 if none found.
+  function deriveNaturalArmor(parsed) {
+    if (Array.isArray(parsed.bonuses)) {
+      for (const b of parsed.bonuses) {
+        if (b?.bonus_type === 'natural_armor' &&
+            typeof b.amount === 'number') {
+          return b.amount;
+        }
+      }
+    }
+    const ac = parsed.armor_class;
+    if (typeof ac === 'string') {
+      const m = ac.match(/(?:^|\+|\b)(\d+)\s*natural\s*armor/i);
+      if (m) return parseInt(m[1], 10);
+      const m2 = ac.match(/natural\s*armor\s*(?:[+:]\s*)?(\d+)/i);
+      if (m2) return parseInt(m2[1], 10);
+    }
+    return 0;
+  }
+
+  // Parse a speed-change string like "Fly 30 ft (perfect)" into one or
+  // more movement-mode records. Returns an empty list for non-strings
+  // or strings we can't decode.
+  function parseSpeedChange(s) {
+    if (typeof s !== 'string') return [];
+    const out = [];
+    const rx = /(Fly|Swim|Climb|Burrow)\s+(\d+)\s*ft\.?\s*(?:\(([^)]+)\))?/gi;
+    let m;
+    while ((m = rx.exec(s)) !== null) {
+      out.push({
+        mode: m[1].toLowerCase(),
+        speed_ft: parseInt(m[2], 10),
+        maneuverability: m[3] || null,
+      });
+    }
+    return out;
   }
 
   function updatePreview(panel, typedName) {
@@ -203,11 +315,16 @@
     const detail = templateDetail(tpl.template_id);
     if (!detail) return;
 
+    // Prefer the rich `detail.tpl` over the index-row `tpl`. The index
+    // query only selects a subset of columns; templateDetail() builds
+    // the full record including derived fields like natural_armor_bonus.
+    const full = detail.tpl;
+
     // Track contributions for clean removal.
     const reversal = {
-      name: tpl.name,
-      templateId: tpl.template_id,
-      version: tpl.version,
+      name: full.name,
+      templateId: full.template_id,
+      version: full.version,
       abilityMods: {},          // ability → amount we added
       naturalArmorAdded: 0,
       creatureTypeBefore: null,
@@ -225,22 +342,22 @@
     }
 
     // 2. Natural armor bonus stacks into #ac-natural.
-    if (tpl.natural_armor_bonus) {
+    if (full.natural_armor_bonus) {
       const na = document.getElementById('ac-natural');
       if (na) {
         const cur = parseInt(na.value, 10) || 0;
-        na.value = cur + tpl.natural_armor_bonus;
+        na.value = cur + full.natural_armor_bonus;
         na.dispatchEvent(new Event('input', { bubbles: true }));
-        reversal.naturalArmorAdded = tpl.natural_armor_bonus;
+        reversal.naturalArmorAdded = full.natural_armor_bonus;
       }
     }
 
     // 3. Override creature type if specified.
-    if (tpl.new_creature_type) {
+    if (full.new_creature_type) {
       const tf = document.getElementById('char-type');
       if (tf) {
         reversal.creatureTypeBefore = tf.value || '';
-        tf.value = tpl.new_creature_type;
+        tf.value = full.new_creature_type;
         tf.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }

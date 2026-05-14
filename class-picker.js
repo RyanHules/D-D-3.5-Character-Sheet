@@ -309,11 +309,17 @@
 
     // 2. Populate options. Prefer 3.5 versions; fall back to 3.0 if no 3.5
     // exists for that class name.
+    // No class_table view any more — query unified `entry` table for
+    // class + prc entries, extract progression strings from JSON.
     const rows = DB.query(
-      "SELECT class_id, class, version, bab_progression, fort_progression, " +
-      "  ref_progression, will_progression, table_caption, source " +
-      "FROM class_table WHERE class IS NOT NULL " +
-      "ORDER BY class, CASE version WHEN '3.5' THEN 0 ELSE 1 END"
+      "SELECT id AS class_id, name AS class, version, source, "
+      + "json_extract(data, '$.bab_progression')  AS bab_progression, "
+      + "json_extract(data, '$.fort_progression') AS fort_progression, "
+      + "json_extract(data, '$.ref_progression')  AS ref_progression, "
+      + "json_extract(data, '$.will_progression') AS will_progression, "
+      + "json_extract(data, '$.table_caption')    AS table_caption "
+      + "FROM entry WHERE type IN ('class', 'prc') "
+      + "ORDER BY name, CASE version WHEN '3.5' THEN 0 ELSE 1 END"
     );
     classIndex = new Map();
     for (const r of rows) {
@@ -659,9 +665,13 @@
         for (const stub of data._multiclass) {
           const cls = stub.classId
             ? DB.queryOne(
-                "SELECT class_id, class, version, bab_progression, " +
-                "fort_progression, ref_progression, will_progression " +
-                "FROM class_table WHERE class_id = ?", [stub.classId]
+                "SELECT id AS class_id, name AS class, version, "
+                + "json_extract(data, '$.bab_progression')  AS bab_progression, "
+                + "json_extract(data, '$.fort_progression') AS fort_progression, "
+                + "json_extract(data, '$.ref_progression')  AS ref_progression, "
+                + "json_extract(data, '$.will_progression') AS will_progression "
+                + "FROM entry WHERE id = ? AND type IN ('class','prc')",
+                [stub.classId]
               )
             : null;
           if (!cls) continue;
@@ -712,21 +722,58 @@
     return list[0]; // 3.5 preferred (sorted that way)
   }
 
+  // Cache parsed class_table per class entry id.  Hit rate is high because
+  // we hit the same class multiple times during a recompute cycle (every
+  // applied class queries levelData + levelsUpTo + getSpellcastingDataAtLevel).
+  const classTableCache = new Map();
+
+  function fetchClassTable(classId) {
+    if (classTableCache.has(classId)) return classTableCache.get(classId);
+    const row = DB.queryOne(
+      "SELECT json_extract(data, '$.class_table') AS class_table "
+      + "FROM entry WHERE id = ?", [classId]);
+    let arr = [];
+    if (row && row.class_table) {
+      try { arr = JSON.parse(row.class_table) || []; }
+      catch (e) { console.warn('[class-picker] bad class_table JSON', e); }
+    }
+    if (!Array.isArray(arr)) arr = [];
+    classTableCache.set(classId, arr);
+    return arr;
+  }
+
+  // Stringify a per-row spells_per_day value into the JSON the rest of
+  // class-picker.js expects ("spells_per_day_json" used to be a TEXT
+  // column with a JSON array). Same for spells_known.
+  function rowToLevelDetail(row) {
+    if (!row) return null;
+    const spd = row.spells_per_day;
+    const sk  = row.spells_known;
+    return {
+      level: row.level,
+      special: row.special || '',
+      spells_per_day_json:
+        spd === undefined || spd === null ? null : JSON.stringify(spd),
+      spells_known_json:
+        sk === undefined || sk === null ? null : JSON.stringify(sk),
+      power_points_per_day: row.power_points_per_day ?? null,
+      powers_known: row.powers_known ?? null,
+      max_power_level: row.max_power_level ?? null,
+    };
+  }
+
   function levelData(classId, level) {
-    return DB.queryOne(
-      "SELECT level, special, spells_per_day_json, spells_known_json, " +
-      "  power_points_per_day, powers_known, max_power_level " +
-      "FROM class_level WHERE class_id = ? AND level = ?",
-      [classId, level]
-    );
+    const table = fetchClassTable(classId);
+    const row = table.find(r => Number(r.level) === Number(level));
+    return rowToLevelDetail(row);
   }
 
   function levelsUpTo(classId, level) {
-    return DB.query(
-      "SELECT level, special FROM class_level " +
-      "WHERE class_id = ? AND level <= ? ORDER BY level",
-      [classId, level]
-    );
+    const table = fetchClassTable(classId);
+    return table
+      .filter(r => Number(r.level) <= Number(level))
+      .map(r => ({ level: r.level, special: r.special || '' }))
+      .sort((a, b) => a.level - b.level);
   }
 
   // Detect spell-advancing PrC. Returns { types: [...], levels: N } or null.
@@ -1033,6 +1080,11 @@
     // Tick class-skill checkboxes (idempotent on re-apply).
     applyClassSkills(cls.class);
 
+    // Auto-populate the Class Features tab (turn-undead, rage, etc.) for
+    // classes whose features map onto existing UI fields. Only fills
+    // empty fields, so user customizations on re-apply survive.
+    populateClassFeaturesTab(cls.class, level, cls.class_id);
+
     // If the class has spellcasting at this level (paladin L4+, wizard L1+,
     // etc.), or is a known psionic/martial-adept class, ensure the
     // appropriate Spells sub-tab exists and is populated. No tab is
@@ -1098,11 +1150,7 @@
   // counts), else null. Per the user's spec: "0 or more spell slots,
   // not none" — `none` meaning the array entry is null/undefined.
   function getSpellcastingDataAtLevel(classId, classLevel) {
-    const row = DB.queryOne(
-      "SELECT spells_per_day_json, spells_known_json " +
-      "FROM class_level WHERE class_id = ? AND level = ?",
-      [classId, classLevel]
-    );
+    const row = levelData(classId, classLevel);
     if (!row) return null;
     const spd = parseJsonArray(row.spells_per_day_json);
     if (!spd || !spd.length) return null;
@@ -1322,6 +1370,79 @@
   // so removeClass can untick only when no other applied class still
   // claims it. Manually-ticked boxes (no dataset.classSkillSources) are
   // never modified by remove.
+  // Auto-fill the Class Features tab from a class's class_features data.
+  // For classes that have UI fields (turn-undead, rage), we map the
+  // relevant features. Existing non-empty fields are left alone so user
+  // overrides survive re-apply. Idempotent.
+  function populateClassFeaturesTab(className, level, classId) {
+    if (!classId) return;
+    const features = fetchClassFeatures(classId);
+    if (!features) return;
+    const acquired = features.filter(f =>
+      Number(f.level_acquired || 0) <= Number(level));
+    if (!acquired.length) return;
+
+    const setIfEmpty = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el || el.value.trim()) return;
+      el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    // ---- Turn / Rebuke Undead --------------------------------------------
+    const hasTurn = acquired.some(f =>
+      /\bturn\b|\brebuke\b/i.test(f.name || ''));
+    if (hasTurn) {
+      setIfEmpty('turn-per-day', '3 + CHA mod');
+      setIfEmpty('turn-check', '1d20 + CHA mod');
+      setIfEmpty('turn-damage', `2d6 + ${level} + CHA mod`);
+    }
+
+    // ---- Rage / Greater Rage / Mighty Rage --------------------------------
+    const rageFeat = acquired.find(f => /^rage$/i.test(f.name || ''));
+    if (rageFeat) {
+      // Rages/day progression for Barbarian (PHB p.25):
+      //   L1=1, L4=2, L8=3, L12=4, L16=5, L20=6.
+      // Use a closed-form: 1 + floor((L-1)/4), capped at level/4 milestones.
+      const perDay = 1 +
+        (level >= 4 ? 1 : 0) +
+        (level >= 8 ? 1 : 0) +
+        (level >= 12 ? 1 : 0) +
+        (level >= 16 ? 1 : 0) +
+        (level >= 20 ? 1 : 0);
+      setIfEmpty('rage-per-day', String(perDay));
+      setIfEmpty('rage-duration', '3 + CON mod');
+      // Greater (L11), Mighty (L20) bumps.
+      const hasMighty = acquired.some(f => /mighty rage/i.test(f.name || ''));
+      const hasGreater = acquired.some(f => /greater rage/i.test(f.name || ''));
+      const ab = hasMighty ? '+8' : hasGreater ? '+6' : '+4';
+      const will = hasMighty ? '+4' : hasGreater ? '+3' : '+2';
+      setIfEmpty('rage-str-con', ab);
+      setIfEmpty('rage-will', will);
+      setIfEmpty('rage-ac', '-2');
+    }
+  }
+
+  // Cache parsed class_features per class entry id, same pattern as
+  // fetchClassTable.
+  const classFeaturesCache = new Map();
+  function fetchClassFeatures(classId) {
+    if (classFeaturesCache.has(classId)) {
+      return classFeaturesCache.get(classId);
+    }
+    const row = DB.queryOne(
+      "SELECT json_extract(data, '$.class_features') AS cf "
+      + "FROM entry WHERE id = ?", [classId]);
+    let arr = [];
+    if (row && row.cf) {
+      try { arr = JSON.parse(row.cf) || []; }
+      catch (e) { console.warn('[class-picker] bad class_features JSON', e); }
+    }
+    if (!Array.isArray(arr)) arr = [];
+    classFeaturesCache.set(classId, arr);
+    return arr;
+  }
+
   function applyClassSkills(className) {
     const skills = CLASS_SKILLS[className];
     if (!skills) return;

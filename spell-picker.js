@@ -106,12 +106,14 @@
     const placeholders = variants.map(() => '?').join(',');
     // Order 3.5 rows first so case-insensitive dedup picks the 3.5 form
     // (e.g. "Fireball" wins over the 3.0 duplicate "FIREBALL").
+    // No `spell` view any more — query the unified `entry` table.
     return DB.query(
-      "SELECT DISTINCT s.spell_id, s.name, s.school, s.version " +
-      "FROM spell s JOIN spell_class_level scl ON s.spell_id = scl.entry_id " +
-      `WHERE scl.class_name IN (${placeholders}) AND scl.level = ? ` +
-      "ORDER BY CASE s.version WHEN '3.5' THEN 0 ELSE 1 END, " +
-      "s.name COLLATE NOCASE",
+      "SELECT DISTINCT e.id AS spell_id, e.name, e.school, e.version " +
+      "FROM entry e JOIN spell_class_level scl ON e.id = scl.entry_id " +
+      "WHERE e.type = 'spell' " +
+      `AND scl.class_name IN (${placeholders}) AND scl.level = ? ` +
+      "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "e.name COLLATE NOCASE",
       [...variants, level]
     );
   }
@@ -119,9 +121,23 @@
   function spellByName(name) {
     // Case-insensitive match so "Fireball" matches both 3.5 "Fireball"
     // and 3.0 "FIREBALL"; 3.5 wins via the ORDER BY.
+    // Per-field columns inlined via json_extract (no `spell` view).
     return DB.queryOne(
-      "SELECT * FROM spell WHERE name = ? COLLATE NOCASE " +
-      "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END LIMIT 1",
+      "SELECT id AS spell_id, name, source, version, school, subschool, "
+      + "descriptor, "
+      + "json_extract(data, '$.components')        AS components, "
+      + "json_extract(data, '$.casting_time')      AS casting_time, "
+      + "json_extract(data, '$.range')             AS range, "
+      + "json_extract(data, '$.target')            AS target, "
+      + "json_extract(data, '$.area')              AS area, "
+      + "json_extract(data, '$.effect')            AS effect, "
+      + "json_extract(data, '$.duration')          AS duration, "
+      + "json_extract(data, '$.saving_throw')      AS saving_throw, "
+      + "json_extract(data, '$.spell_resistance')  AS spell_resistance, "
+      + "json_extract(data, '$.description')       AS description "
+      + "FROM entry "
+      + "WHERE type = 'spell' AND name = ? COLLATE NOCASE "
+      + "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END LIMIT 1",
       [name]
     );
   }

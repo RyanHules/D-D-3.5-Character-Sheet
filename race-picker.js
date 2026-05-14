@@ -56,8 +56,10 @@
     }
 
     // 3. Populate options from DB.
+    // No `race` view any more — query `entry WHERE type='race'`.
     const races = DB.query(
-      "SELECT race_id, name, version FROM race ORDER BY name"
+      "SELECT id AS race_id, name, version FROM entry "
+      + "WHERE type = 'race' ORDER BY name"
     );
     raceIndex = new Map();
     for (const r of races) {
@@ -90,28 +92,79 @@
       return;
     }
 
-    // Pull the full record + sub-tables.
-    const race = DB.queryOne(
-      "SELECT * FROM race WHERE race_id = ?", [raceId]
+    // Pull the entry row + parse JSON sub-fields into the same shape the
+    // old per-table queries used to return. The DB now stores everything
+    // as JSON in entry.data; we walk those fields and reshape.
+    const row = DB.queryOne(
+      "SELECT id AS race_id, name, source, version, "
+      + "creature_size, creature_type, data "
+      + "FROM entry WHERE id = ?", [raceId]
     );
-    if (!race) return;
-    const abilityMods = DB.query(
-      "SELECT ability, modifier FROM race_ability_mod WHERE race_id = ?",
-      [raceId]
-    );
-    const movement = DB.query(
-      "SELECT mode, speed_ft, maneuverability FROM race_movement " +
-      "WHERE race_id = ?", [raceId]
-    );
-    const languages = DB.query(
-      "SELECT language, is_automatic FROM race_language " +
-      "WHERE race_id = ? ORDER BY is_automatic DESC, language",
-      [raceId]
-    );
-    const traits = DB.query(
-      "SELECT name, description, tag FROM race_trait WHERE race_id = ?",
-      [raceId]
-    );
+    if (!row) return;
+    let parsed = {};
+    try { parsed = JSON.parse(row.data || '{}'); }
+    catch (e) { console.warn('[race-picker] bad data JSON', e); }
+    // Races use two related schemas:
+    //   (A) "PHB-style" (33 races): top-level `creature_type`,
+    //       `base_speed_ft` (int), `darkvision_ft`, `has_lowlight_vision`,
+    //       structured `bonuses` list.
+    //   (B) "campaign-book-style" (79 races): top-level `type`,
+    //       `speed` (string like "30 ft."), darkvision/lowlight rolled
+    //       up inside the bonuses dict/list.
+    // We read both shapes so the picker works against either.
+    const race = {
+      race_id: row.race_id,
+      name: row.name,
+      source: row.source,
+      version: row.version,
+      size: row.creature_size || parsed.size || null,
+      creature_type: row.creature_type || parsed.creature_type
+                                       || parsed.type || null,
+      base_speed_ft: (typeof parsed.base_speed_ft === 'number'
+                        ? parsed.base_speed_ft
+                        : parseSpeedFt(parsed.speed)),
+      level_adjustment: parsed.level_adjustment,
+      favored_class: parsed.favored_class,
+      description: parsed.description,
+      // Darkvision / low-light: prefer top-level fields, else extract
+      // from the bonuses list.
+      darkvision_ft: (typeof parsed.darkvision_ft === 'number'
+                        ? parsed.darkvision_ft
+                        : extractBonus(parsed.bonuses, 'darkvision')),
+      has_lowlight_vision:
+        parsed.has_lowlight_vision === true ||
+        !!extractBonus(parsed.bonuses, 'low_light_vision'),
+      racial_hd: extractBonus(parsed.bonuses, 'racial_HD'),
+      racial_hd_die: null,
+    };
+
+    // Canonical schema (post-normalize_schema.py):
+    //   ability_mods : list of {ability, modifier}
+    //   languages    : list of {language, is_automatic}
+    //   traits       : list of strings OR list of {name, description, tag}
+    const abilityMods = Array.isArray(parsed.ability_mods)
+      ? parsed.ability_mods : [];
+    const languages   = Array.isArray(parsed.languages)
+      ? parsed.languages : [];
+    const traits = (Array.isArray(parsed.traits) ? parsed.traits : [])
+      .map(t => {
+        if (typeof t === 'string') {
+          const idx = t.indexOf(': ');
+          if (idx > 0) {
+            return { name: t.slice(0, idx),
+                     description: t.slice(idx + 2), tag: null };
+          }
+          return { name: t, description: '', tag: null };
+        }
+        return {
+          name: t?.name || '',
+          description: t?.description || '',
+          tag: t?.tag || null,
+        };
+      });
+    // Movement: race entries store speed as a single string like "30 ft."
+    // — no separate movement modes for now. Leave empty.
+    const movement = [];
 
     // 1. Type field
     if (race.creature_type) {
@@ -270,6 +323,25 @@
     return String(s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Parse a race speed string like "30 ft." or "20 ft." into an integer.
+  function parseSpeedFt(s) {
+    if (typeof s !== 'string') return null;
+    const m = s.match(/(\d+)\s*ft/i);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  // Find a typed bonus row in the canonical bonuses list and return its
+  // amount (or, for boolean-style rows, true). Returns null if absent.
+  function extractBonus(bonuses, bonusType) {
+    if (!Array.isArray(bonuses)) return null;
+    for (const b of bonuses) {
+      if (!b || b.bonus_type !== bonusType) continue;
+      if (b.amount !== null && b.amount !== undefined) return b.amount;
+      return true;
+    }
+    return null;
   }
 
   // Wait for DB to load, then init.

@@ -66,8 +66,10 @@
   }
 
   function buildIndex() {
+    // No per-type views any more — query the unified `entry` table.
     const rows = DB.query(
-      "SELECT item_id, name, version, type FROM item " +
+      "SELECT id AS item_id, name, version, item_type AS type FROM entry " +
+      "WHERE type IN ('item', 'weapon', 'armor', 'gear') " +
       "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END, " +
       "name COLLATE NOCASE"
     );
@@ -94,7 +96,14 @@
   }
 
   function fullItemRow(itemId) {
-    return DB.queryOne("SELECT * FROM item WHERE item_id = ?", [itemId]);
+    // Per-field columns aliased from entry + JSON sub-fields.
+    return DB.queryOne(
+      "SELECT id AS item_id, name, source, version, "
+      + "item_type AS type, body_slot, aura, caster_level, price, weight, "
+      + "json_extract(data, '$.prerequisites') AS prerequisites, "
+      + "json_extract(data, '$.cost')          AS cost, "
+      + "json_extract(data, '$.description')   AS description "
+      + "FROM entry WHERE id = ?", [itemId]);
   }
 
   function refreshDatalist(datalist, chosenType) {
