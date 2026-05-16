@@ -43,12 +43,17 @@ const CharacterHistory = (function () {
   'use strict';
 
   // In-memory store. `history` is null until loaded or reconstructed.
+  // `get()` normalizes the empty case to [] so callers don't need
+  // `|| []` defensive idioms — see the L3 play-feel note. Use
+  // `hasLoaded()` if you specifically need to distinguish "never
+  // loaded" from "loaded but empty".
   let history = null;
   let reconstructedFlag = false;
 
   // ---- Public read/write API ----------------------------------------
 
-  function get() { return history; }
+  function get() { return history || []; }
+  function hasLoaded() { return history !== null; }
   function isReconstructed() { return reconstructedFlag; }
   function set(arr, opts) {
     history = Array.isArray(arr) ? arr.slice() : null;
@@ -192,7 +197,7 @@ const CharacterHistory = (function () {
   }
 
   return {
-    get, set, clear, isReconstructed,
+    get, hasLoaded, set, clear, isReconstructed,
     reconstructFromTotals,
     isAbilityBoostLevel,
     featLevels,

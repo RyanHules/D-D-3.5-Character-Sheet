@@ -10,10 +10,17 @@
 // matching spell level on the target spellcaster's structured Known
 // list with a `freebie: true` flag; the cap counter excludes freebies.
 //
-// Routing: when the applying class is itself a spellcasting
-// advancer, spells land in the FIRST advancement target's Known list
-// (whichever caster the PrC is advancing). When the class is a native
-// caster, they land in the class's own Known list.
+// Routing: spells fan out to EVERY spellcasting class panel the
+// character has, matching RAW for Desert Insight ("add the
+// following spells to your class spell list"). Each panel's
+// freebie set is capped at that panel's own max castable level —
+// e.g. a Wizard 5 / Cleric 3 / Sand Shaper 1 gets the L1 desert
+// spells in both Spellbook and Cleric Known, but L2+ are excluded
+// from the Cleric panel until Cleric can cast at that level.
+//
+// Future-proofing: if a feature has narrower scope (one specific
+// class), grow this catalog entry to carry a `scope` field and
+// extend the matching logic in class-picker.js#applyClassSpellAdditions.
 //
 // Add more entries here as they come up. The format is intentionally
 // verbose — copy-paste spell names from canonical text and use exact

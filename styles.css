@@ -1596,6 +1596,17 @@ textarea {
 }
 .sc-known-count.sc-known-over { color: var(--danger); font-weight: bold; }
 
+/* L2: per-level Prepared count under the Prepared Spells header.
+   Neutral (N == Y) shows in muted; under-prepared shows in faded gold;
+   over-prepared shows in red — same severity ramp as sc-known-over. */
+.sc-prepared-count {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+.sc-prepared-count.sc-prepared-under { color: #c8a14a; }
+.sc-prepared-count.sc-prepared-over  { color: var(--danger); font-weight: bold; }
+
 /* Toggle the entire Known column off when Show Spells Known is unchecked. */
 .sc-no-known .sc-known-col { display: none; }
 /* When Known is hidden, Prepared takes the full panel width. */

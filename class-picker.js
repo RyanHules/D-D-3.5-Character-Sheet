@@ -2609,59 +2609,57 @@
     const features = ClassSpellAdditions.applicableFeatures(
       entry.className, entry.level);
     if (!features.length) return;
-    // Determine the target panel. Priority order:
-    //   1. First advancement target (Sand Shaper L2+ has Sha'ir as
-    //      its target → push there).
-    //   2. The class's own panel (native caster like a hypothetical
-    //      class that grants spells AND has its own casting).
-    //   3. First existing spellcasting panel (covers the case where
-    //      the class HAS no native casting AND its L1 is a non-
-    //      advancing level — Sand Shaper L1's Desert Insight still
-    //      grants spells; route to whatever caster exists).
-    let targetPanel = null;
-    if (entry.advancesTargets && entry.advancesTargets.length) {
-      const t = entry.advancesTargets.find(Boolean);
-      if (t) targetPanel = findExistingCasterPanel('spellcasting', t);
+    // Per Sandstorm (Desert Insight) and the RAW pattern for "adds X
+    // spells to your spell list" features: the spells expand EVERY
+    // spellcasting class the character has, not just the one the
+    // granting class advances. For a Wizard 5 / Cleric 3 / Sand
+    // Shaper 1, Desert Insight adds L1 desert spells to both the
+    // Wizard's Spellbook AND the Cleric's Known list, each capped
+    // at that panel's own max castable level.
+    //
+    // Future-proofing: if a future class-feature has narrower scope
+    // (e.g. "adds spells to your Wizard list only"), grow the
+    // catalog entry to carry a `scope: "all-casters" | "own" |
+    // "advancement-target"` field and switch behavior here. For now
+    // every catalog entry is implicitly all-casters, matching RAW.
+    const targetPanels = document.querySelectorAll(
+      '#spells-content [data-caster-type="spellcasting"]');
+    if (!targetPanels.length) return;  // no panel to push into yet
+    for (const panel of targetPanels) {
+      applyFeaturesToPanel(panel, features, entry.className);
     }
-    if (!targetPanel) {
-      targetPanel = findExistingCasterPanel('spellcasting', entry.className);
-    }
-    if (!targetPanel) {
-      // Fallback: pick the first existing spellcasting panel. Works
-      // for the common Sand Shaper L1 case where the player has
-      // already applied a base caster (Sha'ir / Sorcerer / etc).
-      targetPanel = document.querySelector(
-        '#spells-content [data-caster-type="spellcasting"]');
-    }
-    if (!targetPanel) return;  // no panel to push into yet
-    // M9 (2026-05-16 play-feel pass): cap the freebie spell levels
-    // at the target panel's max castable level. Per PHB & Sandstorm
-    // (Desert Insight): class features that "add spells to your spell
-    // list" only confer access to spell levels the caster can already
-    // cast. Without this cap, Sand Shaper L1 (entering at Sha'ir CL 3
-    // → max castable L2) would inject L3-L9 Desert Insight spells the
-    // character can never cast.
+  }
+
+  // Compute the panel's max castable level (highest level with at
+  // least one of base/domain/specialist slots > 0), then push every
+  // applicable feature's spells into the panel's Known list, capped
+  // at that level. Per PHB & Sandstorm: class features that "add
+  // spells to your spell list" only confer access to spell levels
+  // the caster can already cast. Without this cap, Sand Shaper L1
+  // (entering at Sha'ir CL 3 → max castable L2) would inject L3-L9
+  // Desert Insight spells the character can never cast.
+  function applyFeaturesToPanel(panel, features, className) {
     let maxCastable = 0;
     for (let i = 9; i >= 0; i--) {
       const perDay = parseInt(
-        targetPanel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || '0',
+        panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || '0',
         10);
       const domain = parseInt(
-        targetPanel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value || '0',
+        panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value || '0',
         10);
       const specialist = parseInt(
-        targetPanel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value || '0',
+        panel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value || '0',
         10);
       if ((perDay + domain + specialist) > 0) { maxCastable = i; break; }
     }
     for (const feature of features) {
-      const source = `${entry.className} — ${feature.featureName}`;
+      const source = `${className} — ${feature.featureName}`;
       for (const [lvlStr, spells] of Object.entries(feature.spellsByLevel || {})) {
         const lvl = parseInt(lvlStr, 10);
         if (isNaN(lvl) || lvl < 0 || lvl > 9) continue;
-        // Skip freebie levels above the caster's current max access.
+        // Skip freebie levels above this panel's current max access.
         if (lvl > maxCastable) continue;
-        const listEl = targetPanel.querySelector(
+        const listEl = panel.querySelector(
           `.sc-known-list[data-lvl="${lvl}"]`);
         if (!listEl) continue;
         // Dedup: skip if a row with the same name already exists at

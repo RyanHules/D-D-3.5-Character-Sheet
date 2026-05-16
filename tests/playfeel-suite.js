@@ -188,7 +188,7 @@
     const ticked = $$('input.skill-class-check:checked').length;
     expectGE(ticked, 7, 'fighter class skills ticked');
     // History reconstructed to 12 rows
-    expect(CharacterHistory.get()?.length, 12, 'history rows');
+    expect(CharacterHistory.get().length, 12, 'history rows');
   });
 
   scenario('Sorcerer 12 — Half-Elf, spontaneous arcane', async () => {
@@ -408,16 +408,21 @@
   regression('H1: btn-new clears CharacterHistory', async () => {
     await newCharacter();
     await applyClass('Cleric', 3);
-    expectGE(CharacterHistory.get()?.length || 0, 3, 'history populated');
+    expectGE(CharacterHistory.get().length, 3, 'history populated');
     await newCharacter();
-    expect(CharacterHistory.get(), null, 'history cleared after New');
+    // L3 (2026-05-17): get() now normalizes empty → [] so callers
+    // don't need defensive `|| []`. Use hasLoaded() to distinguish
+    // "never loaded / cleared" from "loaded but empty".
+    expect(CharacterHistory.hasLoaded(), false, 'history cleared after New');
+    expect(CharacterHistory.get().length, 0, 'cleared history reads as []');
   });
 
   regression('H2: applying class auto-reconstructs history', async () => {
     await newCharacter();
-    expect(CharacterHistory.get(), null, 'no history initially');
+    expect(CharacterHistory.hasLoaded(), false, 'no history initially');
+    expect(CharacterHistory.get().length, 0, 'get() returns [] initially');
     await applyClass('Wizard', 5);
-    expect(CharacterHistory.get()?.length, 5, 'history reconstructed to 5 rows');
+    expect(CharacterHistory.get().length, 5, 'history reconstructed to 5 rows');
     expect(CharacterHistory.get()[0]?.class_taken, 'Wizard', 'first row is Wizard');
   });
 

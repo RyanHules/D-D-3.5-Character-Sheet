@@ -371,25 +371,33 @@
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
+  // L5 (2026-05-17 play-feel pass): bring renderInfo up to parity
+  // with spell-picker — header line with name+source, full meta
+  // strip joined by middots (discipline / type / level / initiation
+  // action / range / target / duration / save / prereq / classes),
+  // then the rules description on its own line below.
   function renderInfo(m) {
-    const head = `<b>${escapeHtml(m.name)}</b> ` +
-      `<span style="opacity:.7">(${escapeHtml(m.source || '?')})</span>`;
-    const bits = [head];
-    const meta = [
-      m.discipline, m.type, `Level ${m.level ?? '?'}`,
-      m.initiation_action,
-    ].filter(Boolean).map(escapeHtml).join(' · ');
-    if (meta) bits.push(meta);
-    if (m.prerequisite) bits.push(`<b>Prereq:</b> ${escapeHtml(m.prerequisite)}`);
+    const bits = [];
+    bits.push(`<b>${escapeHtml(m.name)}</b> ` +
+      `<span style="opacity:.7">(${escapeHtml(m.source || '?')})</span>`);
+    if (m.discipline)        bits.push(`<b>Discipline:</b> ${escapeHtml(m.discipline)}`);
+    if (m.type)              bits.push(`<b>Type:</b> ${escapeHtml(m.type)}`);
+    if (m.level != null)     bits.push(`<b>Level:</b> ${escapeHtml(String(m.level))}`);
+    if (m.initiation_action) bits.push(`<b>Action:</b> ${escapeHtml(m.initiation_action)}`);
+    if (m.range)             bits.push(`<b>Range:</b> ${escapeHtml(m.range)}`);
+    if (m.target)            bits.push(`<b>Target:</b> ${escapeHtml(m.target)}`);
+    if (m.duration)          bits.push(`<b>Duration:</b> ${escapeHtml(m.duration)}`);
+    if (m.saving_throw)      bits.push(`<b>Save:</b> ${escapeHtml(m.saving_throw)}`);
+    if (m.prerequisite)      bits.push(`<b>Prereq:</b> ${escapeHtml(m.prerequisite)}`);
     if (Array.isArray(m.classes) && m.classes.length) {
       bits.push(`<b>Classes:</b> ${escapeHtml(m.classes.join(', '))}`);
     }
+    let html = bits.join(' &nbsp;·&nbsp; ');
     if (m.description) {
-      const d = m.description.length > 350
-        ? m.description.slice(0, 350) + '…' : m.description;
-      bits.push(escapeHtml(d));
+      html += `<div class="mp-info-desc" style="margin-top:0.4rem;` +
+              `line-height:1.4">${escapeHtml(m.description)}</div>`;
     }
-    return bits.join('<br>');
+    return html;
   }
 
   function escapeHtml(s) {

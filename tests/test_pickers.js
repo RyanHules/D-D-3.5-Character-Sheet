@@ -1463,6 +1463,23 @@ test('CharacterHistory: reconstructFromTotals returns empty for unbuilt characte
     'no classes = empty history (no fabricated L1)');
 });
 
+test('CharacterHistory: get() normalizes empty to [] and hasLoaded() distinguishes', () => {
+  // L3 (2026-05-17 play-feel): the previous get() returned null when
+  // empty, forcing every caller to write `|| []`. Now empty always
+  // reads as [] and hasLoaded() returns the never-loaded signal.
+  const CH = loadCharacterHistory();
+  assert(Array.isArray(CH.get()), 'get() returns an array even when empty');
+  assert(CH.get().length === 0, 'initial get() is []');
+  assert(CH.hasLoaded() === false, 'hasLoaded() is false before any set/load');
+  CH.set([{ level: 1, class_taken: 'Wizard' }]);
+  assert(CH.hasLoaded() === true, 'hasLoaded() is true after set');
+  assert(CH.get().length === 1, 'get() returns the set entries');
+  CH.clear();
+  assert(CH.hasLoaded() === false, 'hasLoaded() reset by clear()');
+  assert(CH.get().length === 0 && Array.isArray(CH.get()),
+    'cleared get() is still [], not null');
+});
+
 test('CharacterHistory: pathfinder feat schedule covers odd levels', () => {
   const CH = loadCharacterHistory();
   const raw = CH.featLevels(false);

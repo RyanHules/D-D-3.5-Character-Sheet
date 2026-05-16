@@ -124,7 +124,36 @@ const FeatPrereqs = (function () {
         parts: [m[1], m[2]].filter(Boolean).map(s => s.toLowerCase()),
       }),
     },
+    // L6 (2026-05-17 play-feel pass): "Proficiency with weapon" /
+    // "Proficient with weapon" — Weapon Focus, Improved Critical,
+    // Weapon Specialization, etc. The placeholder "weapon" is filled
+    // in at feat-pick time (e.g. Weapon Focus (Longsword)); the prereq
+    // itself doesn't name the specific weapon. We treat it as
+    // "satisfied" when the character has any class that grants broad
+    // weapon proficiency (Fighter, Paladin, etc.) and "unknown"
+    // otherwise — the user picks the specific weapon and the check is
+    // only as smart as the class taxonomy can be without DB metadata.
+    {
+      rx: /\bprofic(?:ient|iency)\s+with\s+(weapon|the\s+chosen\s+weapon|chosen\s+weapon)\b/i,
+      build: () => ({ kind: 'weaponProficiency' }),
+    },
   ];
+
+  // Classes that grant proficiency with all simple AND martial weapons
+  // — the broad-strikes set. If the character has any of these as a
+  // class, "Proficiency with weapon" is treated as satisfied for the
+  // common Weapon Focus / Greater Weapon Focus / Improved Critical
+  // cases. Not exhaustive (e.g. Samurai is in Complete Warrior; PrCs
+  // that add proficiencies are not listed); the checker degrades
+  // gracefully to 'unknown' for anyone else, so misses are non-fatal.
+  const MARTIAL_PROFICIENT_CLASSES = new Set([
+    'Fighter', 'Paladin', 'Ranger', 'Barbarian', 'Hexblade',
+    'Knight', 'Marshal', 'Samurai', 'Swashbuckler', 'Scout',
+    'Warblade', 'Crusader', 'Swordsage', 'Duskblade',
+    // Specific divine + arcane classes that grant martial weapons
+    // via deity or alignment also slot in here.
+    'Soulborn', 'Totemist', 'Incarnate',
+  ]);
 
   function parse(rawText) {
     if (!rawText) return [];
@@ -347,6 +376,31 @@ const FeatPrereqs = (function () {
         return {
           status: ok ? 'satisfied' : 'unmet',
           detail: `have ${have}`,
+        };
+      }
+      case 'weaponProficiency': {
+        // "Proficiency with weapon" — generic prereq on Weapon Focus
+        // and kin. Strictly correct evaluation requires knowing the
+        // chosen weapon (Weapon Focus is parameterized: e.g. "Weapon
+        // Focus (Longsword)") AND whether the character is proficient
+        // with THAT specific weapon. We don't track weapon proficiency
+        // per-weapon on the sheet today — we'd need DB class
+        // metadata (currently null on core classes) or a sheet-side
+        // proficiencies field. As a pragmatic heuristic, if the
+        // character has any class in MARTIAL_PROFICIENT_CLASSES, mark
+        // satisfied with a "covered by ..." detail; otherwise leave
+        // 'unknown' so the user sees the `?` and verifies manually.
+        const broadlyProf = state.classes
+          .find(c => MARTIAL_PROFICIENT_CLASSES.has(c.name));
+        if (broadlyProf) {
+          return {
+            status: 'satisfied',
+            detail: `${broadlyProf.name} grants martial proficiency`,
+          };
+        }
+        return {
+          status: 'unknown',
+          detail: 'depends on the specific weapon chosen',
         };
       }
       case 'unparsed':

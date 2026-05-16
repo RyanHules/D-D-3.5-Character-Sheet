@@ -127,6 +127,40 @@ const Spells = (function () {
       `<option value="${ab}"${ab === selected ? " selected" : ""}>${labels[i]}</option>`
     ).join("");
   }
+  // Classes whose Known list IS literally a spellbook. The column
+  // header reads "Spellbook" instead of "Known" so the UI matches
+  // the in-fiction object. Detection is by tab name (data.name);
+  // user-renamed tabs lose the relabel — acceptable tradeoff vs.
+  // cross-module dataset stamping for a cosmetic-only tweak.
+  const SPELLBOOK_CLASS_NAMES = new Set([
+    'Wizard', 'Wu Jen', 'Archivist',
+  ]);
+  function isSpellbookCaster(data) {
+    return !!(data && SPELLBOOK_CLASS_NAMES.has(data.name));
+  }
+  function knownLabelFor(data) {
+    return isSpellbookCaster(data) ? 'Spellbook' : 'Known';
+  }
+
+  // PHB 3.5 schools of magic. Wizard specialty + prohibited fields
+  // were free-text before — typos like "Necromany" left bonuses
+  // unverifiable. Dropdowns hard-constrain to the canonical eight.
+  // Universal is listed but disabled in select rendering because it
+  // can't be picked as a specialty (and isn't prohibitable per RAW).
+  const SPELL_SCHOOLS = [
+    'Abjuration', 'Conjuration', 'Divination', 'Enchantment',
+    'Evocation', 'Illusion', 'Necromancy', 'Transmutation',
+  ];
+  function schoolOptionsHTML(selected) {
+    const sel = String(selected || '');
+    const opts = ['<option value=""></option>'];
+    for (const s of SPELL_SCHOOLS) {
+      const isSel = sel.toLowerCase() === s.toLowerCase() ? ' selected' : '';
+      opts.push(`<option value="${s}"${isSel}>${s}</option>`);
+    }
+    return opts.join('');
+  }
+
   // --- Spellcasting HTML builder ---
   function buildSpellcastingHTML(idx, data) {
     const domainVis = data.domainAccess ? "" : "display:none";
@@ -163,7 +197,7 @@ const Spells = (function () {
     if (prohibitedSchools.length === 0) prohibitedSchools.push("");
 
     const prohibitedHTML = prohibitedSchools.map((s) =>
-      `<div class="prohibited-entry"><input type="text" class="sc-prohibited" value="${s}" placeholder="School name"><button class="btn-remove sc-remove-prohibited" title="Remove">X</button></div>`
+      `<div class="prohibited-entry"><select class="sc-prohibited">${schoolOptionsHTML(s)}</select><button class="btn-remove sc-remove-prohibited" title="Remove">X</button></div>`
     ).join("");
 
     // Show-prepared default: spontaneous casters (Sorcerer, Bard, Beguiler,
@@ -217,12 +251,12 @@ const Spells = (function () {
         <div class="spell-header" style="margin-top:0.5rem">
           <label class="mi-toggle"><input type="checkbox" class="sc-specialist-toggle" ${data.specialist ? "checked" : ""}> Specialist</label>
           <label class="mi-toggle"><input type="checkbox" class="sc-domain-toggle" ${data.domainAccess ? "checked" : ""}> Domain Access</label>
-          <label class="mi-toggle"><input type="checkbox" class="sc-show-known" ${showKnown ? "checked" : ""}> Show Spells Known</label>
+          <label class="mi-toggle"><input type="checkbox" class="sc-show-known" ${showKnown ? "checked" : ""}> Show ${isSpellbookCaster(data) ? "Spellbook" : "Spells Known"}</label>
           <label class="mi-toggle"><input type="checkbox" class="sc-show-prepared" ${showPrepared ? "checked" : ""}> Show Prepared</label>
         </div>
         <div class="sc-specialist-section" style="${specVis}">
           <div class="info-grid">
-            <div class="field"><label>Specialty School</label><input type="text" class="sc-specialty-school" value="${data.specialtySchool || ""}" placeholder="+2 on Spellcraft checks for this school"></div>
+            <div class="field"><label>Specialty School</label><select class="sc-specialty-school" title="+2 on Spellcraft checks for this school">${schoolOptionsHTML(data.specialtySchool)}</select></div>
           </div>
           <div class="sc-prohibited-list">
             <label>Prohibited Schools</label>
@@ -263,8 +297,9 @@ const Spells = (function () {
   function buildSpellLists(idx, panel) {
     const container = panel.querySelector(".sc-spell-lists");
     const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
+    const data = panel._casterData || {};
     for (let i = 0; i <= maxLevel; i++) {
-      appendSpellListDiv(container, i, i === 0);
+      appendSpellListDiv(container, i, i === 0, data);
     }
 
     panel.querySelector(".sc-reset-slots").addEventListener("click", () => {
@@ -276,22 +311,26 @@ const Spells = (function () {
       addSpellcastingLevel(panel);
     });
   }
-  function appendSpellListDiv(container, i, active) {
+  function appendSpellListDiv(container, i, active, data) {
     const lbl = spellListLabel(i);
+    const knownLbl = knownLabelFor(data || {});
     const div = document.createElement("div");
     div.className = `spell-list-content${active ? " active" : ""}`;
     div.dataset.level = i;
     div.innerHTML = `
       <div class="two-column">
         <div class="column sc-known-col">
-          <h3>${lbl} - Known
+          <h3>${lbl} - ${knownLbl}
             <span class="sc-known-count" data-lvl="${i}"></span>
           </h3>
           <div class="sc-known-list" data-lvl="${i}"></div>
           <button class="btn-add sc-add-known" data-lvl="${i}" style="margin-top:0.3rem">+ Add Spell</button>
         </div>
         <div class="column sc-prepared-col">
-          <h3>${lbl} - Prepared Spells</h3>
+          <h3>${lbl} - Prepared Spells
+            <span class="sc-prepared-count" data-lvl="${i}"
+                  title="Prepared spells / total slots — shows when you're under or over-prepared."></span>
+          </h3>
           <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${lbl} spells. Mark used with [X]..."></textarea>
         </div>
       </div>
@@ -401,6 +440,36 @@ const Spells = (function () {
     }
   }
 
+  // Update the "(N / Y)" sub-line under the Prepared header. N is the
+  // count of prepared spell lines (one spell per line; blank lines and
+  // pure-comment `// …` lines are skipped). Y is the total slot count
+  // for this level (perDay + bonus + domain + specialist). Hidden when
+  // the Prepared column is hidden (spontaneous casters never set it).
+  // Over-prepared (N > Y) turns the counter red. Under-prepared dims it.
+  function updatePreparedCount(panel, lvl, totalSlots) {
+    if (!panel) return;
+    const counter = panel.querySelector(`.sc-prepared-count[data-lvl="${lvl}"]`);
+    const ta = panel.querySelector(`.sc-spell-prepared[data-lvl="${lvl}"]`);
+    if (!counter || !ta) return;
+    // If the Prepared column is hidden (spontaneous), suppress the
+    // counter — it has nothing to count and the header isn't shown.
+    const showPrepared = panel.querySelector('.sc-show-prepared')?.checked;
+    if (!showPrepared) { counter.textContent = ''; return; }
+    // No slots at this level — caster can't prepare here, hide.
+    if (!totalSlots || totalSlots <= 0) { counter.textContent = ''; return; }
+    const text = ta.value || '';
+    let n = 0;
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith('//')) continue;   // pure-comment line
+      n++;
+    }
+    counter.textContent = ` (${n} / ${totalSlots})`;
+    counter.classList.toggle('sc-prepared-over', n > totalSlots);
+    counter.classList.toggle('sc-prepared-under', n < totalSlots);
+  }
+
   // Append `spellName` as a new line in the level's Prepared textarea.
   // Skipped if the spell name is empty; harmless if Prepared is hidden.
   function copyKnownToPrepared(panel, lvl, spellName) {
@@ -503,7 +572,8 @@ const Spells = (function () {
     table.querySelector("tbody").appendChild(tr);
 
     appendDynLevelTab(panel, i);
-    appendSpellListDiv(panel.querySelector(".sc-spell-lists"), i, false);
+    appendSpellListDiv(panel.querySelector(".sc-spell-lists"), i, false,
+      panel._casterData || {});
   }
   function switchLevelTab(panel, btn, lvl) {
     panel.querySelectorAll(".spell-level-tab").forEach((t) => t.classList.remove("active"));
@@ -593,7 +663,7 @@ const Spells = (function () {
   function addProhibitedEntry(list, value) {
     const div = document.createElement("div");
     div.className = "prohibited-entry";
-    div.innerHTML = `<input type="text" class="sc-prohibited" value="${value}" placeholder="School name"><button class="btn-remove sc-remove-prohibited" title="Remove">X</button>`;
+    div.innerHTML = `<select class="sc-prohibited">${schoolOptionsHTML(value)}</select><button class="btn-remove sc-remove-prohibited" title="Remove">X</button>`;
     list.insertBefore(div, list.querySelector(".sc-add-prohibited"));
     div.querySelector(".sc-remove-prohibited").addEventListener("click", () => removeProhibitedEntry(div.querySelector(".sc-remove-prohibited")));
   }
@@ -601,7 +671,7 @@ const Spells = (function () {
     const list = btn.closest(".sc-prohibited-list");
     const entries = list.querySelectorAll(".prohibited-entry");
     if (entries.length <= 1) {
-      // Keep at least one entry, just clear it
+      // Keep at least one entry, just clear it (reset select to blank).
       entries[0].querySelector(".sc-prohibited").value = "";
       return;
     }
@@ -1066,6 +1136,14 @@ const Spells = (function () {
         // Refresh the Known-list counter — cap can change when the
         // user edits the slot table's Known column or auto-fill runs.
         updateKnownCount(panel, i);
+        // L2 (2026-05-17 play-feel pass): "Prepared: X / Y" sub-line
+        // under the per-level Prepared Spells header. Lets prepared
+        // casters see at a glance whether they're under-prepared
+        // (X < Y, common at low levels) or over-prepared (X > Y,
+        // usually a user-error). Counts non-blank, non-comment lines
+        // in the textarea — `// rest of day` and the like are skipped
+        // so freeform notes don't inflate the count.
+        updatePreparedCount(panel, i, totalSlots);
         // M6 (2026-05-16 play-feel pass): hide the level tab + list
         // content when the caster has no access at this level. Avoids
         // the dead L5-L9 tabs on a Wizard 5 / L4-L9 on a Sand Shaper 1
