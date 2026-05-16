@@ -1154,6 +1154,12 @@
       e.advancesTargets = e.advancesTargets.map(t =>
         t && t.toLowerCase() === removedKey ? null : t);
     }
+
+    // Strip class-granted freebie spells (Sand Shaper's Desert
+    // Insight, etc.) added to any spellcasting panel's Known list.
+    // We identify them by their `data-source` attribute, which
+    // class-spell-additions.js prefixes with "<className> — ".
+    removeClassGrantedSpells(className);
     // Untick class-skill checkboxes whose ONLY remaining source was
     // this class. Boxes claimed by other applied classes stay ticked.
     removeClassSkills(className);
@@ -1929,6 +1935,13 @@
     // class is the new target of a previously-applied advancer.
     refreshAllSpellTabs();
 
+    // Push class-granted spells (Sand Shaper's Desert Insight, etc.)
+    // into the target panel's Known list as freebies. See
+    // class-spell-additions.js for the catalog. Routes to the first
+    // advancement target when the class is an advancer, or to the
+    // class's own panel when it's a native caster.
+    applyClassSpellAdditions(entry);
+
     // Trigger the orchestrator's recalc if available.
     if (typeof window.recalcAll === 'function') {
       try { window.recalcAll(); } catch (e) { /* non-fatal */ }
@@ -2015,6 +2028,93 @@
       }
     }
     return null;
+  }
+
+  // Push class-granted spells (Sand Shaper's Desert Insight, etc.)
+  // into the target panel's Known list as freebies. Looks up the
+  // class in ClassSpellAdditions; for each applicable feature,
+  // appends each spell to its level's Known list with a
+  // `{ freebie: true, source }` flag. Idempotent — skips spells
+  // already present at that level in the target panel.
+  function applyClassSpellAdditions(entry) {
+    if (typeof ClassSpellAdditions === 'undefined') return;
+    if (typeof Spells === 'undefined' ||
+        typeof Spells.addKnownSpell !== 'function') return;
+    const features = ClassSpellAdditions.applicableFeatures(
+      entry.className, entry.level);
+    if (!features.length) return;
+    // Determine the target panel. Priority order:
+    //   1. First advancement target (Sand Shaper L2+ has Sha'ir as
+    //      its target → push there).
+    //   2. The class's own panel (native caster like a hypothetical
+    //      class that grants spells AND has its own casting).
+    //   3. First existing spellcasting panel (covers the case where
+    //      the class HAS no native casting AND its L1 is a non-
+    //      advancing level — Sand Shaper L1's Desert Insight still
+    //      grants spells; route to whatever caster exists).
+    let targetPanel = null;
+    if (entry.advancesTargets && entry.advancesTargets.length) {
+      const t = entry.advancesTargets.find(Boolean);
+      if (t) targetPanel = findExistingCasterPanel('spellcasting', t);
+    }
+    if (!targetPanel) {
+      targetPanel = findExistingCasterPanel('spellcasting', entry.className);
+    }
+    if (!targetPanel) {
+      // Fallback: pick the first existing spellcasting panel. Works
+      // for the common Sand Shaper L1 case where the player has
+      // already applied a base caster (Sha'ir / Sorcerer / etc).
+      targetPanel = document.querySelector(
+        '#spells-content [data-caster-type="spellcasting"]');
+    }
+    if (!targetPanel) return;  // no panel to push into yet
+    for (const feature of features) {
+      const source = `${entry.className} — ${feature.featureName}`;
+      for (const [lvlStr, spells] of Object.entries(feature.spellsByLevel || {})) {
+        const lvl = parseInt(lvlStr, 10);
+        if (isNaN(lvl) || lvl < 0 || lvl > 9) continue;
+        const listEl = targetPanel.querySelector(
+          `.sc-known-list[data-lvl="${lvl}"]`);
+        if (!listEl) continue;
+        // Dedup: skip if a row with the same name already exists at
+        // this level (regardless of freebie flag — don't double-add).
+        const existing = new Set(
+          [...listEl.querySelectorAll('.sc-known-name')]
+            .map(el => (el.value || '').trim().toLowerCase())
+        );
+        for (const name of spells) {
+          if (existing.has(name.toLowerCase())) continue;
+          Spells.addKnownSpell(listEl, lvl, name,
+            { freebie: true, source });
+          existing.add(name.toLowerCase());
+        }
+      }
+    }
+  }
+
+  // Inverse of applyClassSpellAdditions — strips any freebie rows
+  // sourced from this class out of every spellcasting panel's Known
+  // list. Called from removeClass to keep the panels in sync when a
+  // class is removed. The Known counter refreshes via the
+  // sc-known-remove handler each row already carries… but those
+  // handlers fire on user-initiated clicks; here we're removing
+  // nodes directly, so we explicitly trigger Spells.recalc() at
+  // the end to refresh per-level counters.
+  function removeClassGrantedSpells(className) {
+    const prefix = (className + ' — ').toLowerCase();
+    const rows = document.querySelectorAll(
+      '#spells-content .sc-known-row[data-freebie="1"]');
+    let removed = 0;
+    for (const row of rows) {
+      const src = (row.dataset.source || '').toLowerCase();
+      if (src.startsWith(prefix)) { row.remove(); removed++; }
+    }
+    if (removed > 0 && typeof Spells !== 'undefined' &&
+        typeof Spells.recalc === 'function') {
+      // Re-run the spellcasting recalc to refresh counters / DCs /
+      // slot tracking after the rows disappeared.
+      try { Spells.recalc(); } catch (e) { /* non-fatal */ }
+    }
   }
 
   function ensureCasterTab(className, classLevel, classId) {

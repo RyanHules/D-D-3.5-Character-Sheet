@@ -302,13 +302,30 @@ const Spells = (function () {
   // Build a single Known-spell row (feat-row-style: name input + ⓘ +
   // →Prep + ×). The ⓘ rules expansion and →Prep handlers attach here;
   // they're scoped per row but read DB / sibling DOM at click time.
-  function createKnownRow(listEl, lvl, spellName) {
+  //
+  // `opts.freebie`: row is a class-granted spell (Sand Shaper's
+  // Desert Insight, etc.) — visually marked + excluded from the
+  // per-level count-vs-cap. Source string (`opts.source`) shown in
+  // the row's tooltip so the user knows where it came from.
+  function createKnownRow(listEl, lvl, spellName, opts) {
+    opts = opts || {};
     const row = document.createElement("div");
     row.className = "sc-known-row";
+    if (opts.freebie) row.classList.add("sc-known-freebie");
+    if (opts.freebie) row.dataset.freebie = "1";
+    if (opts.source) row.dataset.source = opts.source;
+    const titleAttr = opts.source
+      ? ` title="Granted by: ${escapeAttr(opts.source)}"`
+      : '';
     row.innerHTML =
       `<input type="text" class="sc-known-name" list="spell-options" ` +
-      `autocomplete="off" ` +
+      `autocomplete="off"${titleAttr} ` +
       `value="${escapeAttr(spellName)}" placeholder="Spell name">` +
+      (opts.freebie
+        ? `<span class="sc-known-freebie-badge" title="${escapeAttr(
+            opts.source ? 'Granted by: ' + opts.source : 'Class-granted'
+          )} — doesn't count toward Known cap">★</span>`
+        : '') +
       `<button class="btn-feat-info sc-known-info" title="Show rules">ⓘ</button>` +
       `<button class="btn-feat-info sc-known-to-prep" title="Copy to Prepared">&rarr;</button>` +
       `<button class="btn-remove sc-known-remove" title="Remove">X</button>`;
@@ -354,14 +371,27 @@ const Spells = (function () {
     const list = panel.querySelector(`.sc-known-list[data-lvl="${lvl}"]`);
     const counter = panel.querySelector(`.sc-known-count[data-lvl="${lvl}"]`);
     if (!list || !counter) return;
-    const count = list.querySelectorAll(".sc-known-row").length;
+    // Freebie rows (class-granted spells like Sand Shaper's Desert
+    // Insight) are visible in the list but don't count toward the
+    // user's spells-known cap. Suffix the counter with "+N free" when
+    // any are present so the player sees both numbers.
+    const allRows = list.querySelectorAll(".sc-known-row");
+    let countable = 0, freebies = 0;
+    for (const r of allRows) {
+      if (r.dataset.freebie === '1') freebies++;
+      else countable++;
+    }
     const capEl = panel.querySelector(`.sc-known[data-lvl="${lvl}"]`);
     const cap = capEl && capEl.value !== "" ? parseInt(capEl.value, 10) : null;
+    const freeSuffix = freebies ? ` + ${freebies} free` : '';
     if (cap !== null && !isNaN(cap)) {
-      counter.textContent = ` (${count} / ${cap})`;
-      counter.classList.toggle("sc-known-over", count > cap);
+      counter.textContent = ` (${countable} / ${cap}${freeSuffix})`;
+      counter.classList.toggle("sc-known-over", countable > cap);
+    } else if (countable + freebies > 0) {
+      counter.textContent = ` (${countable}${freeSuffix})`;
+      counter.classList.remove("sc-known-over");
     } else {
-      counter.textContent = count > 0 ? ` (${count})` : "";
+      counter.textContent = "";
       counter.classList.remove("sc-known-over");
     }
   }
@@ -1117,11 +1147,21 @@ const Spells = (function () {
           caster[`used-${i}`] = panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value || "0";
           // Spells Known is now a structured list (per spell name).
           // Save as an array; legacy `text-${i}` is preserved on load
-          // for one-shot migration (see loadData).
+          // for one-shot migration (see loadData). Rows that came from
+          // a class spell-addition feature (Sand Shaper's Desert
+          // Insight, etc.) carry a freebie + source pair so the
+          // round-trip preserves them; legacy string-only saves load
+          // back as plain (non-freebie) entries.
           const knownRows = panel.querySelectorAll(
             `.sc-known-list[data-lvl="${i}"] .sc-known-row`);
-          caster[`knownList-${i}`] = Array.from(knownRows).map(r =>
-            r.querySelector(".sc-known-name")?.value || "").filter(s => s);
+          caster[`knownList-${i}`] = Array.from(knownRows).map(r => {
+            const name = r.querySelector(".sc-known-name")?.value || "";
+            if (!name) return null;
+            if (r.dataset.freebie === '1') {
+              return { name, freebie: true, source: r.dataset.source || '' };
+            }
+            return name;
+          }).filter(Boolean);
           caster[`prepared-${i}`] = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`)?.value || "";
           if (i >= 1) {
             caster[`domain-${i}`] = panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value || "";
@@ -1233,15 +1273,22 @@ const Spells = (function () {
               `.sc-known-list[data-lvl="${i}"]`);
             if (listEl) {
               listEl.innerHTML = "";  // clear any default-empty rows
-              let names = [];
+              // Entries may be plain strings (legacy / non-freebie) or
+              // `{ name, freebie, source }` objects. Normalize on load.
+              let entries = [];
               if (Array.isArray(caster[`knownList-${i}`])) {
-                names = caster[`knownList-${i}`];
+                entries = caster[`knownList-${i}`];
               } else if (typeof caster[`text-${i}`] === "string") {
-                names = caster[`text-${i}`]
+                entries = caster[`text-${i}`]
                   .split(/\r?\n/).map(s => s.trim()).filter(s => s);
               }
-              for (const name of names) {
-                createKnownRow(listEl, i, name);
+              for (const e of entries) {
+                if (typeof e === 'string') {
+                  createKnownRow(listEl, i, e);
+                } else if (e && typeof e === 'object' && e.name) {
+                  createKnownRow(listEl, i, e.name,
+                    { freebie: !!e.freebie, source: e.source || '' });
+                }
               }
             }
             const prepEl = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`);
@@ -1281,8 +1328,8 @@ const Spells = (function () {
   }
   // Public-API helper for spell-picker.js so it can append into the
   // structured Known list without needing to know how rows are built.
-  function addKnownSpell(listEl, lvl, spellName) {
-    return createKnownRow(listEl, lvl, spellName);
+  function addKnownSpell(listEl, lvl, spellName, opts) {
+    return createKnownRow(listEl, lvl, spellName, opts);
   }
 
   // DB-first metamagic lookup; falls back to JS catalog. Mirrors the

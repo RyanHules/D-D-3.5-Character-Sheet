@@ -79,10 +79,20 @@ const Audit = (function () {
         const total    = perDay + bonus + domain + spec;
         const used     = int(panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value);
         const cap      = int(panel.querySelector(`.sc-known[data-lvl="${i}"]`)?.value);
-        const knownEls = panel.querySelectorAll(
-          `.sc-known-list[data-lvl="${i}"] .sc-known-name`);
-        const knownCount = [...knownEls]
-          .filter(e => (e.value || '').trim()).length;
+        // Count Known-list rows but EXCLUDE freebies — class-granted
+        // spells like Sand Shaper's Desert Insight are visible in the
+        // list but explicitly don't count toward the known-spells cap.
+        // The same exclusion logic lives in spells.js::updateKnownCount
+        // for the in-panel counter display.
+        const knownRows = panel.querySelectorAll(
+          `.sc-known-list[data-lvl="${i}"] .sc-known-row`);
+        let knownCount = 0, freebieCount = 0;
+        for (const r of knownRows) {
+          const name = r.querySelector('.sc-known-name')?.value || '';
+          if (!name.trim()) continue;
+          if (r.dataset.freebie === '1') freebieCount++;
+          else knownCount++;
+        }
         const prepText = panel.querySelector(
           `.sc-spell-prepared[data-lvl="${i}"]`)?.value || '';
         const preparedCount = prepText.split(/\r?\n/)
