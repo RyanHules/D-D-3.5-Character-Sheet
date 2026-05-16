@@ -1260,6 +1260,11 @@ test('companion: every relevant class feature has metadata or explicit exclusion
     'Aglarondan Griffonrider/Hover (Ex)',
     'Aglarondan Griffonrider/Power Dive (Ex)',
     'Aglarondan Griffonrider/Superior Flight (Ex)',
+    // 2026-05-16 DComp fidelity-fix added: Flux Adept's Taste of
+    // Truth uses "familiar" as a plain English adjective ("now so
+    // familiar to the flux adept") — false positive on the
+    // KEYWORDS regex.
+    'Flux Adept/Taste of Truth (Ex)',
   ]);
 
   const rows = execAll(db,
