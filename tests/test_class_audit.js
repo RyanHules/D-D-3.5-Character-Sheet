@@ -116,28 +116,25 @@ const KNOWN_NOTES = {
 };
 
 // Classes/PrCs whose spellcasting block is incomplete (missing one
-// or more of: key_ability / type / style / class_type). Documented
-// finding from the 2026-05-16 audit; full triage in DB project TODO.
-// Each is reported as a failure; this set just adds the bulk-context
-// note to the output.
+// or more of: key_ability / type / style / class_type). Each is
+// reported as a failure; this set just adds the bulk-context note
+// to the output.
 //
-// Removed from this list when the DB metadata is actually fixed:
-//   2026-05-16: 8 base classes (Beguiler, Duskblade, Favored Soul,
-//   Hexblade, Shugenja, Spirit Shaman, Warmage, Wu Jen) + Assassin,
-//   Blackguard, Apostle of Peace — all populated via
-//   SPELLCASTING_METADATA + auto-derive type in _class_metadata.py.
-const SPELLCASTING_BLOCK_INCOMPLETE = new Set([
-  'Agent Retriever',
-  'Cerebremancer', 'Cerebrex', 'Corrupt Avenger', 'Cosmic Descryer',
-  'Death Delver', 'Divine Emissary', 'Dread Witch', 'Elocater',
-  'Fiend-Blooded', 'Fist of Zuoken', 'Fleet Runner of Ehlonna',
-  'Flux Adept', 'Force Missile Mage', 'High Proselytizer',
-  'Jade Phoenix Mage', 'Master of Radiance', 'Master of Shrouds',
-  'Metamind', 'Osteomancer', 'Pale Master', 'Psion Uncarnate',
-  'Purifier of the Hallowed Doctrine', 'Ruby Knight Vindicator',
-  'Sacred Purifier', 'Tainted Scholar', 'The Shaper of Form',
-  'Thrallherd', 'True Necromancer', 'War Mind',
-]);
+// History of this list:
+//   2026-05-16: started at 41 entries from initial audit pass.
+//   2026-05-16: 11 cleared via SPELLCASTING_METADATA for the 8 base
+//   classes (Beguiler/Duskblade/Favored Soul/Hexblade/Shugenja/Spirit
+//   Shaman/Warmage/Wu Jen) + Assassin/Blackguard/Apostle of Peace.
+//   2026-05-16: 30 cleared via Tier 2 schema cleanup — pure advancers
+//   (Pale Master, Ruby Knight V, etc.) had their junk spellcasting
+//   blocks force-nulled via FORCE_NULL_SPELLCASTING in
+//   _class_metadata.py; native casters (Corrupt Avenger, Death
+//   Delver, Sublime Chord) got proper SPELLCASTING_METADATA entries.
+//
+// Currently empty — all entries triaged. Future additions land here
+// if new audit findings appear (e.g. a future book extraction
+// surfaces another batch of incomplete blocks).
+const SPELLCASTING_BLOCK_INCOMPLETE = new Set([]);
 
 // PrCs whose class_features text matches the broad advancer regex but
 // aren't yet wired into ADVANCEMENT_METADATA / HARDCODED_ADVANCERS.
