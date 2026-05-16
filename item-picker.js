@@ -169,11 +169,14 @@
     buildIndex();
     buildTagIndex();
 
+    // Alphabetical filter options so the user can scan to a specific
+    // type / tag rather than scrubbing past the most-common ones.
+    // Counts stay in the option label as `(N)` for relative-size cues.
     const sortedTypes = [...typeIndex.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      .sort((a, b) => a[0].localeCompare(b[0]));
     const sortedTags = [...tagCounts.entries()]
       .filter(([, c]) => c >= 5)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      .sort((a, b) => a[0].localeCompare(b[0]));
 
     const wrap = document.createElement('div');
     wrap.className = 'item-picker';

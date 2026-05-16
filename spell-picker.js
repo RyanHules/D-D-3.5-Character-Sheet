@@ -307,10 +307,13 @@
     buildSpellTagIndex();
 
     const dlId = `spell-picker-spells-${++datalistCounter}`;
-    // Top tags only — keep the dropdown tractable.
+    // Top tags only — keep the dropdown tractable. Alphabetical so
+    // the user can scan to a specific tag (Compulsion / Fear / etc.)
+    // rather than scrubbing past whatever happens to be most common.
+    // Counts stay in the option label as `(N)` for relative-size cues.
     const sortedTags = [...spellTagCounts.entries()]
       .filter(([, c]) => c >= 20)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      .sort((a, b) => a[0].localeCompare(b[0]));
     const wrap = document.createElement('div');
     wrap.className = 'spell-picker';
     wrap.style.cssText =

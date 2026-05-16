@@ -178,15 +178,16 @@
     buildIndex();
     buildTagIndex();
 
-    // Build type-filter options from index, sorted by count desc but
-    // capped at the most common ones; rest gets bucketed under "More…"
-    // (just shown alphabetically below the top group).
+    // Build type-filter options from index. Alphabetical order so the
+    // user can scan to a specific type (Fighter / Metamagic / etc.)
+    // without scrubbing past whatever happens to be most common. The
+    // `(N)` count suffix on each option still surfaces relative size.
     const sortedTypes = [...typeIndex.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      .sort((a, b) => a[0].localeCompare(b[0]));
     // Top tags only — keep the list tractable (>=5 feats per tag).
     const sortedTags = [...tagCounts.entries()]
       .filter(([, c]) => c >= 5)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      .sort((a, b) => a[0].localeCompare(b[0]));
 
     const wrap = document.createElement('div');
     wrap.className = 'feat-picker';
