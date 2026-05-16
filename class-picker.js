@@ -472,11 +472,12 @@
     // is per-field below.
     const rows = DB.query(
       "SELECT name, " +
-      "json_extract(data, '$.spellcasting.class_type')   AS class_type, " +
-      "json_extract(data, '$.spellcasting.style')         AS style, " +
-      "json_extract(data, '$.spellcasting.key_ability')   AS key_ability, " +
-      "json_extract(data, '$.class_skills')               AS class_skills, " +
-      "json_extract(data, '$.advancement')                AS advancement " +
+      "json_extract(data, '$.spellcasting.class_type')           AS class_type, " +
+      "json_extract(data, '$.spellcasting.style')                 AS style, " +
+      "json_extract(data, '$.spellcasting.key_ability')           AS key_ability, " +
+      "json_extract(data, '$.spellcasting.bonus_spell_ability')   AS bonus_spell_ability, " +
+      "json_extract(data, '$.class_skills')                       AS class_skills, " +
+      "json_extract(data, '$.advancement')                        AS advancement " +
       "FROM entry WHERE type IN ('class','prc')"
     );
     for (const r of rows) {
@@ -511,6 +512,10 @@
         style: r.style,
         advancement: adv,
         keyAbility: _normalizeAbility(r.key_ability),
+        // Optional override — only set for Favored Soul / Spirit
+        // Shaman style classes. Null when bonus spells use the same
+        // ability as DCs (the common case).
+        bonusSpellAbility: _normalizeAbility(r.bonus_spell_ability),
         classSkills: Array.isArray(skills) ? skills : null,
       });
     }
@@ -540,6 +545,15 @@
     const m = _dbMetaCache.get(className);
     if (m && m.keyAbility) return m.keyAbility;
     return SPELLCASTING_ABILITY[className] ?? '';
+  }
+  // Optional override for classes that use a different ability for
+  // bonus spells per day than for save DCs. Returns null for the
+  // common case where bonus spells use the same ability as DCs.
+  function getBonusSpellAbility(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.bonusSpellAbility) return m.bonusSpellAbility;
+    return null;
   }
   function getClassSkills(className) {
     loadDbMetadata();
@@ -2269,6 +2283,10 @@
       notes: notesText,
       casterLevel: classLevel,
       ability: getKeyAbility(className) || '',
+      // Set only when the class uses a different ability for bonus
+      // spells than for DCs (Favored Soul / Spirit Shaman). Blank
+      // for everyone else; recalc falls back to `ability` then.
+      bonusAbility: getBonusSpellAbility(className) || '',
       maxLevel: 9,
       showKnown: showKnownDefault,
       showPrepared: showPreparedDefault,
@@ -2338,6 +2356,11 @@
     if (ab && data.ability && !ab.value) {
       ab.value = data.ability;
       ab.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const bab = panel.querySelector('.sc-bonus-ability');
+    if (bab && data.bonusAbility && !bab.value) {
+      bab.value = data.bonusAbility;
+      bab.dispatchEvent(new Event('change', { bubbles: true }));
     }
     // Clear the per-day/known fields IN THE CLASS'S RANGE first so that
     // re-applying at a lower level (e.g. Wizard 7 → Wizard 3) drops the

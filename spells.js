@@ -206,6 +206,11 @@ const Spells = (function () {
         <div class="spell-header">
           <div class="field field-sm"><label>Caster Level</label><input type="number" class="sc-caster-level" min="1" value="${data.casterLevel || ""}"></div>
           <div class="field"><label>Spellcasting Ability</label><select class="sc-ability">${buildAbilityOptions(data.ability || "", false)}</select></div>
+          <div class="field"
+               title="Optional override. Set ONLY for classes whose bonus spells per day use a different ability than DCs (Favored Soul: CHA bonus / WIS DC; Spirit Shaman: WIS bonus / CHA DC). Leave blank for everyone else — bonus spells fall back to Spellcasting Ability.">
+            <label>Bonus Spell Ability <span style="opacity:.6;font-weight:normal">(if different)</span></label>
+            <select class="sc-bonus-ability">${buildAbilityOptions(data.bonusAbility || "", true)}</select>
+          </div>
           <div class="field"><label>Arcane Spell Failure %</label><span class="sc-spell-fail calc-field">0%</span></div>
           <div class="field"><label>Conditional Modifiers</label><textarea class="sc-conditional" rows="1">${data.conditional || ""}</textarea></div>
         </div>
@@ -970,6 +975,16 @@ const Spells = (function () {
     $$("[data-caster-type='spellcasting']").forEach((panel) => {
       const ability = panel.querySelector(".sc-ability")?.value || "";
       const abilityMod = ability && abilityModFn ? abilityModFn(ability) : 0;
+      // M-dual (2026-05-16): bonus spells per day can come from a
+      // DIFFERENT ability than spell DCs for a handful of classes —
+      // Favored Soul (CHA bonus / WIS DC) and Spirit Shaman (WIS
+      // bonus / CHA DC) are the canonical 3.5 cases. The
+      // `.sc-bonus-ability` select is an optional override; when
+      // blank, bonus spells fall back to the main spellcasting
+      // ability (the common case).
+      const bonusAbilityOverride = panel.querySelector(".sc-bonus-ability")?.value || "";
+      const bonusAbility = bonusAbilityOverride || ability;
+      const bonusAbilityMod = bonusAbility && abilityModFn ? abilityModFn(bonusAbility) : 0;
       const failEl = panel.querySelector(".sc-spell-fail");
       if (failEl) failEl.textContent = spellFail + "%";
       const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
@@ -978,10 +993,13 @@ const Spells = (function () {
         const dcEl = panel.querySelector(`.sc-dc[data-lvl="${i}"]`);
         if (dcEl) dcEl.textContent = ability ? 10 + i + abilityMod : "--";
 
-        // Auto-fill bonus spell slots from the spellcasting-ability
-        // modifier (PHB Table 1-1). Spell level N gets +1 bonus slot
-        // when the caster's relevant ability mod >= N, and an extra
-        // +1 for every 4 mod points above N. Cantrips (lvl 0) never
+        // Auto-fill bonus spell slots from the BONUS-SPELL ability
+        // modifier (PHB Table 1-1). For most classes that's the same
+        // as the spellcasting ability, but Favored Soul (CHA bonus,
+        // WIS DC) and Spirit Shaman (WIS bonus, CHA DC) split them —
+        // use the .sc-bonus-ability override when set.
+        // Spell level N gets +1 bonus slot when the relevant mod >=
+        // N, plus +1 for every 4 mod points above N. Cantrips never
         // get bonus slots.
         //
         // We track the previously auto-filled value on the element's
@@ -989,9 +1007,9 @@ const Spells = (function () {
         // (or is empty), the user hasn't manually overridden, and
         // we update. Anything else is a manual edit and we leave it.
         const bonusEl = panel.querySelector(`.sc-bonus[data-lvl="${i}"]`);
-        if (bonusEl && ability) {
-          const autoVal = (i >= 1 && abilityMod >= i)
-            ? Math.floor((abilityMod - i) / 4) + 1
+        if (bonusEl && bonusAbility) {
+          const autoVal = (i >= 1 && bonusAbilityMod >= i)
+            ? Math.floor((bonusAbilityMod - i) / 4) + 1
             : 0;
           const displayVal = autoVal > 0 ? String(autoVal) : "";
           const lastAuto = bonusEl.dataset.autoBonus ?? "";
@@ -1197,6 +1215,10 @@ const Spells = (function () {
       if (type === "spellcasting") {
         caster.casterLevel = panel.querySelector(".sc-caster-level")?.value || "";
         caster.ability = panel.querySelector(".sc-ability").value;
+        // Optional bonus-spell ability override (Favored Soul / Spirit
+        // Shaman). Empty string means "use the main spellcasting
+        // ability" (the common case); see recalc().
+        caster.bonusAbility = panel.querySelector(".sc-bonus-ability")?.value || "";
         caster.conditional = panel.querySelector(".sc-conditional").value;
         caster.specialist = panel.querySelector(".sc-specialist-toggle")?.checked || false;
         caster.showPrepared = panel.querySelector(".sc-show-prepared")?.checked ?? true;

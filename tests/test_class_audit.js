@@ -120,10 +120,14 @@ const KNOWN_NOTES = {
 // finding from the 2026-05-16 audit; full triage in DB project TODO.
 // Each is reported as a failure; this set just adds the bulk-context
 // note to the output.
+//
+// Removed from this list when the DB metadata is actually fixed:
+//   2026-05-16: 8 base classes (Beguiler, Duskblade, Favored Soul,
+//   Hexblade, Shugenja, Spirit Shaman, Warmage, Wu Jen) + Assassin,
+//   Blackguard, Apostle of Peace — all populated via
+//   SPELLCASTING_METADATA + auto-derive type in _class_metadata.py.
 const SPELLCASTING_BLOCK_INCOMPLETE = new Set([
-  'Beguiler', 'Duskblade', 'Favored Soul', 'Hexblade', 'Shugenja',
-  'Spirit Shaman', 'Warmage', 'Wu Jen',
-  'Agent Retriever', 'Apostle of Peace', 'Assassin', 'Blackguard',
+  'Agent Retriever',
   'Cerebremancer', 'Cerebrex', 'Corrupt Avenger', 'Cosmic Descryer',
   'Death Delver', 'Divine Emissary', 'Dread Witch', 'Elocater',
   'Fiend-Blooded', 'Fist of Zuoken', 'Fleet Runner of Ehlonna',

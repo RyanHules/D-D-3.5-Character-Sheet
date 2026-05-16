@@ -316,6 +316,74 @@
     expect(!!freebieByLvl['4'], false, 'M9: no L4+ freebies');
   });
 
+  // ---- ToB PrC scenarios -------------------------------------------------
+  // These three exercise PrCs that advance martial maneuvers + IL +
+  // maneuvers-known. The sheet currently handles spell-progression
+  // advancement (via Source A canonical-marker regex on
+  // class_table.special) but does NOT yet handle the parallel
+  // maneuver-progression advancement. So these scenarios are
+  // partially red — casting advances correctly, IL/maneuvers don't.
+  // They stay red until a ToB advancement path lands in class-picker,
+  // mirroring the existing casting-advancement machinery.
+
+  scenario('Cleric 5 / Crusader 5 / Ruby Knight Vindicator 2 — divine + maneuver advancer', async () => {
+    await newCharacter();
+    setAbilities({ STR: 14, DEX: 10, CON: 14, INT: 10, WIS: 16, CHA: 14 });
+    await applyClass('Cleric', 5);
+    await applyClass('Crusader', 5);
+    await applyClass('Ruby Knight Vindicator', 2);
+
+    expect(classChips().length, 3, 'three chips');
+    expectValue('#char-level', '12', 'char level 12');
+    // BAB: Cleric 5 (avg) = 3, Crusader 5 (good) = 5, RKV 2 (good) = 2 → 10
+    expectValue('#bab-1', '10', 'BAB sum');
+    // RKV advances casting at L2/3/4/5/7/8/9/10. At RKV 2, +1 → CL 6.
+    expectValue('[data-caster-type="spellcasting"] .sc-caster-level',
+      '6', 'cleric CL 6 (Cleric 5 + RKV L2 advance)');
+    // RKV also advances martial maneuver progression at the same
+    // levels. CURRENTLY FAILS — ToB maneuver advancement isn't wired
+    // into class-picker. Expected: IL 6 (Crusader 5 + RKV L2 advance).
+    expectValue('[data-caster-type="maneuvers"] .tom-init-level',
+      '6', 'IL 6 — KNOWN BUG: ToB PrC maneuver advancement not wired');
+  });
+
+  scenario('Wizard 5 / Warblade 5 / Jade Phoenix Mage 2 — arcane + maneuver advancer', async () => {
+    await newCharacter();
+    setAbilities({ STR: 14, DEX: 14, CON: 14, INT: 16, WIS: 10, CHA: 10 });
+    await applyClass('Wizard', 5);
+    await applyClass('Warblade', 5);
+    await applyClass('Jade Phoenix Mage', 2);
+
+    expect(classChips().length, 3, 'three chips');
+    expectValue('#char-level', '12', 'char level 12');
+    // BAB: Wiz 5 (poor) = 2, Warblade 5 (good) = 5, JPM 2 (good) = 2 → 9
+    expectValue('#bab-1', '9', 'BAB sum');
+    // JPM advances casting at L2/3/4/5/7/8/9/10. At JPM 2, +1 → Wizard CL 6.
+    expectValue('[data-caster-type="spellcasting"] .sc-caster-level',
+      '6', 'wizard CL 6 (Wiz 5 + JPM L2 advance)');
+    // Same ToB-advancement bug as RKV.
+    expectValue('[data-caster-type="maneuvers"] .tom-init-level',
+      '6', 'IL 6 — KNOWN BUG: ToB PrC maneuver advancement not wired');
+  });
+
+  scenario('Crusader 5 / Swordsage 5 / Master of Nine 2 — multi-discipline advancer', async () => {
+    await newCharacter();
+    setAbilities({ STR: 14, DEX: 14, CON: 14, INT: 10, WIS: 14, CHA: 10 });
+    await applyClass('Crusader', 5);
+    await applyClass('Swordsage', 5);
+    await applyClass('Master of Nine', 2);
+
+    expect(classChips().length, 3, 'three chips');
+    expectValue('#char-level', '12', 'char level 12');
+    // MoN advances IL of all initiator classes at every level.
+    // Expected: at MoN 2, both Crusader and Swordsage IL should
+    // increase by 2. CURRENTLY FAILS — ToB advancement not wired.
+    // We assert on the primary panel's IL; multi-IL handling for
+    // dual martial-adept multiclass is a separate fix.
+    expectValue('[data-caster-type="maneuvers"] .tom-init-level',
+      '7', 'IL 7 — KNOWN BUG: ToB PrC maneuver advancement not wired');
+  });
+
   scenario('Cleric 5 / Contemplative 5 / Heirophant 2 — chained PrCs', async () => {
     await newCharacter();
     setAbilities({ STR: 10, DEX: 10, CON: 14, INT: 12, WIS: 18, CHA: 14 });
