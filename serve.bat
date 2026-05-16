@@ -33,6 +33,6 @@ echo.
 
 REM Open the page in the default browser after a 1-sec delay so the
 REM server has time to bind the socket.
-start "" "" "" cmd /c "timeout /t 1 /nobreak >nul && start http://localhost:%PORT%/"
+start cmd /c "timeout /t 1 /nobreak >nul && start http://localhost:%PORT%/"
 
 python -m http.server %PORT% --bind 127.0.0.1
