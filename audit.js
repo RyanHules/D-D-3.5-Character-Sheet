@@ -57,13 +57,31 @@ const Audit = (function () {
     }
     // Skills snapshot: every .skill-ranks input.
     s.skills = [];
+    s.totalSkillRanks = 0;
     for (const inp of document.querySelectorAll('.skill-ranks')) {
       const ranks = flt(inp.value);
+      s.totalSkillRanks += ranks;
       if (ranks <= 0) continue;
       const row = inp.closest('tr');
       const name = row?.querySelector('.skill-name')?.textContent?.trim() || '?';
       s.skills.push({ name, ranks });
     }
+    // Feat count: non-empty .feat-entry textareas on the Feats tab.
+    // We scope to #feats-container to avoid matching the companion
+    // tab's reused .feat-entry styling class (the collector-scoping
+    // trap from CLAUDE.md).
+    s.featCount = 0;
+    const featTab = document.getElementById('feats-container');
+    if (featTab) {
+      for (const ta of featTab.querySelectorAll('.feat-entry')) {
+        if ((ta.value || '').trim()) s.featCount++;
+      }
+    }
+    // Applied classes (cheap to read; both new and history checks use).
+    s.appliedClasses = (typeof ClassPicker !== 'undefined' &&
+                        typeof ClassPicker.getState === 'function')
+      ? ClassPicker.getState() : [];
+    s.hasAnyClass = s.appliedClasses.length > 0;
     // Spell slots / prepared / known per caster panel.
     s.casters = [];
     for (const panel of document.querySelectorAll('[data-caster-type="spellcasting"]')) {
@@ -238,6 +256,43 @@ const Audit = (function () {
                      `to expand.`,
           });
         }
+      }
+    }
+
+    // ---- M7 (2026-05-16 play-feel pass): "you might have forgotten
+    //       something" checks. Deliberately loose — flag only when
+    //       the gap is glaring (zero feats / zero skill ranks / zero
+    //       HP on a character that HAS applied classes). Exact-count
+    //       checks need race + class-bonus-feat math that's beyond
+    //       Phase 1; these are the obvious "did you start building"
+    //       prompts, all `info` severity so they're easy to dismiss.
+    if (s.hasAnyClass) {
+      if (s.hpMax === 0) {
+        issues.push({
+          id: 'm7:hp-not-set',
+          severity: 'info',
+          message: `HP Max is blank. Roll or take the average HP for ` +
+                   `each class level (Wizard d4, Cleric d8, etc.) and ` +
+                   `enter the total here.`,
+        });
+      }
+      if (s.featCount === 0) {
+        issues.push({
+          id: 'm7:no-feats',
+          severity: 'info',
+          message: `No feats taken. Every character gets at least one ` +
+                   `feat at L1 (plus a Human bonus + class bonus feats). ` +
+                   `Use the Feat Lookup to add them.`,
+        });
+      }
+      if (s.totalSkillRanks === 0) {
+        issues.push({
+          id: 'm7:no-skill-ranks',
+          severity: 'info',
+          message: `No skill ranks purchased. Each class gets ` +
+                   `(skill_pts + INT mod) ranks per level (×4 at L1). ` +
+                   `Fill out the Skills tab.`,
+        });
       }
     }
 

@@ -277,11 +277,22 @@
           const ev = FeatPrereqs.evaluate(full.prerequisites);
           const sumSym = ev.summary.label;
           const sumCls = `fp-summary fp-summary-${ev.summary.status}`;
-          bits.push(
-            `<b>Prereq:</b> <span class="${sumCls}">${sumSym}</span> ` +
-            `${escapeHtml(full.prerequisites)}<br>` +
-            `<span class="fp-atoms">${ev.html}</span>`
-          );
+          // M8 (2026-05-16 play-feel pass): for single-atom prereqs the
+          // summary line repeats verbatim what the per-atom chip says
+          // ("Prereq: ✓ Str 13" + "✓ Str 13 — have 16"). Drop the
+          // summary in that case and surface only the chip — its value-
+          // hint suffix is more informative anyway. For multi-atom
+          // prereqs (Cleave: Str 13 + Power Attack) the summary's raw
+          // text helps readability, so keep both.
+          if (ev.atoms && ev.atoms.length === 1) {
+            bits.push(`<b>Prereq:</b> <span class="fp-atoms">${ev.html}</span>`);
+          } else {
+            bits.push(
+              `<b>Prereq:</b> <span class="${sumCls}">${sumSym}</span> ` +
+              `${escapeHtml(full.prerequisites)}<br>` +
+              `<span class="fp-atoms">${ev.html}</span>`
+            );
+          }
         } else {
           bits.push(`<b>Prereq:</b> ${escapeHtml(full.prerequisites)}`);
         }

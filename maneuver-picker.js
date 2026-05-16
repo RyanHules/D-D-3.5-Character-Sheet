@@ -159,6 +159,52 @@
     }
   }
 
+  // M5 (2026-05-16 play-feel pass): each ToB martial-adept class
+  // accesses only a subset of the 9 disciplines. Filter the picker's
+  // discipline dropdown to the panel's class. Detected by the leading
+  // word in `.caster-notes` (set by class-picker on apply). When the
+  // class isn't recognized (or notes are empty), fall back to showing
+  // all 9 disciplines.
+  // ToB Table 1-1 / 1-2 / 1-5 class-discipline mappings:
+  const CLASS_DISCIPLINES = {
+    'Crusader':  ['Devoted Spirit', 'Stone Dragon', 'White Raven'],
+    'Swordsage': ['Desert Wind', 'Diamond Mind', 'Setting Sun',
+                  'Shadow Hand', 'Stone Dragon', 'Tiger Claw'],
+    'Warblade':  ['Diamond Mind', 'Iron Heart', 'Stone Dragon',
+                  'Tiger Claw', 'White Raven'],
+    // PrCs that gain access to additional / different discipline sets:
+    'Bloodclaw Master':      ['Tiger Claw'],
+    'Bloodstorm Blade':      ['Iron Heart', 'Stone Dragon', 'Tiger Claw'],
+    'Deepstone Sentinel':    ['Stone Dragon'],
+    'Eternal Blade':         ['Diamond Mind', 'Iron Heart'],
+    'Jade Phoenix Mage':     ['Desert Wind', 'Devoted Spirit',
+                              'Diamond Mind', 'Tiger Claw'],
+    'Master of Nine':        [], // all 9; empty array → fall back to all
+    'Ruby Knight Vindicator':['Devoted Spirit', 'Stone Dragon',
+                              'White Raven'],
+    'Shadow Sun Ninja':      ['Setting Sun', 'Shadow Hand'],
+  };
+
+  function detectClassForPanel(panel) {
+    const notes = panel.querySelector('.caster-notes')?.value || '';
+    // class-picker writes the bare class name into notes on creation
+    // (e.g. "Warblade"). User may have edited; longest prefix match
+    // against the known mapping is robust to that.
+    const trimmed = notes.trim();
+    if (!trimmed) return null;
+    // Sort longer names first so "Ruby Knight Vindicator" beats
+    // "Crusader" when both substrings could match.
+    const names = Object.keys(CLASS_DISCIPLINES).sort(
+      (a, b) => b.length - a.length);
+    for (const name of names) {
+      if (trimmed === name || trimmed.startsWith(name + ' ') ||
+          trimmed.toLowerCase().includes(name.toLowerCase())) {
+        return name;
+      }
+    }
+    return null;
+  }
+
   function injectPicker(panel, listsEl) {
     const wrap = document.createElement('div');
     wrap.className = 'maneuver-picker';
@@ -168,7 +214,11 @@
       'border-radius:3px;';
 
     const dlId = `maneuver-picker-options-${++datalistCounter}`;
-    const discOptions = disciplines
+    // Narrow disciplines per class when detectable.
+    const detectedClass = detectClassForPanel(panel);
+    const classDisc = detectedClass ? CLASS_DISCIPLINES[detectedClass] : null;
+    const useDisc = (classDisc && classDisc.length) ? classDisc : disciplines;
+    const discOptions = useDisc
       .map(d => `<option value="${escapeAttr(d)}">${escapeHtml(d)}</option>`)
       .join('');
 

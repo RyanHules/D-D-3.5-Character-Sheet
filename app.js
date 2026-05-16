@@ -341,6 +341,15 @@
     Character.loadData({}, getAbilityMod);
     Spells.loadData({});
     Companion.loadData({});
+    // H1 (2026-05-16 play-feel pass): without this, the previous
+    // character's Build Timeline rows bleed through into the fresh
+    // character and the audit flags stale "Timeline has N Foo levels
+    // but applied classes show 0" warnings. `Character.loadData({})`
+    // already clears `pickedClasses`, so wiping history is now safe —
+    // the next class-apply will dispatch `classes-changed` and let
+    // app.js fabricate a fresh reconstruction from the new totals.
+    if (typeof CharacterHistory !== "undefined") CharacterHistory.clear();
+    if (typeof BuildTimeline !== "undefined") BuildTimeline.render();
 
     recalcAll();
     showNotification("New character sheet ready.");
@@ -396,6 +405,50 @@
   $("#btn-add-gear").addEventListener("click", () => Equipment.addGearRow());
   $("#btn-add-magic-item").addEventListener("click", () => Equipment.addMagicItem());
   $("#btn-add-custom-skill").addEventListener("click", () => Skills.addCustomSkill());
+
+  // H2 (2026-05-16 play-feel pass): when the applied-class set
+  // changes via class-picker, reconstruct CharacterHistory if it
+  // hasn't been explicitly authored yet. Without this hook, history
+  // stays null after applying classes to a fresh sheet — and the
+  // history-aware audit checks (Phase 1) silently no-op. Guarded
+  // against overwriting a user-curated Timeline: if any non-
+  // reconstructed history row exists, we leave it alone and let the
+  // Build Timeline view handle reconciliation drift via its own
+  // audit warnings.
+  document.addEventListener("classes-changed", () => {
+    if (typeof CharacterHistory === "undefined") return;
+    if (typeof BuildTimeline === "undefined") return;
+    const existing = CharacterHistory.get();
+    // BuildTimeline edits delete the _reconstructed property (rather
+    // than setting it to false), so absence of the flag = user-edited.
+    const hasUserEdits = Array.isArray(existing) && existing.length > 0 &&
+      existing.some(row => row && !row._reconstructed);
+    if (hasUserEdits) {
+      // User has touched the Timeline — render to surface drift
+      // warnings but don't fabricate over their edits.
+      BuildTimeline.render();
+      return;
+    }
+    const pickedClasses = (typeof ClassPicker !== "undefined" &&
+                typeof ClassPicker.getState === "function")
+      ? ClassPicker.getState() : [];
+    if (!pickedClasses.length) {
+      // No classes — clear stale reconstruction.
+      CharacterHistory.clear();
+      BuildTimeline.render();
+      return;
+    }
+    const rebuilt = CharacterHistory.reconstructFromTotals(
+      pickedClasses,
+      collectCurrentFeatNames(),
+      {
+        pathfinderFeats: false,
+        hitDieByClass: collectHitDiceFromDB(pickedClasses),
+      },
+    );
+    CharacterHistory.set(rebuilt, { reconstructed: true });
+    BuildTimeline.render();
+  });
 
   // Auto-recalc on any input change in relevant tabs
   document.addEventListener("input", (e) => {

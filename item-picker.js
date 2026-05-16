@@ -102,13 +102,25 @@
   }
 
   function fullItemRow(itemId) {
-    // Per-field columns aliased from entry + JSON sub-fields.
+    // Per-field columns aliased from entry + JSON sub-fields. The
+    // armor_* / damage_* / category / entry_kind fields drive the H3
+    // worn-armor / weapon routing buttons (added 2026-05-16).
     return DB.queryOne(
       "SELECT id AS item_id, name, source, version, "
       + "item_type AS type, body_slot, aura, caster_level, price, weight, "
-      + "json_extract(data, '$.prerequisites') AS prerequisites, "
-      + "json_extract(data, '$.cost')          AS cost, "
-      + "json_extract(data, '$.description')   AS description "
+      + "json_extract(data, '$.prerequisites')         AS prerequisites, "
+      + "json_extract(data, '$.cost')                  AS cost, "
+      + "json_extract(data, '$.description')           AS description, "
+      + "json_extract(data, '$.category')              AS category, "
+      + "json_extract(data, '$.entry_kind')            AS entry_kind, "
+      + "json_extract(data, '$.armor_bonus')           AS armor_bonus, "
+      + "json_extract(data, '$.armor_check_penalty')   AS armor_check_penalty, "
+      + "json_extract(data, '$.arcane_spell_failure')  AS arcane_spell_failure, "
+      + "json_extract(data, '$.max_dex')               AS max_dex, "
+      + "json_extract(data, '$.damage_medium')         AS damage_medium, "
+      + "json_extract(data, '$.damage_small')          AS damage_small, "
+      + "json_extract(data, '$.critical')              AS critical, "
+      + "json_extract(data, '$.range_increment')       AS range_increment "
       + "FROM entry WHERE id = ?", [itemId]);
   }
 
@@ -206,6 +218,15 @@
         <button type="button" id="item-add-shield-affix" class="btn-add"
                 title="Append this affix to the Shield's Special Properties"
                 style="height:2rem; display:none">+ Shield Affix</button>
+        <button type="button" id="item-equip-armor" class="btn-add"
+                title="Equip as worn armor — fills Armor name/bonus/max DEX/check/spell-fail/weight"
+                style="height:2rem; display:none">+ Equip Armor</button>
+        <button type="button" id="item-equip-shield" class="btn-add"
+                title="Equip as worn shield — fills Shield name/bonus/check/spell-fail/weight"
+                style="height:2rem; display:none">+ Equip Shield</button>
+        <button type="button" id="item-add-weapon" class="btn-add"
+                title="Add a new attack row pre-filled with this weapon's damage / crit / type"
+                style="height:2rem; display:none">+ Add as Weapon</button>
       </div>
       <div id="item-info"
            style="display:none;font-size:0.85em;color:#ccc;margin-top:0.4rem">
@@ -220,6 +241,9 @@
     const addMagic      = document.getElementById('item-add-magic');
     const addArmorAffix = document.getElementById('item-add-armor-affix');
     const addShieldAffix= document.getElementById('item-add-shield-affix');
+    const equipArmor    = document.getElementById('item-equip-armor');
+    const equipShield   = document.getElementById('item-equip-shield');
+    const addWeapon     = document.getElementById('item-add-weapon');
     const info          = document.getElementById('item-info');
     const datalist      = document.getElementById('item-options');
 
@@ -248,17 +272,51 @@
       return null;
     }
 
-    // Show the relevant +Affix button and hide the irrelevant defaults
-    // when an affix item is selected; restore normal buttons otherwise.
-    function updateAffixButtons(itemType) {
-      const cat = affixCategory(itemType);
-      addArmorAffix.style.display  = cat === 'armor'  ? '' : 'none';
-      addShieldAffix.style.display = cat === 'shield' ? '' : 'none';
-      // Affixes aren't "gear" and aren't standalone "magic items" —
-      // hide those destinations to steer the user to the right slot.
-      const hideDefaults = cat !== null;
+    // H3 (2026-05-16 play-feel pass): classify the selected item to
+    // pick which button(s) to surface. Returns one of:
+    //   'affix-armor'   → "+ Armor Affix" (append to armor-special)
+    //   'affix-shield'  → "+ Shield Affix" (append to shield-special)
+    //   'armor'         → "+ Equip Armor" (populate worn-armor fields)
+    //   'shield'        → "+ Equip Shield" (populate worn-shield fields)
+    //   'weapon'        → "+ Add as Weapon" (new attack row)
+    //   null            → fall back to default "+ Gear" / "+ Magic Item"
+    // Driven by `entry_kind` (armor/weapon) + `category` (Shield vs
+    // Light/Medium/Heavy Armor) when available, with the existing
+    // item_type-based affix detection as the higher-precedence rule.
+    function classifyItem(full) {
+      if (!full) return null;
+      const affix = affixCategory(full.type);
+      if (affix === 'armor')  return 'affix-armor';
+      if (affix === 'shield') return 'affix-shield';
+      if (full.entry_kind === 'weapon') return 'weapon';
+      if (full.entry_kind === 'armor') {
+        const cat = String(full.category || '').toLowerCase();
+        if (cat === 'shield') return 'shield';
+        if (/light armor|medium armor|heavy armor/.test(cat)) return 'armor';
+        // "Armor Extra" → Masterwork upgrade, shield spikes, etc. —
+        // not a base equip; fall through to Gear/Magic Item.
+        return null;
+      }
+      return null;
+    }
+
+    // Show the right button(s) for the selected item and hide the rest.
+    function updateActionButtons(full) {
+      const kind = classifyItem(full);
+      addArmorAffix.style.display  = kind === 'affix-armor'  ? '' : 'none';
+      addShieldAffix.style.display = kind === 'affix-shield' ? '' : 'none';
+      equipArmor.style.display     = kind === 'armor'        ? '' : 'none';
+      equipShield.style.display    = kind === 'shield'       ? '' : 'none';
+      addWeapon.style.display      = kind === 'weapon'       ? '' : 'none';
+      // Hide generic destinations when we have a more specific routing.
+      const hideDefaults = kind !== null;
       addGear.style.display  = hideDefaults ? 'none' : '';
       addMagic.style.display = hideDefaults ? 'none' : '';
+    }
+    // Legacy alias for the prior implementation. Routes through the new
+    // classify path so the affix-only call sites keep working.
+    function updateAffixButtons(itemType) {
+      updateActionButtons(itemType ? { type: itemType } : null);
     }
 
     function updateInfo() {
@@ -296,7 +354,9 @@
       info.innerHTML = bits.join('<br>');
       if (window.ErrataBadge) ErrataBadge.attach(info, entry.primaryRow.item_id);
       info.style.display = 'block';
-      updateAffixButtons(full.type);
+      // Pass the full row (not just item_type) so classifyItem can use
+      // entry_kind + category for the new armor/shield/weapon routing.
+      updateActionButtons(full);
     }
     itemInput.addEventListener('input', updateInfo);
     itemInput.addEventListener('change', updateInfo);
@@ -381,6 +441,119 @@
       () => appendAffix('armor-special', 'Armor'));
     addShieldAffix.addEventListener('click',
       () => appendAffix('shield-special', 'Shield'));
+
+    // ---- H3: worn-armor / worn-shield / weapon routing -----------------
+    //
+    // Helper to set a worn-equipment field, dispatch input/change so the
+    // dependent calc fields (AC, ACP, ASF, weight) recompute.
+    function setField(id, val) {
+      const el = document.getElementById(id);
+      if (!el) return false;
+      el.value = val == null ? '' : String(val);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+    // Strip "30%" → 30, "-5" stays "-5", "4 lb." → 4.
+    function numFromText(raw, fallback) {
+      if (raw === null || raw === undefined) return fallback;
+      const m = String(raw).match(/-?\d+(?:\.\d+)?/);
+      return m ? Number(m[0]) : fallback;
+    }
+
+    equipArmor.addEventListener('click', () => {
+      const typed = itemInput.value.trim();
+      if (!typed) { flash('Pick an armor first.', '#a66'); return; }
+      const entry = itemIndex.get(typed.toLowerCase());
+      if (!entry) { flash('Unknown armor — fill the worn-armor fields manually.', '#a66'); return; }
+      const full = fullItemRow(entry.primaryRow.item_id);
+      if (!full) return;
+      // Confirm before overwriting an already-equipped armor.
+      const cur = document.getElementById('armor-name');
+      if (cur && cur.value.trim() &&
+          !confirm(`Replace currently-equipped "${cur.value}" with "${entry.displayName}"?`)) {
+        return;
+      }
+      setField('armor-name', entry.displayName);
+      setField('armor-type', full.category || '');
+      setField('armor-ac-bonus', numFromText(full.armor_bonus, 0));
+      if (full.max_dex !== null && full.max_dex !== undefined) {
+        setField('armor-max-dex', full.max_dex);
+      }
+      setField('armor-check-pen', numFromText(full.armor_check_penalty, 0));
+      setField('armor-spell-fail', numFromText(full.arcane_spell_failure, ''));
+      setField('armor-weight', numFromText(full.weight, ''));
+      // Ensure the "worn" checkbox is on so AC picks it up.
+      const worn = document.getElementById('armor-worn');
+      if (worn && !worn.checked) {
+        worn.checked = true;
+        worn.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      flash(`Equipped "${entry.displayName}".`, '#7a9');
+    });
+
+    equipShield.addEventListener('click', () => {
+      const typed = itemInput.value.trim();
+      if (!typed) { flash('Pick a shield first.', '#a66'); return; }
+      const entry = itemIndex.get(typed.toLowerCase());
+      if (!entry) { flash('Unknown shield — fill the worn-shield fields manually.', '#a66'); return; }
+      const full = fullItemRow(entry.primaryRow.item_id);
+      if (!full) return;
+      const cur = document.getElementById('shield-name');
+      if (cur && cur.value.trim() &&
+          !confirm(`Replace currently-equipped "${cur.value}" with "${entry.displayName}"?`)) {
+        return;
+      }
+      setField('shield-name', entry.displayName);
+      setField('shield-ac-bonus', numFromText(full.armor_bonus, 0));
+      setField('shield-check-pen', numFromText(full.armor_check_penalty, 0));
+      setField('shield-spell-fail', numFromText(full.arcane_spell_failure, ''));
+      setField('shield-weight', numFromText(full.weight, ''));
+      const worn = document.getElementById('shield-worn');
+      if (worn && !worn.checked) {
+        worn.checked = true;
+        worn.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      flash(`Equipped "${entry.displayName}".`, '#7a9');
+    });
+
+    addWeapon.addEventListener('click', () => {
+      const typed = itemInput.value.trim();
+      if (!typed) { flash('Pick a weapon first.', '#a66'); return; }
+      const entry = itemIndex.get(typed.toLowerCase());
+      if (!entry) { flash('Unknown weapon — use "+ Gear" then add an attack manually.', '#a66'); return; }
+      const full = fullItemRow(entry.primaryRow.item_id);
+      if (!full) return;
+      if (typeof Character?.addAttack !== 'function') {
+        flash('Character module unavailable.', '#a66'); return;
+      }
+      // Pick damage column based on character size. Most builds are
+      // Medium; Small characters (halflings, gnomes) get the smaller
+      // damage die. Other sizes (Large+) need DM adjustment anyway.
+      const sizeRaw = document.getElementById('char-size')?.value || 'Medium';
+      const useSmall = String(sizeRaw).toLowerCase() === 'small';
+      const damage = (useSmall ? full.damage_small : full.damage_medium)
+        || full.damage_medium || full.damage_small || '';
+      Character.addAttack({
+        name: entry.displayName,
+        damage: damage,
+        crit: full.critical || '',
+        range: full.range_increment || '',
+        type: full.type || '',
+        notes: full.category || '',
+      });
+      // Also drop the weapon into the Possessions list so the weight
+      // and inventory line are tracked. Player can remove if they're
+      // not actually carrying it.
+      if (typeof Equipment?.addGearRow === 'function') {
+        Equipment.addGearRow({
+          name: entry.displayName,
+          weight: numFromText(full.weight, ''),
+        });
+        if (typeof Equipment.recalcWeight === 'function') Equipment.recalcWeight();
+      }
+      flash(`Added "${entry.displayName}" attack row + gear entry.`, '#7a9');
+    });
   }
 
   function escapeHtml(s) {

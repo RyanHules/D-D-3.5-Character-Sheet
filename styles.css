@@ -1220,6 +1220,35 @@ textarea {
   padding-bottom: 0.2rem;
 }
 
+/* === Companion AUTO/MANUAL mode bar === */
+.comp-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 3px solid #8a9aaa;
+  border-radius: 0 3px 3px 0;
+  font-size: 0.9em;
+}
+.comp-mode-radios {
+  display: inline-flex;
+  gap: 0.8rem;
+}
+.comp-base-creature-field { display: inline-flex; align-items: center; gap: 0.3rem; }
+.comp-base-creature-label { display: inline-flex; align-items: center; gap: 0.3rem; }
+.comp-base-creature {
+  min-width: 12rem;
+  font: inherit;
+}
+.comp-auto-locked {
+  opacity: 0.7;
+  background: rgba(106, 138, 170, 0.08);
+  cursor: not-allowed;
+}
+
 /* === Companion class-based progression panel === */
 .comp-progression-panel {
   margin-bottom: 0.6rem;

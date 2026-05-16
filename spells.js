@@ -1006,7 +1006,16 @@ const Spells = (function () {
         const domain = int(panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value);
         const specialist = int(panel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value);
         const used = int(panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value);
-        const totalSlots = perDay + bonus + domain + specialist;
+        // PHB Bonus Spells sidebar: "You can only receive bonus spells
+        // of a level you can already cast." If base `perDay` is 0 and
+        // there's no domain/specialist slot at this level either, the
+        // caster can't cast at level N — so the ability-mod bonus
+        // contributes 0. Without this gate, a Wizard 5 with INT 18
+        // would show a phantom L4 slot (base 0, bonus +1) even though
+        // Wizard L4 access starts at class level 7.
+        const baseCastable = (perDay + domain + specialist) > 0;
+        const effectiveBonus = baseCastable ? bonus : 0;
+        const totalSlots = perDay + effectiveBonus + domain + specialist;
         const remaining = totalSlots - used;
         const el = panel.querySelector(`.sc-remain[data-lvl="${i}"]`);
         if (el) {
@@ -1030,6 +1039,34 @@ const Spells = (function () {
         // Refresh the Known-list counter — cap can change when the
         // user edits the slot table's Known column or auto-fill runs.
         updateKnownCount(panel, i);
+        // M6 (2026-05-16 play-feel pass): hide the level tab + list
+        // content when the caster has no access at this level. Avoids
+        // the dead L5-L9 tabs on a Wizard 5 / L4-L9 on a Sand Shaper 1
+        // panel etc. The tab/content are restored automatically when
+        // the caster gains access (e.g. levelling, advancer apply).
+        // Selector note: spell-level-tab uses `data-level` (camelCase
+        // dataset.level), NOT `data-lvl` like the slot-table cells.
+        const tabBtn = panel.querySelector(
+          `.spell-level-tab[data-level="${i}"]`);
+        const contentDiv = panel.querySelector(
+          `.spell-list-content[data-level="${i}"]`);
+        const showLevel = totalSlots > 0 || i === 0;  // always keep L0
+        if (tabBtn) tabBtn.style.display = showLevel ? '' : 'none';
+        if (contentDiv && !showLevel) {
+          contentDiv.style.display = 'none';
+          contentDiv.classList.remove('active');
+        } else if (contentDiv && showLevel && contentDiv.style.display === 'none') {
+          contentDiv.style.display = '';
+        }
+      }
+      // If the currently-active level tab was hidden by the loop above,
+      // switch to the highest still-visible level.
+      const activeTab = panel.querySelector('.spell-level-tab.active');
+      if (activeTab && activeTab.style.display === 'none') {
+        const visible = Array.from(panel.querySelectorAll('.spell-level-tab'))
+          .filter(t => t.style.display !== 'none');
+        const fallback = visible[visible.length - 1] || visible[0];
+        if (fallback) fallback.click();
       }
     });
 
@@ -1104,6 +1141,39 @@ const Spells = (function () {
     // Binding: count bound vestiges
     $$("[data-caster-type='binding']").forEach((panel) => {
       recalcBindCount(panel);
+    });
+
+    // M6 (2026-05-16 play-feel pass): hide unused maneuver level
+    // tabs for martial-adept panels. ToB initiator max maneuver level
+    // = ceil(IL / 2). Warblade 5 → 3; show L1-L3, hide L4-L9. When
+    // IL is unset, leave all levels visible so the panel remains
+    // usable as a manual workspace.
+    $$("[data-caster-type='maneuvers']").forEach((panel) => {
+      const il = int(panel.querySelector(".tom-init-level")?.value);
+      if (!il) return;
+      const maxManLevel = Math.ceil(il / 2);
+      let visibleCount = 0;
+      let lastVisibleTab = null;
+      for (let lvl = 1; lvl <= 9; lvl++) {
+        const tab = panel.querySelector(
+          `.spell-level-tab[data-level="${lvl}"]`);
+        const content = panel.querySelector(
+          `.spell-list-content[data-level="${lvl}"]`);
+        const show = lvl <= maxManLevel;
+        if (tab) tab.style.display = show ? '' : 'none';
+        if (content && !show) {
+          content.style.display = 'none';
+          content.classList.remove('active');
+        } else if (content && show && content.style.display === 'none') {
+          content.style.display = '';
+        }
+        if (show) { visibleCount++; if (tab) lastVisibleTab = tab; }
+      }
+      // If the active tab got hidden, fall back to the highest still-visible.
+      const activeTab = panel.querySelector('.spell-level-tab.active');
+      if (activeTab && activeTab.style.display === 'none' && lastVisibleTab) {
+        lastVisibleTab.click();
+      }
     });
   }
 

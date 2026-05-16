@@ -1160,6 +1160,13 @@
     // We identify them by their `data-source` attribute, which
     // class-spell-additions.js prefixes with "<className> — ".
     removeClassGrantedSpells(className);
+
+    // Clear Class Features tab fields that were auto-filled by
+    // populateClassFeaturesTab for this class. `data-from-class`
+    // is set when the field was empty at apply time; the user-edit
+    // listener clears the marker if the user types in the field,
+    // so we won't blow away any manual customizations.
+    removeAutoFilledClassFeatureFields(className);
     // Untick class-skill checkboxes whose ONLY remaining source was
     // this class. Boxes claimed by other applied classes stay ticked.
     removeClassSkills(className);
@@ -1169,6 +1176,12 @@
     if (typeof window.recalcAll === 'function') {
       try { window.recalcAll(); } catch (e) { /* non-fatal */ }
     }
+    // Same cross-module event as applyClass — see comment there.
+    try {
+      document.dispatchEvent(new CustomEvent('classes-changed', {
+        detail: { state: pickedClasses.slice() },
+      }));
+    } catch (e) { /* non-fatal */ }
   }
 
   function clearAllClasses() {
@@ -1947,6 +1960,16 @@
       try { window.recalcAll(); } catch (e) { /* non-fatal */ }
     }
 
+    // Notify cross-module listeners that the applied-class set changed.
+    // Used by: app.js (CharacterHistory reconstruction), companion.js
+    // (progression-panel refresh + comp-type auto-default). Single
+    // dispatch point fired from BOTH applyClass and removeClass.
+    try {
+      document.dispatchEvent(new CustomEvent('classes-changed', {
+        detail: { state: pickedClasses.slice() },
+      }));
+    } catch (e) { /* non-fatal */ }
+
     const tabNote = casterPanel ? ' + Spells tab' : '';
     const advNote = entry.advancesTargets && entry.advancesTargets.some(t => t)
       ? ` (advances ${entry.advancesTargets.filter(Boolean).join(' + ')})`
@@ -2068,11 +2091,33 @@
         '#spells-content [data-caster-type="spellcasting"]');
     }
     if (!targetPanel) return;  // no panel to push into yet
+    // M9 (2026-05-16 play-feel pass): cap the freebie spell levels
+    // at the target panel's max castable level. Per PHB & Sandstorm
+    // (Desert Insight): class features that "add spells to your spell
+    // list" only confer access to spell levels the caster can already
+    // cast. Without this cap, Sand Shaper L1 (entering at Sha'ir CL 3
+    // → max castable L2) would inject L3-L9 Desert Insight spells the
+    // character can never cast.
+    let maxCastable = 0;
+    for (let i = 9; i >= 0; i--) {
+      const perDay = parseInt(
+        targetPanel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || '0',
+        10);
+      const domain = parseInt(
+        targetPanel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value || '0',
+        10);
+      const specialist = parseInt(
+        targetPanel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value || '0',
+        10);
+      if ((perDay + domain + specialist) > 0) { maxCastable = i; break; }
+    }
     for (const feature of features) {
       const source = `${entry.className} — ${feature.featureName}`;
       for (const [lvlStr, spells] of Object.entries(feature.spellsByLevel || {})) {
         const lvl = parseInt(lvlStr, 10);
         if (isNaN(lvl) || lvl < 0 || lvl > 9) continue;
+        // Skip freebie levels above the caster's current max access.
+        if (lvl > maxCastable) continue;
         const listEl = targetPanel.querySelector(
           `.sc-known-list[data-lvl="${lvl}"]`);
         if (!listEl) continue;
@@ -2117,6 +2162,26 @@
     }
   }
 
+  // Clear Class Features tab fields (Turn/Rebuke per-day, Rage
+  // counts, etc.) that were auto-filled by populateClassFeaturesTab
+  // for this class. Identifies via the `data-from-class` marker
+  // setIfEmpty stamps on each filled field. User edits clear the
+  // marker via the input listener wired in setIfEmpty, so manually-
+  // customized values are preserved across class removal.
+  function removeAutoFilledClassFeatureFields(className) {
+    const escaped = String(className).replace(/"/g, '\\"');
+    const fields = document.querySelectorAll(
+      `[data-from-class="${escaped}"]`);
+    for (const el of fields) {
+      el.value = '';
+      delete el.dataset.fromClass;
+      // Notify any downstream listeners (recalcAll, etc.) that the
+      // value changed. Dispatch via the document path so the
+      // existing input delegation picks it up.
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
   function ensureCasterTab(className, classLevel, classId) {
     if (typeof Spells?.addCaster !== 'function') return null;
     const sc = getSpellcastingDataAtLevel(classId, classLevel);
@@ -2128,7 +2193,15 @@
       return ensureSimpleCasterTab('psionics', className, classLevel);
     }
     if (MARTIAL_ADEPT_CLASSES.has(className)) {
-      return ensureSimpleCasterTab('maneuvers', className, classLevel);
+      const panel = ensureSimpleCasterTab('maneuvers', className, classLevel);
+      // M2 (2026-05-16 play-feel pass): auto-populate the ToB count
+      // fields (Initiator Level / Maneuvers Known / Maneuvers Readied
+      // / Stances Known) from the class_table's `columns` block. Same
+      // setIfEmpty pattern as populateClassFeaturesTab — only fills
+      // blank fields, tags with data-from-class so removeClass strips,
+      // user edits clear the marker via event.isTrusted listener.
+      if (panel) populateManeuverPanelCounts(panel, className, classLevel);
+      return panel;
     }
     return null;
   }
@@ -2168,14 +2241,37 @@
     'Healer': 'Healer — knows every spell on the healer spell list of any level she can cast.',
   };
 
+  // M1 (2026-05-16 play-feel pass): classes that prepare spells from
+  // their entire class list (no personal Known/spellbook). Toggling
+  // off `showKnown` for these classes hides a column that's dead UI
+  // for them. Wizard / Wu Jen / Assassin / Death Master / Archivist
+  // keep both columns visible (spellbook IS their Known list).
+  const PREPARES_FROM_WHOLE_LIST = new Set([
+    'Cleric', 'Druid', 'Paladin', 'Ranger', 'Sohei', 'Urban Druid',
+    'Apostle of Peace', 'Blackguard',
+  ]);
+
   function upsertSpellcastingPanel(className, classLevel, sc, offset) {
     const notesText = KNOWS_WHOLE_LIST_NOTES[className] || className;
+    const style = getCasterStyle(className);
+    // Spontaneous casters don't prepare — hide Prepared column by default.
+    // Prepared-from-whole-list casters don't track a personal Known list —
+    // hide Known column by default. Other prepared casters (Wizard /
+    // Archivist / Beguiler-via-spellbook / etc.) show both.
+    // Beguiler/Warmage/Dread Necromancer/Healer are 'spontaneous' style
+    // AND knows-whole-list — both columns hidden makes the panel useless,
+    // so we keep Known visible (so the user can override and add
+    // advanced-learning picks) but hide Prepared.
+    const showKnownDefault = !PREPARES_FROM_WHOLE_LIST.has(className);
+    const showPreparedDefault = style !== 'spontaneous';
     const data = {
       name: className,
       notes: notesText,
       casterLevel: classLevel,
       ability: getKeyAbility(className) || '',
       maxLevel: 9,
+      showKnown: showKnownDefault,
+      showPrepared: showPreparedDefault,
     };
     let anyBonus = false;
     for (let i = 0; i < sc.spd.length; i++) {
@@ -2358,20 +2454,74 @@
       Number(f.level_acquired || 0) <= Number(level));
     if (!acquired.length) return;
 
+    // Set the field if it's currently empty AND tag it with
+    // `data-from-class=<className>` so removeClass can later strip
+    // values it auto-filled. Manual user edits (input events) clear
+    // the marker so the user's override survives a class removal.
+    // The clear-on-edit listener is attached only once per element
+    // (guarded by `data-from-class-wired`).
     const setIfEmpty = (id, val) => {
       const el = document.getElementById(id);
       if (!el || el.value.trim()) return;
       el.value = val;
+      el.dataset.fromClass = className;
+      if (!el.dataset.fromClassWired) {
+        el.dataset.fromClassWired = '1';
+        el.addEventListener('input', (ev) => {
+          // Only clear the marker if THIS event isn't the synthetic
+          // one we dispatched right after setting the value. The
+          // distinguisher: when we set, isTrusted is false and we
+          // dispatch immediately. User keystrokes are trusted.
+          if (ev.isTrusted) delete el.dataset.fromClass;
+        });
+      }
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
+
+    // M3 (2026-05-16 play-feel pass): when the player has a non-zero
+    // ability score set, substitute the actual mod into the template
+    // so the displayed value is computed (e.g. "3 + CHA mod" → "5"
+    // for CHA 16, "1d20 + CHA mod" → "1d20 + 3"). Falls back to the
+    // raw template string when the ability isn't set yet — re-applying
+    // the class after setting abilities picks up the new value.
+    // Future enhancement: store the template in a data-attribute and
+    // re-substitute on every recalcAll so changing an ability mid-
+    // game updates the displayed value automatically.
+    function getMod(ab) {
+      // getAbilityMod isn't on window — read the pre-computed mod from
+      // the corresponding `<span id="{ab}-mod">` ("+1", "-2", "+0").
+      // Returns null if no score is set (span empty / unparseable).
+      const span = document.getElementById(`${ab.toLowerCase()}-mod`);
+      if (!span) return null;
+      const txt = (span.textContent || '').trim();
+      if (!txt) return null;
+      const m = parseInt(txt, 10);
+      return Number.isFinite(m) ? m : null;
+    }
+    function fmtDieModifier(n) {
+      if (!Number.isFinite(n) || n === 0) return '';
+      return ` ${n >= 0 ? '+' : '-'} ${Math.abs(n)}`;
+    }
 
     // ---- Turn / Rebuke Undead --------------------------------------------
     const hasTurn = acquired.some(f =>
       /\bturn\b|\brebuke\b/i.test(f.name || ''));
     if (hasTurn) {
-      setIfEmpty('turn-per-day', '3 + CHA mod');
-      setIfEmpty('turn-check', '1d20 + CHA mod');
-      setIfEmpty('turn-damage', `2d6 + ${level} + CHA mod`);
+      const chaMod = getMod('CHA');
+      setIfEmpty(
+        'turn-per-day',
+        chaMod !== null ? String(3 + chaMod) : '3 + CHA mod'
+      );
+      setIfEmpty(
+        'turn-check',
+        chaMod !== null ? `1d20${fmtDieModifier(chaMod)}` : '1d20 + CHA mod'
+      );
+      setIfEmpty(
+        'turn-damage',
+        chaMod !== null
+          ? `2d6${fmtDieModifier(level + chaMod)}`
+          : `2d6 + ${level} + CHA mod`
+      );
     }
 
     // ---- Rage / Greater Rage / Mighty Rage --------------------------------
@@ -2387,7 +2537,11 @@
         (level >= 16 ? 1 : 0) +
         (level >= 20 ? 1 : 0);
       setIfEmpty('rage-per-day', String(perDay));
-      setIfEmpty('rage-duration', '3 + CON mod');
+      const conMod = getMod('CON');
+      setIfEmpty(
+        'rage-duration',
+        conMod !== null ? String(3 + conMod) : '3 + CON mod'
+      );
       // Greater (L11), Mighty (L20) bumps.
       const hasMighty = acquired.some(f => /mighty rage/i.test(f.name || ''));
       const hasGreater = acquired.some(f => /greater rage/i.test(f.name || ''));
@@ -2397,6 +2551,43 @@
       setIfEmpty('rage-will', will);
       setIfEmpty('rage-ac', '-2');
     }
+  }
+
+  // M2: Populate Tome of Battle maneuver/stance counts on the panel
+  // from the class_table's `columns` block. Same setIfEmpty pattern
+  // as populateClassFeaturesTab: only fills empty fields, tags with
+  // data-from-class, clears marker on user edit.
+  function populateManeuverPanelCounts(panel, className, level) {
+    if (!panel) return;
+    // Find the class's classId via the picked-classes list (we know it
+    // was just applied, so it's there).
+    const entry = pickedClasses.find(p => p.className === className);
+    const classId = entry?.classId;
+    if (!classId) return;
+    const table = fetchClassTable(classId);
+    if (!table || !table.length) return;
+    const row = table.find(r => Number(r.level) === Number(level));
+    if (!row || !row.columns) return;
+    const cols = row.columns;
+
+    const setPanelIfEmpty = (sel, val) => {
+      const el = panel.querySelector(sel);
+      if (!el || el.value.trim()) return;
+      el.value = val;
+      el.dataset.fromClass = className;
+      if (!el.dataset.fromClassWired) {
+        el.dataset.fromClassWired = '1';
+        el.addEventListener('input', (ev) => {
+          if (ev.isTrusted) delete el.dataset.fromClass;
+        });
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    setPanelIfEmpty('.tom-init-level',     String(level));
+    if (cols.maneuvers_known   != null) setPanelIfEmpty('.tom-known-count',   String(cols.maneuvers_known));
+    if (cols.maneuvers_readied != null) setPanelIfEmpty('.tom-readied-count', String(cols.maneuvers_readied));
+    if (cols.stances_known     != null) setPanelIfEmpty('.tom-stances-count', String(cols.stances_known));
   }
 
   // Cache parsed class_features per class entry id, same pattern as

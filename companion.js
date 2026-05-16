@@ -103,6 +103,22 @@ const Companion = (function () {
       </summary>
       <div class="comp-progression-body"></div>
     </details>
+    <!-- AUTO/MANUAL toggle + base-creature picker. AUTO derives
+         abilities / speed / natural armor / Int from the base
+         creature's stats + the progression deltas above. MANUAL
+         leaves the panel's stat fields entirely free-entry. -->
+    <div class="comp-mode-bar">
+      <span class="comp-mode-radios">
+        <label class="mi-toggle"><input type="radio" name="comp-mode-${idx}" class="comp-mode-radio" value="manual"${d.compMode === 'auto' ? '' : ' checked'}> Manual</label>
+        <label class="mi-toggle"><input type="radio" name="comp-mode-${idx}" class="comp-mode-radio" value="auto"${d.compMode === 'auto' ? ' checked' : ''}> Auto-fill from base creature</label>
+      </span>
+      <span class="comp-base-creature-field" style="display:${d.compMode === 'auto' ? '' : 'none'}">
+        <label class="comp-base-creature-label">Base creature
+          <input type="text" class="comp-base-creature" list="creature-options"
+                 placeholder="e.g. Wolf" value="${escapeHtml(d.compBaseCreature || '')}">
+        </label>
+      </span>
+    </div>
     <div class="two-column">
       <div class="column">
         <h3>Ability Scores</h3>
@@ -188,6 +204,38 @@ const Companion = (function () {
     panel.addEventListener("input", () => recalcCompanion(panel));
     panel.addEventListener("change", () => recalcCompanion(panel));
 
+    // H5: track user-driven comp-type changes so the
+    // classes-changed listener doesn't overwrite their choice on a
+    // later class apply. Only flips when the change is user-trusted
+    // (event.isTrusted distinguishes from synthetic dispatches we
+    // make ourselves during auto-default).
+    const compTypeSel = panel.querySelector(".comp-type");
+    if (compTypeSel) {
+      compTypeSel.addEventListener("change", (ev) => {
+        if (ev.isTrusted) compTypeSel.dataset.userSet = "1";
+      });
+      // If we're loading an existing companion that had a non-default
+      // type stored, treat that as user-set so we don't clobber it.
+      if (d.compType && d.compType !== "animal") {
+        compTypeSel.dataset.userSet = "1";
+      }
+      // Initial auto-default: only when no explicit type was loaded.
+      if (!d.compType) {
+        const auto = defaultCompTypeFromClasses();
+        if (auto) {
+          const TEXT_FOR_KEY = {
+            animal: "Animal Companion",
+            familiar: "Familiar",
+            cohort: "Cohort",
+          };
+          const want = TEXT_FOR_KEY[auto];
+          if (want && compTypeSel.value !== want) {
+            compTypeSel.value = want;
+          }
+        }
+      }
+    }
+
     // Familiar toggle
     const famToggle = panel.querySelector(".comp-familiar-toggle");
     famToggle.addEventListener("change", () => {
@@ -232,6 +280,42 @@ const Companion = (function () {
     }
     (specialsSeed || [""]).forEach((s) =>
       addListRow(specialsContainer, "comp-special", "Ability name", "Description", s));
+
+    // ---- Mode toggle + base-creature auto-fill --------------------
+    // AUTO mode reveals the base-creature input; toggling AUTO with a
+    // valid base creature already selected triggers an immediate
+    // auto-fill. MANUAL mode hides the base-creature input and
+    // re-enables the stat fields for direct editing. Listener wired
+    // here at panel-build time (idempotent — only one set per panel).
+    const modeRadios = panel.querySelectorAll('.comp-mode-radio');
+    const baseField = panel.querySelector('.comp-base-creature-field');
+    const baseInput = panel.querySelector('.comp-base-creature');
+    function currentMode() {
+      const checked = panel.querySelector('.comp-mode-radio:checked');
+      return checked ? checked.value : 'manual';
+    }
+    function syncModeUI() {
+      const mode = currentMode();
+      if (baseField) baseField.style.display = mode === 'auto' ? '' : 'none';
+      applyAutoFillState(panel, mode);
+    }
+    modeRadios.forEach(r => r.addEventListener('change', () => {
+      syncModeUI();
+      if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
+    }));
+    if (baseInput) {
+      baseInput.addEventListener('input', () => {
+        if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
+      });
+      baseInput.addEventListener('change', () => {
+        if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
+      });
+    }
+    // Initial state on panel-build (matters for loadData round-trips).
+    syncModeUI();
+    if (currentMode() === 'auto' && baseInput?.value?.trim()) {
+      autoFillFromBaseCreature(panel);
+    }
 
     recalcCompanion(panel);
   }
@@ -682,6 +766,141 @@ const Companion = (function () {
     return lines.join('');
   }
 
+  // Global #creature-options datalist with every creature name in
+  // the DB. Used by the base-creature autocomplete on each companion
+  // panel. Built once at DB.ready; tiny (~1,200 names ≈ 30 KB).
+  function buildGlobalCreatureDatalist() {
+    if (document.getElementById('creature-options')) return;
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return;
+    // 3.5-first dedup by case-insensitive name; same pattern as the
+    // spell datalist build in spell-picker.js.
+    const rows = DB.query(
+      "SELECT e.name AS name FROM entry e " +
+      "LEFT JOIN book b ON b.name = e.source " +
+      "WHERE e.type = 'creature' AND e.name IS NOT NULL " +
+      "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "         b.publication_date DESC, " +
+      "         e.name COLLATE NOCASE"
+    );
+    const seen = new Set();
+    const dl = document.createElement('datalist');
+    dl.id = 'creature-options';
+    for (const r of rows) {
+      const key = String(r.name || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const opt = document.createElement('option');
+      opt.value = r.name;
+      dl.appendChild(opt);
+    }
+    document.body.appendChild(dl);
+    console.log(`[companion] built #creature-options datalist with ` +
+      `${seen.size} unique creature names`);
+  }
+
+  // ---- AUTO mode: fill stat fields from base creature + progression ----
+  //
+  // Looks up the base creature in the DB, extracts its abilities /
+  // speed / natural armor, applies the progression deltas (bonus HD,
+  // NA Adj, Str/Dex Adj, Int floor), and fills the panel's stat
+  // fields. Fields filled this way carry data-from-auto so the
+  // applyAutoFillState toggle can manage disabled state, and so
+  // future switches between AUTO and MANUAL leave manual edits alone
+  // when the user types over them.
+
+  function autoFillFromBaseCreature(panel) {
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return;
+    const baseName = panel.querySelector('.comp-base-creature')?.value?.trim();
+    if (!baseName) return;
+    const row = DB.queryOne(
+      "SELECT data FROM entry WHERE name = :n COLLATE NOCASE " +
+      "AND type = 'creature' LIMIT 1", { ':n': baseName });
+    if (!row || !row.data) return;
+    let creature;
+    try { creature = JSON.parse(row.data); } catch { return; }
+
+    // Compute the active progression row for this panel's selected
+    // companion type (Animal Companion / Familiar / etc.).
+    const lvls = computeCompanionLevels();
+    const typeMap = {
+      'Animal Companion': 'animal_companion',
+      'Familiar':         'familiar',
+      'Cohort':           'cohort',
+    };
+    const selType = panel.querySelector('.comp-type')?.value || '';
+    const matchType = typeMap[selType] || null;
+    let prog = null;
+    let effectiveLevel = 0;
+    if (matchType && lvls[matchType] && lvls[matchType].effectiveLevel > 0) {
+      effectiveLevel = lvls[matchType].effectiveLevel;
+      if (typeof DND35 !== 'undefined' &&
+          typeof DND35.getCompanionProgression === 'function') {
+        prog = DND35.getCompanionProgression(matchType, effectiveLevel);
+      }
+    }
+
+    // Compute final stats.
+    const base = creature.abilities || {};
+    const abilityAdj = (prog && prog.abilityAdj) || 0;  // animal: str+dex
+    const strAdj = (prog && prog.strAdj) || 0;          // mount: str
+    const naAdj = (prog && prog.naAdj) || 0;
+    const intMin = (prog && prog.intMin) || 0;
+
+    // For animal companions, the progression bumps BOTH Str and Dex.
+    // For mounts, only Str (via strAdj). Familiars get an Int floor
+    // but no ability bumps. Apply accordingly.
+    const stats = {
+      STR: (base.Str || 0) + (matchType === 'animal_companion' ? abilityAdj : strAdj),
+      DEX: (base.Dex || 0) + (matchType === 'animal_companion' ? abilityAdj : 0),
+      CON: base.Con || 0,
+      INT: Math.max(base.Int || 0, intMin),
+      WIS: base.Wis || 0,
+      CHA: base.Cha || 0,
+    };
+
+    // Pull natural armor out of the free-text armor_class string
+    // (e.g. "14 (+2 Dex, +2 natural), touch 12, flat-footed 12" →
+    // baseNA=2). Some creatures have no natural armor; default 0.
+    const acText = String(creature.armor_class || '');
+    const naMatch = acText.match(/([+\-]?\d+)\s*natural/i);
+    const baseNA = naMatch ? parseInt(naMatch[1], 10) : 0;
+
+    // Apply to the panel's fields. Each is marked data-from-auto so
+    // applyAutoFillState can grey them out in AUTO mode.
+    const setAuto = (sel, val) => {
+      const el = panel.querySelector(sel);
+      if (!el) return;
+      el.value = String(val);
+      el.dataset.fromAuto = '1';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    for (const ab of ['STR','DEX','CON','INT','WIS','CHA']) {
+      setAuto(`.comp-score[data-ab="${ab}"]`, stats[ab]);
+    }
+    if (creature.speed) {
+      setAuto('.comp-speed', String(creature.speed));
+    }
+    setAuto('.comp-ac-natural', baseNA + naAdj);
+
+    // Re-apply disabled state (since setAuto cleared / set values
+    // but the toggle handler runs only on radio change).
+    applyAutoFillState(panel, 'auto');
+  }
+
+  // When AUTO mode is on, the stat fields populated by autoFillFromBase
+  // Creature are disabled to avoid stale manual edits when the user
+  // toggles modes back and forth. MANUAL re-enables everything so the
+  // sheet behaves like before.
+  function applyAutoFillState(panel, mode) {
+    const auto = mode === 'auto';
+    const fields = panel.querySelectorAll(
+      '.comp-score, .comp-speed, .comp-ac-natural');
+    for (const el of fields) {
+      el.disabled = auto;
+      el.classList.toggle('comp-auto-locked', auto);
+    }
+  }
+
   function escapeHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -702,6 +921,8 @@ const Companion = (function () {
       d.compName = panel.querySelector(".comp-name")?.value || "";
       d.compType = panel.querySelector(".comp-type")?.value || "";
       d.isFamiliar = panel.querySelector(".comp-familiar-toggle")?.checked || false;
+      d.compMode = panel.querySelector(".comp-mode-radio:checked")?.value || "manual";
+      d.compBaseCreature = panel.querySelector(".comp-base-creature")?.value || "";
       ["STR","DEX","CON","INT","WIS","CHA"].forEach((ab) => {
         d[`comp-${ab.toLowerCase()}-score`] = panel.querySelector(`.comp-score[data-ab="${ab}"]`)?.value || "";
       });
@@ -790,6 +1011,83 @@ const Companion = (function () {
   function recalcAll() {
     $$("#companion-content > .inner-tab-content").forEach((panel) => recalcCompanion(panel));
   }
+
+  // H5 (2026-05-16 play-feel pass): pick the most-relevant comp-type
+  // dropdown value based on which bucket of computeCompanionLevels()
+  // has the highest effective level. Returns a serialization-form
+  // value matching the dropdown's `option`-comparison keys (animal /
+  // familiar / cohort) or null if no bucket is non-zero.
+  function defaultCompTypeFromClasses() {
+    if (!window.DB || !DB.isLoaded()) return null;
+    const lvls = computeCompanionLevels();
+    // Map computeCompanionLevels bucket keys → buildCompanionHTML's
+    // option-comparison values. (special_mount has no dedicated
+    // dropdown entry — surface via "animal" since the existing
+    // progression panel renders the mount info under either type.)
+    const KEY_TO_VALUE = {
+      familiar:         "familiar",
+      animal_companion: "animal",
+      special_mount:    "animal",
+      cohort:           "cohort",
+    };
+    let bestKey = null;
+    let bestLvl = 0;
+    for (const k of Object.keys(lvls)) {
+      if (lvls[k].effectiveLevel > bestLvl) {
+        bestLvl = lvls[k].effectiveLevel;
+        bestKey = k;
+      }
+    }
+    return bestKey ? KEY_TO_VALUE[bestKey] : null;
+  }
+
+  // H4 (2026-05-16 play-feel pass): when classes change (apply /
+  // remove via class-picker), refresh every existing companion
+  // panel's progression panel + recompute the auto-default
+  // comp-type for any panel that hasn't had its type explicitly
+  // chosen by the user. Without this, applying "Wizard 5" to a
+  // fresh sheet left the progression panel empty until some other
+  // event triggered recalcCompanion.
+  document.addEventListener("classes-changed", () => {
+    const defaultType = defaultCompTypeFromClasses();
+    $$("#companion-content > .inner-tab-content").forEach((panel) => {
+      // Bump comp-type only when the user hasn't explicitly chosen
+      // one (marked by absence of `data-user-set` on the select) AND
+      // we computed a meaningful default.
+      const sel = panel.querySelector(".comp-type");
+      if (sel && defaultType && !sel.dataset.userSet) {
+        // Map serialization key → display text (option order matches
+        // buildCompanionHTML's `<option>` list).
+        const TEXT_FOR_KEY = {
+          animal: "Animal Companion",
+          familiar: "Familiar",
+          cohort: "Cohort",
+        };
+        const want = TEXT_FOR_KEY[defaultType];
+        if (want && sel.value !== want) {
+          sel.value = want;
+          // Dispatch change so any downstream listeners (AUTO-fill
+          // recompute, etc.) react.
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      recalcCompanion(panel);
+    });
+  });
+
+  // Build the global #creature-options datalist once the DB is loaded.
+  // Per-panel base-creature inputs reference it via `list="creature-options"`.
+  // companion.js loads BEFORE database.js in index.html so `DB` isn't
+  // yet defined when this IIFE runs. Poll briefly for it.
+  function _scheduleCreatureDatalistBuild(attempt = 0) {
+    if (typeof DB !== 'undefined' && DB.ready) {
+      DB.ready.then((db) => { if (db) buildGlobalCreatureDatalist(); });
+      return;
+    }
+    if (attempt > 50) return;  // give up after ~5s of polling
+    setTimeout(() => _scheduleCreatureDatalistBuild(attempt + 1), 100);
+  }
+  _scheduleCreatureDatalistBuild();
 
   return { addCompanion, loadData, collectData, recalcAll, setMainGetAbilityMod };
 })();
