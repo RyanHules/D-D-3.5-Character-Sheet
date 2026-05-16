@@ -439,6 +439,39 @@
                                nonAdvancingLevels: [1, 3, 5, 7, 9] },
   };
 
+  // Tome of Battle maneuver-advancement metadata. Parallel to
+  // _FALLBACK_HARDCODED_ADVANCERS but for ToB initiator-level /
+  // maneuvers-known advancement. Lives in its own map because ToB PrCs
+  // typically advance maneuvers on a DIFFERENT schedule than spells —
+  // e.g. Ruby Knight Vindicator advances divine casting at every level
+  // except 1 and 6, but only advances maneuvers at EVEN levels.
+  //
+  // Primary source is the DB (`entry.data.maneuver_advancement`,
+  // populated by `_class_metadata.py::MANEUVER_ADVANCEMENT_METADATA` at
+  // build time). This fallback covers older DBs / missing-build cases.
+  //
+  // Schema:
+  //   advancingLevels: [int, …]  — PrC levels that grant +1 IL to the
+  //       picked base ToB class.
+  //   disciplines: [str, …]      — optional discipline whitelist.
+  //       Recorded for future maneuver-picker integration, not consumed
+  //       by the IL advancement walk.
+  const _FALLBACK_MANEUVER_ADVANCERS = {
+    'Ruby Knight Vindicator': {
+      advancingLevels: [2, 4, 6, 8, 10],
+      disciplines: ['Devoted Spirit', 'Shadow Hand',
+                    'Stone Dragon', 'White Raven'],
+    },
+    'Jade Phoenix Mage': {
+      advancingLevels: [1, 3, 5, 7, 9],
+      disciplines: ['Desert Wind', 'Devoted Spirit'],
+    },
+    'Master of Nine': {
+      advancingLevels: [1, 2, 3, 4, 5],
+      disciplines: [],  // all 9 disciplines
+    },
+  };
+
   // ----------------------------------------------------------------------
   // DB-backed metadata accessors
   //
@@ -481,7 +514,8 @@
       "json_extract(data, '$.spellcasting.key_ability')           AS key_ability, " +
       "json_extract(data, '$.spellcasting.bonus_spell_ability')   AS bonus_spell_ability, " +
       "json_extract(data, '$.class_skills')                       AS class_skills, " +
-      "json_extract(data, '$.advancement')                        AS advancement " +
+      "json_extract(data, '$.advancement')                        AS advancement, " +
+      "json_extract(data, '$.maneuver_advancement')               AS maneuver_advancement " +
       "FROM entry WHERE type IN ('class','prc')"
     );
     for (const r of rows) {
@@ -511,10 +545,23 @@
       if (r.class_skills) {
         try { skills = JSON.parse(r.class_skills); } catch (e) { skills = null; }
       }
+      let madv = null;
+      if (r.maneuver_advancement) {
+        try { madv = JSON.parse(r.maneuver_advancement); } catch (e) { madv = null; }
+        if (madv) {
+          // Normalize Python snake_case → JS camelCase to match the
+          // hand-coded fallback shape.
+          madv = {
+            advancingLevels: madv.advancing_levels || [],
+            disciplines: madv.disciplines || [],
+          };
+        }
+      }
       _dbMetaCache.set(r.name, {
         classType: ct,
         style: r.style,
         advancement: adv,
+        maneuverAdvancement: madv,
         keyAbility: _normalizeAbility(r.key_ability),
         // Optional override — only set for Favored Soul / Spirit
         // Shaman style classes. Null when bonus spells use the same
@@ -543,6 +590,12 @@
     const m = _dbMetaCache.get(className);
     if (m && m.advancement) return m.advancement;
     return _FALLBACK_HARDCODED_ADVANCERS[className] ?? null;
+  }
+  function getManeuverAdvancementSpec(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.maneuverAdvancement) return m.maneuverAdvancement;
+    return _FALLBACK_MANEUVER_ADVANCERS[className] ?? null;
   }
   function getKeyAbility(className) {
     loadDbMetadata();
@@ -1168,9 +1221,16 @@
     // refreshAllSpellTabs no longer try to advance a class that's gone.
     const removedKey = className.toLowerCase();
     for (const e of pickedClasses) {
-      if (!e.advancesTargets) continue;
-      e.advancesTargets = e.advancesTargets.map(t =>
-        t && t.toLowerCase() === removedKey ? null : t);
+      if (e.advancesTargets) {
+        e.advancesTargets = e.advancesTargets.map(t =>
+          t && t.toLowerCase() === removedKey ? null : t);
+      }
+      // ToB maneuver pillar — same pattern. refreshManeuverAdvanceTarget
+      // will re-resolve to another eligible base if one exists.
+      if (e.maneuverAdvancesTarget &&
+          e.maneuverAdvancesTarget.toLowerCase() === removedKey) {
+        e.maneuverAdvancesTarget = null;
+      }
     }
 
     // Strip class-granted freebie spells (Sand Shaper's Desert
@@ -1258,6 +1318,13 @@
           requiresStyles:         e.requiresStyles,
           allowsMultiAdvance:     e.allowsMultiAdvance,
           advancementSlots:       e.advancementSlots,
+          // ToB maneuver-advancement pillar (RKV / JPM / MoN). Saved
+          // separately from the spell-pillar fields above because RKV
+          // populates BOTH sets (advances divine casting AND maneuvers).
+          maneuverAdvancesLevels:  e.maneuverAdvancesLevels,
+          maneuverAdvancesTarget:  e.maneuverAdvancesTarget,
+          maneuverAdvancingLevels: e.maneuverAdvancingLevels,
+          maneuverDisciplines:     e.maneuverDisciplines,
         }));
       }
       if (useFractional) out._fractionalBaseBonus = true;
@@ -1301,6 +1368,11 @@
             requiresStyles:         stub.requiresStyles         || undefined,
             allowsMultiAdvance:     stub.allowsMultiAdvance     || undefined,
             advancementSlots:       stub.advancementSlots       || undefined,
+            // ToB maneuver pillar — see Save side above for context.
+            maneuverAdvancesLevels:  stub.maneuverAdvancesLevels  || undefined,
+            maneuverAdvancesTarget:  stub.maneuverAdvancesTarget  || undefined,
+            maneuverAdvancingLevels: stub.maneuverAdvancingLevels || undefined,
+            maneuverDisciplines:     stub.maneuverDisciplines     || undefined,
           });
         }
       }
@@ -1697,12 +1769,90 @@
     return Math.min(20, target.level + bonus);
   }
 
+  // ============================================================
+  // Maneuver-advancement pillar (Tome of Battle)
+  //
+  // Parallels the spell-advancement pillar above but tracks ToB
+  // initiator level (IL) instead of caster level. ToB PrCs (Ruby
+  // Knight Vindicator, Jade Phoenix Mage, Master of Nine, …) advance
+  // IL of a base martial-adept class (Crusader / Swordsage /
+  // Warblade) on a schedule that's INDEPENDENT of any spell-pillar
+  // advancement they may also do — e.g. RKV advances divine
+  // spellcasting at every level except 1 and 6, but advances
+  // maneuvers only on EVEN levels.
+  //
+  // Data flow:
+  //   - DB / fallback map → maneuver_advancement.advancingLevels
+  //   - detectManeuverAdvancement(name, classId, level) returns a
+  //     count of advancing PrC levels at or below the picked level.
+  //   - applyToSheet stamps `entry.maneuverAdvancesLevels` on the
+  //     advancer entry (and `entry.maneuverAdvancingLevels` for the
+  //     UI / save-roundtrip).
+  //   - effectiveInitiatorLevel(target) sums those bumps for the
+  //     given base initiator entry.
+  //   - refreshAllManeuverTabs writes the result into each ToB
+  //     panel's `.tom-init-level` field.
+  //
+  // Only IL is wired today (matches the failing playfeel scenarios'
+  // contract). Maneuvers-known counts and stances-known counts are
+  // populated by populateManeuverPanelCounts from the BASE class's
+  // class_table for now; per-advance increments are a follow-up.
+  // ============================================================
+
+  function detectManeuverAdvancement(className, classId, level) {
+    const spec = getManeuverAdvancementSpec(className);
+    if (!spec || !Array.isArray(spec.advancingLevels)) return null;
+    // Count how many of the spec's advancing-levels are at or below
+    // the picked PrC level. Each contributes +1 IL to the chosen base.
+    const passed = spec.advancingLevels.filter(lv => lv <= level);
+    if (!passed.length) return null;
+    return {
+      levels: passed.length,
+      advancingLevels: passed.slice(),
+      disciplines: spec.disciplines || [],
+    };
+  }
+
+  // Pick the first martial-adept class in pickedClasses to be the IL
+  // advancement target. Mirrors pickAdvanceTarget for the spell pillar.
+  // ToB doesn't subdivide by "type" — Crusader / Swordsage / Warblade
+  // all use the same IL track, and a PrC's discipline restriction is
+  // about which disciplines the player can pick maneuvers FROM, not
+  // about which base class advances. For multi-base builds (Crusader
+  // + Swordsage + MoN), the first matching base wins; secondary IL
+  // tracking is a follow-up.
+  function pickManeuverAdvanceTarget(advancerEntry) {
+    for (const e of pickedClasses) {
+      if (e === advancerEntry) continue;
+      if (MARTIAL_ADEPT_CLASSES.has(e.className)) return e.className;
+    }
+    return null;
+  }
+
+  // Sum the IL bumps an applied initiator entry receives from advancer
+  // PrCs in pickedClasses. Capped at 20 (ToB IL is bounded by the same
+  // BAB ceiling). Mirror of effectiveSpellLevel.
+  function effectiveInitiatorLevel(target) {
+    let bonus = 0;
+    for (const e of pickedClasses) {
+      if (e === target) continue;
+      if (!e.maneuverAdvancesLevels) continue;
+      const tgt = e.maneuverAdvancesTarget;
+      if (!tgt) continue;
+      if (tgt.toLowerCase() === target.className.toLowerCase()) {
+        bonus += e.maneuverAdvancesLevels;
+      }
+    }
+    return Math.min(20, target.level + bonus);
+  }
+
   // After every apply/remove: refresh each non-advancer's spells tab to
   // reflect the current effective level. Advancer entries with no
   // spellcasting data of their own (Eldritch Knight, Mystic Theurge,
   // …) don't get tabs themselves.
   function refreshAllSpellTabs() {
     for (const e of pickedClasses) refreshAdvanceTargets(e);
+    for (const e of pickedClasses) refreshManeuverAdvanceTarget(e);
     // After targets settle, resolve auto-lower slots (UM L1/4/7) using
     // the current state. This must come AFTER refreshAdvanceTargets
     // because slot targets are recomputed there for per-level entries.
@@ -1716,6 +1866,55 @@
       if (!sc) continue;
       const offset = getSpellLevelOffset(target.className, sc.spd.length);
       upsertSpellcastingPanel(target.className, effLvl, sc, offset);
+    }
+    // Refresh each applied ToB base class's maneuver panel IL.
+    refreshAllManeuverTabs();
+  }
+
+  // Resolve maneuverAdvancesTarget for a freshly-applied or reloaded
+  // advancer entry. Picks the first eligible base ToB class in
+  // pickedClasses if none was previously pinned and the previously-
+  // pinned target no longer exists. Mirror of refreshAdvanceTargets
+  // for the maneuver pillar.
+  function refreshManeuverAdvanceTarget(entry) {
+    if (!entry.maneuverAdvancesLevels) return;
+    const stillExists = (name) =>
+      pickedClasses.some(e => e.className.toLowerCase() === name.toLowerCase());
+    if (entry.maneuverAdvancesTarget &&
+        stillExists(entry.maneuverAdvancesTarget)) return;
+    const tgt = pickManeuverAdvanceTarget(entry);
+    entry.maneuverAdvancesTarget = tgt || null;
+  }
+
+  function refreshAllManeuverTabs() {
+    for (const target of pickedClasses) {
+      if (!MARTIAL_ADEPT_CLASSES.has(target.className)) continue;
+      const panel = findExistingCasterPanel('maneuvers', target.className);
+      if (!panel) continue;
+      const il = effectiveInitiatorLevel(target);
+      const ilField = panel.querySelector('.tom-init-level');
+      if (!ilField) continue;
+      // Only push the picker's computed IL when the field was
+      // auto-filled (data-from-class === target.className). User-typed
+      // values clear the marker, so we leave them alone.
+      const fromCls = ilField.dataset.fromClass;
+      if (fromCls && fromCls === target.className) {
+        ilField.value = String(il);
+        ilField.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (!ilField.value.trim()) {
+        // Field is blank — fill and tag so subsequent refreshes can
+        // update it (and so removeClass strips it via the standard
+        // data-from-class sweep).
+        ilField.value = String(il);
+        ilField.dataset.fromClass = target.className;
+        if (!ilField.dataset.fromClassWired) {
+          ilField.dataset.fromClassWired = '1';
+          ilField.addEventListener('input', (ev) => {
+            if (ev.isTrusted) delete ilField.dataset.fromClass;
+          });
+        }
+        ilField.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
   }
 
@@ -1911,6 +2110,15 @@
         entry.allowsMultiAdvance = adv.allowsMultiAdvance;
       }
     }
+    // Detect ToB maneuver-advancement (parallel pillar — RKV / JPM /
+    // MoN). Independent of the spell-advancement schedule above; an
+    // entry can have BOTH (RKV advances divine casting AND maneuvers).
+    const madv = detectManeuverAdvancement(cls.class, cls.class_id, level);
+    if (madv) {
+      entry.maneuverAdvancesLevels = madv.levels;
+      entry.maneuverAdvancingLevels = madv.advancingLevels;
+      entry.maneuverDisciplines = madv.disciplines;
+    }
     if (existingIdx >= 0) {
       // Preserve user-pinned target overrides on re-apply (advancesTargets
       // / advancementSlots may have been manually selected by the user
@@ -1924,6 +2132,11 @@
         const keep = new Set(entry.advancingLevels);
         entry.advancementSlots = prev.advancementSlots
           .filter(s => keep.has(s.prcLevel));
+      }
+      // Preserve user-pinned ToB IL target on re-apply (e.g. user picked
+      // Warblade over Crusader when both are present).
+      if (prev.maneuverAdvancesTarget) {
+        entry.maneuverAdvancesTarget = prev.maneuverAdvancesTarget;
       }
       pickedClasses[existingIdx] = entry;
     } else {
