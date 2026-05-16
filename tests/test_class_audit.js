@@ -106,7 +106,8 @@ const KNOWN_NOTES = {
   //   Ardent / Divine Mind / Erudite / Lurk (CPsi schema normalized
   //   via normalize_cpsi_classes.py — `levels` → `class_table`,
   //   `features` → `class_features`).
-  'Savant':          'Dual-list caster (INT arcane, WIS divine) — descriptive key_ability, schema needs dual support',
+  //   Savant (now uses array-form key_ability + key_ability_per_list).
+  //
   // Flesh Golem is a construct — Savage Species explicitly states "no
   // class skills". The empty class_skills is correct per source; the
   // data already documents this via skill_points_per_level text.
@@ -318,9 +319,22 @@ const CHECKS = {
     // Allow 'varies' for psionic PrCs that inherit from the base class
     // (War Mind, Cerebremancer, etc.). Power-point manifesting can be
     // Wis (Psion) / Cha (Wilder) / Int (Erudite) depending on parent.
+    //
+    // Dual-list casters (Savant — INT arcane, WIS divine) use an ARRAY
+    // form for key_ability with each entry in VALID_ABILITIES. The
+    // explicit list→ability mapping lives in `key_ability_per_list`.
     const VALID_ABILITIES = ['Charisma', 'Wisdom', 'Intelligence', 'varies'];
-    if (!sc.key_ability) issues.push('spellcasting.key_ability missing');
-    else if (!VALID_ABILITIES.includes(sc.key_ability)) {
+    if (!sc.key_ability) {
+      issues.push('spellcasting.key_ability missing');
+    } else if (Array.isArray(sc.key_ability)) {
+      const bad = sc.key_ability.filter(a => !VALID_ABILITIES.includes(a));
+      if (bad.length) {
+        issues.push(`spellcasting.key_ability has unknown entries: ${JSON.stringify(bad)}`);
+      }
+      if (sc.key_ability.length < 2) {
+        issues.push('spellcasting.key_ability is an array but has < 2 entries — use a scalar string instead');
+      }
+    } else if (!VALID_ABILITIES.includes(sc.key_ability)) {
       issues.push(`spellcasting.key_ability = ${JSON.stringify(sc.key_ability)}`);
     }
     if (!sc.type) issues.push('spellcasting.type missing');

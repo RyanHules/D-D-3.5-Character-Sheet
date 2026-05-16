@@ -551,6 +551,18 @@
   };
   function _normalizeAbility(v) {
     if (!v) return '';
+    // Array-form (Savant: ["Intelligence", "Wisdom"] — dual-list
+    // caster). Return the first normalized code so the existing
+    // single-ability consumers (caster panel ability dropdown) get a
+    // sensible default. Dual-list-aware consumers can read
+    // spellcasting.key_ability_per_list off the DB row directly.
+    if (Array.isArray(v)) {
+      for (const x of v) {
+        const k = String(x).trim().toLowerCase();
+        if (_ABILITY_TO_CODE[k]) return _ABILITY_TO_CODE[k];
+      }
+      return '';
+    }
     const k = String(v).trim().toLowerCase();
     return _ABILITY_TO_CODE[k] || '';
   }
