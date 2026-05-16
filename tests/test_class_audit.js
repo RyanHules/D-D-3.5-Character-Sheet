@@ -100,13 +100,17 @@ function execAll(db, sql, params) {
 // pure documentation).
 
 const KNOWN_NOTES = {
-  // Currently the only one-off note. Cleared 2026-05-16:
+  // Cleared 2026-05-16:
   //   Eldritch Knight (now wired via ADVANCEMENT_METADATA).
   //   Sublime Chord (now has native-caster SPELLCASTING_METADATA).
   //   Ardent / Divine Mind / Erudite / Lurk (CPsi schema normalized
   //   via normalize_cpsi_classes.py — `levels` → `class_table`,
   //   `features` → `class_features`).
   'Savant':          'Dual-list caster (INT arcane, WIS divine) — descriptive key_ability, schema needs dual support',
+  // Flesh Golem is a construct — Savage Species explicitly states "no
+  // class skills". The empty class_skills is correct per source; the
+  // data already documents this via skill_points_per_level text.
+  'Flesh Golem (Monster Class)': 'Construct — Savage Species explicitly has no class skills (documented in skill_points_per_level)',
 };
 
 // Classes/PrCs whose spellcasting block is incomplete (missing one
@@ -129,6 +133,42 @@ const KNOWN_NOTES = {
 // if new audit findings appear (e.g. a future book extraction
 // surfaces another batch of incomplete blocks).
 const SPELLCASTING_BLOCK_INCOMPLETE = new Set([]);
+
+// Companion-grant false positives — class features whose text matches
+// the companion-keyword regex but don't actually grant a companion.
+// MUST stay in sync with the EXCLUSIONS set in tests/test_pickers.js
+// and the None entries in _companion_metadata.OVERRIDES on the DB side.
+//
+// Two flavours of false positive land here:
+//   (a) Plain English uses ("familiar to the flux adept", "familiar"
+//       listed as one option in a feat-substitute menu).
+//   (b) Counter-text on ex-class / loss features ("his familiar leaves").
+//
+// Pattern (b) is also catchable via the INCIDENTAL regex (`\bex-\w+`,
+// etc.), but explicit pairs are clearer when reading the audit.
+const COMPANION_KEYWORD_EXCLUSIONS = new Set([
+  'Generic Warrior/Bonus Feats',
+  'Guild Thief/Bonus Feat',
+  'Guild Thief/Reputation',
+  'Hexblade/Ex-Hexblades',
+  'Mountebank/Infernal Escape (Su)',
+  'Cerebremancer/Spells per Day / Powers Known',
+  'Hierophant/Power of Nature (Su)',
+  'Hierophant/Power of Nature [druid-only special ability]',
+  'Blighter/Unbond (Sp)',
+  "Sha'ir/Spells",
+  'Prestige Paladin/Class Features',
+  'Aglarondan Griffonrider/Flyby Attack',
+  'Aglarondan Griffonrider/Aerial Evasion (Ex)',
+  'Aglarondan Griffonrider/Hover (Ex)',
+  'Aglarondan Griffonrider/Power Dive (Ex)',
+  'Aglarondan Griffonrider/Superior Flight (Ex)',
+  'Flux Adept/Taste of Truth (Ex)',
+]);
+
+// Incidental-keyword regex — text patterns where the companion keyword
+// is used in a non-granting sense. Mirrors test_pickers.js INCIDENTAL.
+const COMPANION_KEYWORD_INCIDENTAL = /leadership\s+score|feat\s+from:?\b[^.]*leadership|\bex-\w+|\bbecomes?\s+\w+|sever\s+bonded|except\s+(?:spellcasting\s+and\s+)?animal\s+companion|does\s+not\s+grant.*familiar|magical\s+materials/i;
 
 // PrCs whose class_features text matches the broad advancer regex but
 // aren't yet wired into ADVANCEMENT_METADATA / HARDCODED_ADVANCERS.
@@ -342,26 +382,25 @@ const CHECKS = {
 
   // Companion-grant metadata. Class features mentioning these
   // keywords should have `companion` metadata so Companion.compute-
-  // CompanionLevels picks them up.
+  // CompanionLevels picks them up. Mirrors the equivalent (stricter)
+  // check in tests/test_pickers.js — both use the same KEYWORDS regex,
+  // the same INCIDENTAL counter-regex, and the same EXCLUSIONS pair
+  // set (kept in sync with _companion_metadata.OVERRIDES on the DB
+  // side).
   'companion-grant-metadata': (ctx) => {
     const features = ctx.data.class_features || [];
-    const KEYWORDS = /\b(animal companion|familiar|special mount|paladin's mount|cohort)\b/i;
+    const KEYWORDS = /\b(animal companion|familiar|special mount|paladin'?s?\s+mount|cohort)\b/i;
     const missing = [];
     for (const f of features) {
       const text = `${f.name || ''} ${f.description || ''}`;
       if (!KEYWORDS.test(text)) continue;
-      // The actual class_features metadata may be on a parent feature
-      // (e.g. "Leadership" referencing cohort). Accept any companion
-      // metadata on the feature.
-      if (!f.companion) {
-        missing.push(f.name || '(unnamed)');
-      }
+      if (COMPANION_KEYWORD_INCIDENTAL.test(text)) continue;
+      if (f.companion) continue;
+      const key = `${ctx.row.name}/${f.name || '(unnamed)'}`;
+      if (COMPANION_KEYWORD_EXCLUSIONS.has(key)) continue;
+      missing.push(f.name || '(unnamed)');
     }
     if (missing.length === 0) return null;
-    // Some matches are false positives (e.g. text "vs. animal
-    // companion" in a counter-feature). The audit in
-    // _companion_metadata.py has its own exclusion set; here we
-    // just report — it's an info-level finding.
     return `${missing.length} companion-keyword feature(s) missing metadata: ${missing.join(', ')}`;
   },
 
