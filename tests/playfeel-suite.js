@@ -274,17 +274,17 @@
     // Wizard 5 BAB = 2, EK 7 BAB = 7, total = 9.
     expectValue('#bab-1', '9', 'EK 7 + Wizard 5 BAB');
     expectValue('#caster-0 .caster-notes', 'Wizard', 'panel notes still Wizard');
-    // KNOWN ISSUE (2026-05-16): Eldritch Knight has no advancement
-    // metadata in the DB — see sibling project TODO. As a result the
-    // sheet currently leaves CL stuck at the Wizard portion (5),
-    // when it SHOULD be Wizard 5 + EK 6 advancing levels = CL 11.
-    // The assertion below tests the current (broken-DB) behavior so
-    // this scenario stays green; once `_class_metadata.py` adds EK
-    // with `advances_all_levels=true, non_advancing_levels=[1]`, the
-    // expected value flips to "11" (and an L5 slot assertion can be
-    // added back).
-    expectValue('#caster-0 .sc-caster-level', '5',
-      'CL 5 (KNOWN ISSUE: EK advancement metadata missing in DB)');
+    // EK advances arcane casting at L2-L10 of the PrC (L1 is non-
+    // advancing). Wizard 5 (CL 5) + EK 7 (6 advancing levels) = CL 11.
+    // CURRENTLY FAILS — Eldritch Knight has no advancement metadata
+    // in the DB (`_class_metadata.py` missing entry) and isn't in
+    // HARDCODED_ADVANCERS either, so the sheet silently leaves CL
+    // stuck at the Wizard portion. Fix lands in the sibling DB
+    // project; this scenario stays red until then.
+    expectValue('#caster-0 .sc-caster-level', '11',
+      'CL 11 (Wizard 5 + EK 7 advancing levels 2-7 = 6 advances)');
+    // L5 spells unlocked at Wizard 9 / CL 11.
+    expectText('#caster-0 .sc-remain[data-lvl="5"]', '2', 'L5 base 1 + INT bonus 1');
   });
 
   scenario("Sha'ir 3 / Durthan 2 / Sand Shaper 1 / Durthan 3 — interleaved PrCs", async () => {
@@ -506,6 +506,152 @@
     expect(freebies.length, 14, 'M9: 14 freebies (L1-L2 only)');
   });
 
+  // ---- Per-class application sweep -------------------------------------
+  //
+  // Iterates every class + PrC in the DB and verifies the sheet can
+  // apply it without throwing. Catches application-time bugs that the
+  // Node-side metadata audit can't see (e.g. class-picker crashing on
+  // a class whose data shape diverges from the canonical schema).
+  //
+  // ~500-700ms per class × 451 classes ≈ 4-6 minutes for the full
+  // sweep. Opt-in via the "Sweep classes" button or
+  // `PlayFeel.runClassSweep()`.
+  //
+  // Per-class assertions (deliberately minimal — depth lives in
+  // scenario tests for curated classes):
+  //   - apply() doesn't throw
+  //   - exactly one chip is added
+  //   - char-level reads back to the applied level
+  //   - if the class has a `spellcasting` block, a caster panel
+  //     spawns OR (for non-advancing-at-L1 PrCs) doesn't
+  //
+  // Sweep budget can be narrowed via the second arg:
+  //   PlayFeel.runClassSweep({ types: ['class'], maxCount: 30 })
+
+  async function runClassSweep(opts = {}) {
+    await waitForDb();
+    setStatus('Class sweep starting…');
+    const typeFilter = opts.types || ['class', 'prc'];
+    const maxCount = opts.maxCount || Infinity;
+    const placeholders = typeFilter.map(() => '?').join(',');
+    const rows = DB.query(
+      `SELECT name, type, json_extract(data, '$.class_table') as ct
+       FROM entry WHERE type IN (${placeholders})
+       ORDER BY type, name COLLATE NOCASE`,
+      typeFilter,
+    );
+    const trimmed = rows.slice(0, maxCount);
+    const results = [];
+
+    // Build a sweep-results panel section.
+    let sweepContainer = document.getElementById('playfeel-sweep-results');
+    if (!sweepContainer) {
+      const panel = document.getElementById('playfeel-panel');
+      const header = document.createElement('div');
+      header.className = 'pf-section-title';
+      header.textContent = `Class sweep (${trimmed.length} entries)`;
+      panel.appendChild(header);
+      sweepContainer = document.createElement('div');
+      sweepContainer.className = 'pf-list pf-sweep-list';
+      sweepContainer.id = 'playfeel-sweep-results';
+      panel.appendChild(sweepContainer);
+    }
+    sweepContainer.innerHTML = '';
+
+    let passed = 0, failed = 0;
+    const failedRows = [];
+    const t0 = performance.now();
+
+    for (let i = 0; i < trimmed.length; i++) {
+      const entry = trimmed[i];
+      // Pick the lowest level present in class_table (PrCs may start
+      // at L1 of the PrC's own table, not character L1).
+      let applyLevel = 1;
+      try {
+        const ct = entry.ct ? JSON.parse(entry.ct) : [];
+        const levels = ct.map(r => Number(r.level)).filter(n => !isNaN(n));
+        if (levels.length) applyLevel = Math.min(...levels);
+      } catch (e) { /* default to 1 */ }
+
+      setStatus(`Sweep ${i + 1}/${trimmed.length}: ${entry.name}`);
+      let outcome;
+      try {
+        outcome = await sweepOneClass(entry.name, applyLevel);
+      } catch (err) {
+        outcome = { ok: false, error: err.message || String(err) };
+      }
+      const result = { name: entry.name, type: entry.type, ...outcome };
+      results.push(result);
+      if (result.ok) passed++;
+      else { failed++; failedRows.push(result); }
+
+      // Render row
+      const row = document.createElement('div');
+      row.className = `pf-row pf-${result.ok ? 'pass' : 'fail'}`;
+      row.innerHTML = `
+        <span class="pf-name"></span>
+        <span class="pf-result"></span>
+      `;
+      row.querySelector('.pf-name').textContent = `${entry.name} [${entry.type}]`;
+      if (result.ok) {
+        row.querySelector('.pf-result').textContent = '✓';
+      } else {
+        const r = row.querySelector('.pf-result');
+        r.innerHTML = `<span class="pf-err" title="${escapeAttr(result.error)}">✗ ${escapeHtml((result.error || '').slice(0, 60))}</span>`;
+      }
+      // Only keep failed rows in the visible list to limit DOM growth.
+      if (!result.ok) sweepContainer.appendChild(row);
+
+      // Yield to the event loop occasionally to keep the UI responsive.
+      if (i % 10 === 0) await wait(0);
+    }
+
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    setStatus(`Sweep done: ${passed} passed / ${failed} failed in ${elapsed}s`);
+    if (failed === 0) {
+      const ok = document.createElement('div');
+      ok.className = 'pf-row pf-pass';
+      ok.style.padding = '0.4rem 0.6rem';
+      ok.textContent = `✓ All ${trimmed.length} classes applied cleanly.`;
+      sweepContainer.appendChild(ok);
+    }
+    return { passed, failed, failedRows, elapsed };
+  }
+
+  async function sweepOneClass(name, level) {
+    // Suppress alerts/confirms for the duration of this sweep step.
+    const origAlert = window.alert;
+    const origConfirm = window.confirm;
+    window.alert = () => {};
+    window.confirm = () => true;
+    try {
+      await newCharacter();
+      const chipsBefore = classChips().length;
+      // Catch synchronous and async throws.
+      try {
+        await applyClass(name, level);
+      } catch (err) {
+        return { ok: false, error: `apply threw: ${err.message || err}` };
+      }
+      const chipsAfter = classChips().length;
+      if (chipsAfter !== chipsBefore + 1) {
+        return { ok: false, error: `expected +1 chip, got ${chipsAfter - chipsBefore} (${chipsAfter} total)` };
+      }
+      const chip = classChips()[classChips().length - 1] || '';
+      if (!chip.toLowerCase().includes(name.toLowerCase())) {
+        return { ok: false, error: `chip text "${chip}" doesn't contain "${name}"` };
+      }
+      const charLevel = parseInt(document.getElementById('char-level')?.value || '0', 10);
+      if (charLevel !== level) {
+        return { ok: false, error: `char-level = ${charLevel}, expected ${level}` };
+      }
+      return { ok: true };
+    } finally {
+      window.alert = origAlert;
+      window.confirm = origConfirm;
+    }
+  }
+
   // ---- Runner -----------------------------------------------------------
 
   async function runOne(spec) {
@@ -602,6 +748,8 @@
       <div class="pf-header">
         <span class="pf-title">Play-feel test suite</span>
         <button id="playfeel-run-all" class="pf-btn">Run All</button>
+        <button id="playfeel-sweep" class="pf-btn pf-btn-alt"
+                title="Apply every class in the DB, verify no errors (~4-6 min)">Sweep Classes</button>
         <button id="playfeel-close" class="pf-close" title="Close panel">×</button>
       </div>
       <div id="playfeel-status" class="pf-status">Ready. Click Run All.</div>
@@ -618,6 +766,10 @@
     for (const s of scenarios) scnList.appendChild(makeRow(s));
 
     panel.querySelector('#playfeel-run-all').addEventListener('click', () => runAll());
+    panel.querySelector('#playfeel-sweep').addEventListener('click', () => {
+      if (!confirm('Apply every class in the DB (~451 classes, ~4-6 min). Proceed?')) return;
+      runClassSweep();
+    });
     panel.querySelector('#playfeel-close').addEventListener('click', () => panel.remove());
   }
 
@@ -657,6 +809,7 @@
         padding: 0.25rem 0.6rem; border-radius: 3px;
         cursor: pointer; font: inherit; font-weight: 600;
       }
+      #playfeel-panel .pf-btn-alt { background: #6a4a8a; }
       #playfeel-panel .pf-close {
         background: transparent; border: 0; color: #aaa;
         font-size: 1.2em; cursor: pointer; padding: 0 0.3rem;
@@ -703,7 +856,7 @@
   // Expose for Node-side preview MCP orchestration. Also keeps the
   // results around for inspection after a run.
   window.PlayFeel = {
-    runAll, runSpec,
+    runAll, runSpec, runClassSweep,
     scenarios, regressions,
     getResults: () => lastResults,
   };

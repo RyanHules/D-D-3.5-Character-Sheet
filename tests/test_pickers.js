@@ -886,6 +886,12 @@ test('class-picker: every advancer PrC is wired (Source A regex or HARDCODED_ADV
     "json_extract(data, '$.class_table')    AS table_json " +
     "FROM entry WHERE type = 'prc'");
 
+  // Match "as if [pronoun] gained a level" — historical pattern that
+  // misses "as if she HAD also gained a level" (the canonical PHB
+  // phrasing used by Eldritch Knight + 38 others). The stricter
+  // version of this regex lives in test_class_audit.js as a separate
+  // audit that REPORTS the misses without failing this smoke test;
+  // wiring all 39 is a multi-commit triage effort.
   const ADVANCE_VERB = new RegExp(
     'as if (?:had |she |he |you |they )?(?:also )?gained? a level' +
     '|as if leveling in' +
