@@ -580,6 +580,7 @@
       "json_extract(data, '$.spellcasting.style')                 AS style, " +
       "json_extract(data, '$.spellcasting.key_ability')           AS key_ability, " +
       "json_extract(data, '$.spellcasting.bonus_spell_ability')   AS bonus_spell_ability, " +
+      "json_extract(data, '$.spellcasting.no_save_dc')            AS no_save_dc, " +
       "json_extract(data, '$.class_skills')                       AS class_skills, " +
       "json_extract(data, '$.advancement')                        AS advancement, " +
       "json_extract(data, '$.maneuver_advancement')               AS maneuver_advancement, " +
@@ -652,6 +653,9 @@
         // Shaman style classes. Null when bonus spells use the same
         // ability as DCs (the common case).
         bonusSpellAbility: _normalizeAbility(r.bonus_spell_ability),
+        // True for classes whose "spells" never allow saves (Artificer
+        // infusions). sql.js returns 1/0 for booleans, normalize.
+        noSaveDc: !!r.no_save_dc,
         classSkills: Array.isArray(skills) ? skills : null,
       });
     }
@@ -693,6 +697,15 @@
     const m = _dbMetaCache.get(className);
     if (m && m.mysteryAdvancement) return m.mysteryAdvancement;
     return _FALLBACK_MYSTERY_ADVANCERS[className] ?? null;
+  }
+  // True for classes whose "spells" never allow saving throws
+  // (Artificer infusions are the canonical case). Consumers should
+  // hide / mute the DC column on the spell-tab panel.
+  function getNoSaveDc(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.noSaveDc) return true;
+    return false;
   }
   function getKeyAbility(className) {
     loadDbMetadata();
@@ -2763,6 +2776,7 @@
     'Warmage': 'Warmage — knows every spell on the warmage spell list of any level he can cast (plus advanced learning).',
     'Dread Necromancer': 'Dread Necromancer — knows every spell on the dread necromancer spell list of any level he can cast (plus advanced learning).',
     'Healer': 'Healer — knows every spell on the healer spell list of any level she can cast.',
+    'Artificer': "Artificer — knows every infusion on the artificer infusion list of any level he can cast. Infusions imbue items/constructs only (not creatures) and NEVER ALLOW SAVING THROWS (DC column n/a).",
   };
 
   // M1 (2026-05-16 play-feel pass): classes that prepare spells from
@@ -2843,10 +2857,25 @@
     const existing = findExistingCasterPanel('spellcasting', className);
     if (existing) {
       updateSpellcastingPanel(existing, data, classLevel, sc.spd.length, offset);
+      _stampNoSaveDc(existing, className);
       return existing;
     }
     Spells.addCaster('spellcasting', data);
-    return findExistingCasterPanel('spellcasting', className);
+    const fresh = findExistingCasterPanel('spellcasting', className);
+    _stampNoSaveDc(fresh, className);
+    return fresh;
+  }
+
+  // Set a panel-level data attribute when the applied class never
+  // allows save DCs (Artificer). Spells.js reads this and displays
+  // "—" instead of computing 10 + spell level + key-ability mod.
+  function _stampNoSaveDc(panel, className) {
+    if (!panel) return;
+    if (getNoSaveDc(className)) {
+      panel.dataset.noSaveDc = '1';
+    } else {
+      delete panel.dataset.noSaveDc;
+    }
   }
 
   function updateSpellcastingPanel(panel, data, classLevel, spdLength, offset) {

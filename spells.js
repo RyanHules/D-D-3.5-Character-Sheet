@@ -989,9 +989,18 @@ const Spells = (function () {
       if (failEl) failEl.textContent = spellFail + "%";
       const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
 
+      // Classes whose "spells" never allow saving throws (Artificer
+      // infusions) get "—" in the DC column instead of the computed
+      // 10 + level + key-ability mod. Stamped on the panel by
+      // class-picker.js when the class is applied.
+      const noSaveDc = panel.dataset.noSaveDc === '1';
+
       for (let i = 0; i <= maxLevel; i++) {
         const dcEl = panel.querySelector(`.sc-dc[data-lvl="${i}"]`);
-        if (dcEl) dcEl.textContent = ability ? 10 + i + abilityMod : "--";
+        if (dcEl) {
+          if (noSaveDc) dcEl.textContent = '—';
+          else dcEl.textContent = ability ? 10 + i + abilityMod : "--";
+        }
 
         // Auto-fill bonus spell slots from the BONUS-SPELL ability
         // modifier (PHB Table 1-1). For most classes that's the same
