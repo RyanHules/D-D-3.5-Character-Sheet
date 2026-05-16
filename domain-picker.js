@@ -62,6 +62,21 @@
     // a click on .sc-add-domain that creates new `.domain-entry` rows;
     // we observe the DOM for subtree additions and re-link inputs.
     observeNewDomainInputs();
+    // Rehydrate any .sc-domain-name inputs already populated from a
+    // saved character. The .dom-pick-info <div> isn't part of the
+    // saved HTML — it's recreated on demand by fillFromDomain. If
+    // Spells.loadData fired before this init resolved, the change
+    // events it dispatched found no handler; sweep the DOM now.
+    rehydrateExistingInputs();
+  }
+
+  function rehydrateExistingInputs() {
+    for (const input of document.querySelectorAll('.sc-domain-name')) {
+      const key = String(input.value || '').trim().toLowerCase();
+      if (key && domainIndex.has(key)) {
+        fillFromDomain(input, domainIndex.get(key));
+      }
+    }
   }
 
   function buildDatalist() {

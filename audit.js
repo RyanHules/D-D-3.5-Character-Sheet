@@ -1,0 +1,645 @@
+// audit.js — Floating Character Audit widget.
+//
+// A header-bar button (next to the universal-lookup ❔ button) whose
+// icon reflects the worst-severity issue currently present on the
+// sheet: green ✓ when clean, cyan ⓘ when info-only, amber ⚠ when
+// warnings exist, red ✗ when errors exist. Click to open a popover
+// listing every active issue grouped by severity, with a "Dismiss"
+// button on each one so the user can acknowledge known oddities
+// (custom races, DM rulings, homebrew not yet in the DB) without
+// retraining themselves to ignore the panel.
+//
+// Updates via a global `audit-refresh` event dispatched from
+// `recalcAll()` so checks reflect the current state across all
+// tabs (skills, equipment, spells, conditions).
+//
+// Severity buckets:
+//   error   — rule-illegal: HP > max, spell slots over-prepared,
+//             skill ranks above absolute cap (char_level + 3),
+//             known spells over per-level cap.
+//   warning — suspect-but-legal: encumbrance over light, base
+//             ability score above 18 (a high *base* almost always
+//             indicates a build choice worth flagging; total can
+//             legitimately exceed 18 via racial mods, so we check
+//             base specifically per the player's note).
+//   info    — advisory: spells prepared == max (no flex room),
+//             known spells == cap (consider Spell Mastery / etc.).
+//
+// Dismissed issues persist via `Audit.collectData/loadData`
+// (`{ auditDismissed: [id, …] }`).
+
+const Audit = (function () {
+  // Dismissed issue IDs survive across recalc but are wiped on
+  // new-character / load. Sealed as a Set for cheap membership tests.
+  const dismissed = new Set();
+
+  let triggerBtn = null;
+  let popoverEl = null;
+
+  // ---- Check implementations -----------------------------------------
+
+  function int(v) { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
+  function flt(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+  // Helper: read all input values needed across checks once, so we
+  // don't re-query the DOM 20 times.
+  function snapshot() {
+    const s = {};
+    s.charLevel    = int(document.getElementById('char-level')?.value) || 1;
+    s.hpMax        = int(document.getElementById('hp-total')?.value);
+    s.hpCurrent    = int(document.getElementById('hp-current')?.value);
+    s.loadCategory = document.getElementById('load-category')?.textContent?.toLowerCase() || '';
+    s.totalWeight  = flt(document.getElementById('total-weight')?.textContent);
+    // Base ability scores (manually entered, before racial / template mods).
+    s.baseAbilities = {};
+    for (const ab of ['str','dex','con','int','wis','cha']) {
+      s.baseAbilities[ab.toUpperCase()] = int(document.getElementById(`${ab}-score`)?.value);
+    }
+    // Skills snapshot: every .skill-ranks input.
+    s.skills = [];
+    for (const inp of document.querySelectorAll('.skill-ranks')) {
+      const ranks = flt(inp.value);
+      if (ranks <= 0) continue;
+      const row = inp.closest('tr');
+      const name = row?.querySelector('.skill-name')?.textContent?.trim() || '?';
+      s.skills.push({ name, ranks });
+    }
+    // Spell slots / prepared / known per caster panel.
+    s.casters = [];
+    for (const panel of document.querySelectorAll('[data-caster-type="spellcasting"]')) {
+      const notes = panel.querySelector('.caster-notes')?.value?.trim() || '(unnamed)';
+      const c = { name: notes, levels: [] };
+      const table = panel.querySelector('.spell-slots-table');
+      const maxLvl = int(table?.dataset.maxLevel || 9);
+      for (let i = 0; i <= maxLvl; i++) {
+        const perDay   = int(panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value);
+        const bonus    = int(panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value);
+        const domain   = int(panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value);
+        const spec     = int(panel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value);
+        const total    = perDay + bonus + domain + spec;
+        const used     = int(panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value);
+        const cap      = int(panel.querySelector(`.sc-known[data-lvl="${i}"]`)?.value);
+        const knownEls = panel.querySelectorAll(
+          `.sc-known-list[data-lvl="${i}"] .sc-known-name`);
+        const knownCount = [...knownEls]
+          .filter(e => (e.value || '').trim()).length;
+        const prepText = panel.querySelector(
+          `.sc-spell-prepared[data-lvl="${i}"]`)?.value || '';
+        const preparedCount = prepText.split(/\r?\n/)
+          .filter(l => l.trim()).length;
+        c.levels.push({ level: i, total, used, cap, knownCount, preparedCount });
+      }
+      s.casters.push(c);
+    }
+    return s;
+  }
+
+  function collect() {
+    const s = snapshot();
+    const issues = [];
+
+    // ---- HP overflow / underflow ----
+    if (s.hpMax > 0 && s.hpCurrent > s.hpMax) {
+      issues.push({
+        id: 'hp:current-over-max',
+        severity: 'error',
+        message: `HP current (${s.hpCurrent}) exceeds HP max (${s.hpMax}). ` +
+                 `If this is intentional (e.g. Bear's Endurance), dismiss.`,
+      });
+    }
+
+    // ---- Skill ranks over absolute cap (char level + 3) ----
+    // Anything above that is illegal regardless of class-skill status.
+    // (Half-cap cross-class check waits for history.)
+    const absCap = s.charLevel + 3;
+    for (const sk of s.skills) {
+      if (sk.ranks > absCap) {
+        issues.push({
+          id: `skill:over-cap:${sk.name}`,
+          severity: 'error',
+          message: `${sk.name}: ${sk.ranks} ranks exceeds the cap ` +
+                   `(character level + 3 = ${absCap}).`,
+        });
+      }
+    }
+
+    // ---- Encumbrance ----
+    if (s.loadCategory === 'medium') {
+      issues.push({
+        id: 'load:medium',
+        severity: 'warning',
+        message: `Medium load (${s.totalWeight.toFixed(1)} lb): max Dex to ` +
+                 `AC capped at +3, armor check penalty -3, speed reduced.`,
+      });
+    } else if (s.loadCategory === 'heavy') {
+      issues.push({
+        id: 'load:heavy',
+        severity: 'warning',
+        message: `Heavy load (${s.totalWeight.toFixed(1)} lb): max Dex to ` +
+                 `AC capped at +1, armor check penalty -6, speed reduced.`,
+      });
+    }
+
+    // ---- Base ability score bounds ----
+    // Flag BASE score (manually entered), not total. Monstrous races
+    // legitimately push totals high via racial mods, but a base
+    // outside the expected window is almost always a build hint
+    // worth checking once (then dismiss).
+    //
+    // Upper bound: 18 (max roll on 4d6-drop-lowest) plus the number
+    // of ability score increases granted by the character's level
+    // (one per 4 levels at L4/8/12/16/20, all assignable to the
+    // same ability). So 18+1 at L4, 18+2 at L8, ..., 18+5 at L20.
+    // Higher than that suggests wish/inherent bonuses or homebrew.
+    //
+    // Lower bound: 3 — the minimum roll on 3d6. PC base scores of
+    // 2 or lower are illegal at character creation (drained/damaged
+    // in play is a different mechanic and shouldn't be reflected in
+    // the manually-entered base).
+    const baseCeiling = 18 + Math.floor(s.charLevel / 4);
+    for (const [ab, val] of Object.entries(s.baseAbilities)) {
+      if (val > baseCeiling) {
+        issues.push({
+          id: `ability:base-over-ceiling:${ab}`,
+          severity: 'warning',
+          message: `Base ${ab} = ${val} (above ${baseCeiling}, the L${s.charLevel} ` +
+                   `ceiling of 18 + floor(level / 4) level-up boosts). Dismiss if ` +
+                   `this is intentional (wish/inherent bonuses, homebrew, etc.).`,
+        });
+      } else if (val > 0 && val < 3) {
+        // val > 0 because empty / 0 means "not yet entered" — only
+        // flag when the user has explicitly typed in 1 or 2.
+        issues.push({
+          id: `ability:base-under-3:${ab}`,
+          severity: 'error',
+          message: `Base ${ab} = ${val} (below 3, the minimum legal base). ` +
+                   `PC base scores can't drop below 3 at character creation; ` +
+                   `temporary ability damage / drain goes in the Temp Score ` +
+                   `column instead.`,
+        });
+      }
+    }
+
+    // ---- Spell-slot overpreparation + known overage ----
+    for (const caster of s.casters) {
+      for (const { level, total, used, cap, knownCount, preparedCount } of caster.levels) {
+        // Prepared overage: a wizard prepping 5 spells in a 4-slot
+        // level. (Used count is independent — we don't compare against
+        // it; this is about the static prep list size.)
+        if (total > 0 && preparedCount > total) {
+          issues.push({
+            id: `caster:over-prepared:${caster.name}:${level}`,
+            severity: 'error',
+            message: `${caster.name} L${level}: prepared ${preparedCount} ` +
+                     `spell(s) into ${total} slot(s).`,
+          });
+        } else if (total > 0 && preparedCount === total && preparedCount > 0) {
+          issues.push({
+            id: `caster:prepared-full:${caster.name}:${level}`,
+            severity: 'info',
+            message: `${caster.name} L${level}: prepared list fills every ` +
+                     `slot (no flex room for spontaneous metamagic, ` +
+                     `swapped prep, etc.).`,
+          });
+        }
+        // Used over total: can't use more slots than you have.
+        if (total > 0 && used > total) {
+          issues.push({
+            id: `caster:over-used:${caster.name}:${level}`,
+            severity: 'error',
+            message: `${caster.name} L${level}: marked ${used} slot(s) ` +
+                     `used but only ${total} available.`,
+          });
+        }
+        // Known overage (sorcerer-style; uses sc-known cap field).
+        if (cap > 0 && knownCount > cap) {
+          issues.push({
+            id: `caster:over-known:${caster.name}:${level}`,
+            severity: 'error',
+            message: `${caster.name} L${level}: ${knownCount} spell(s) ` +
+                     `known but cap is ${cap}.`,
+          });
+        } else if (cap > 0 && knownCount === cap && knownCount > 0) {
+          issues.push({
+            id: `caster:known-full:${caster.name}:${level}`,
+            severity: 'info',
+            message: `${caster.name} L${level}: known list at cap ` +
+                     `(${cap}). Consider Spell Mastery / Spell Knowledge ` +
+                     `to expand.`,
+          });
+        }
+      }
+    }
+
+    // ---- History-derived checks ----
+    // Only run when CharacterHistory has data — these are the per-
+    // level validations from #3 Session 4. Each check is independent
+    // and emits 0+ issues into the same list. Phase 1 covers the
+    // checks that work with the fields the history already captures
+    // (class_taken, hp_rolled, ability_boost, feats_taken). Skills,
+    // spells, and class-specific choices are deferred until those
+    // editors land in the Timeline.
+    if (typeof CharacterHistory !== 'undefined') {
+      const history = CharacterHistory.get();
+      if (Array.isArray(history) && history.length > 0) {
+        checkHistoryClassMatch(history, issues);
+        checkAbilityBoostLevels(history, issues);
+        checkAbilityBoostCount(history, issues);
+        checkFeatScheduleLevels(history, issues);
+        checkFeatPrereqOrder(history, issues);
+      }
+    }
+
+    // Filter out dismissed.
+    return issues.filter(i => !dismissed.has(i.id));
+  }
+
+  // ---- History-derived checks ---------------------------------------
+
+  // Compare history's class composition to ClassPicker.getState().
+  // Mismatches usually mean the user edited Timeline without
+  // updating the applied classes (or vice versa).
+  function checkHistoryClassMatch(history, issues) {
+    if (typeof ClassPicker === 'undefined' ||
+        typeof ClassPicker.getState !== 'function') return;
+    const applied = ClassPicker.getState();
+    const appliedTotalLvl = applied.reduce((s, c) => s + (c.level || 0), 0);
+    if (appliedTotalLvl > 0 && history.length !== appliedTotalLvl) {
+      issues.push({
+        id: 'history:total-mismatch',
+        severity: 'warning',
+        message: `Build Timeline has ${history.length} level(s) but ` +
+                 `applied classes sum to ${appliedTotalLvl}. The two ` +
+                 `should agree — edit the Timeline (or re-apply classes) ` +
+                 `to reconcile.`,
+      });
+    }
+    // Per-class counts.
+    const histCounts = new Map();
+    for (const e of history) {
+      const c = e.class_taken || '(unknown)';
+      histCounts.set(c, (histCounts.get(c) || 0) + 1);
+    }
+    const appliedCounts = new Map();
+    for (const c of applied) {
+      appliedCounts.set(c.className, (appliedCounts.get(c.className) || 0) + (c.level || 0));
+    }
+    for (const [cls, n] of histCounts) {
+      const a = appliedCounts.get(cls) || 0;
+      if (a !== n) {
+        issues.push({
+          id: `history:class-mismatch:${cls}`,
+          severity: 'warning',
+          message: `Build Timeline has ${n} ${cls} level(s) but applied ` +
+                   `classes show ${a}. Reconcile via Timeline edits or ` +
+                   `re-apply ${cls} via Class Lookup.`,
+        });
+      }
+    }
+    for (const [cls] of appliedCounts) {
+      if (!histCounts.has(cls)) {
+        issues.push({
+          id: `history:class-missing:${cls}`,
+          severity: 'warning',
+          message: `Applied class ${cls} has no levels in the Build ` +
+                   `Timeline. Add Timeline entries (or re-trigger ` +
+                   `reconstruction by clearing history).`,
+        });
+      }
+    }
+  }
+
+  // Ability boosts can only be assigned at L4/8/12/16/20.
+  function checkAbilityBoostLevels(history, issues) {
+    for (const e of history) {
+      if (e.ability_boost &&
+          typeof CharacterHistory.isAbilityBoostLevel === 'function' &&
+          !CharacterHistory.isAbilityBoostLevel(e.level)) {
+        issues.push({
+          id: `history:boost-wrong-level:${e.level}`,
+          severity: 'error',
+          message: `L${e.level} has an ability boost (${e.ability_boost}), ` +
+                   `but boosts only happen at L4 / 8 / 12 / 16 / 20.`,
+        });
+      }
+    }
+  }
+
+  // Boost count should equal floor(charLevel / 4) at L20.
+  // If too many boosts assigned, flag.
+  function checkAbilityBoostCount(history, issues) {
+    const charLevel = history.length;
+    const expected = Math.floor(charLevel / 4);
+    const actual = history.filter(e => !!e.ability_boost).length;
+    if (actual > expected) {
+      issues.push({
+        id: 'history:too-many-boosts',
+        severity: 'error',
+        message: `${actual} ability score increase(s) assigned across ` +
+                 `${charLevel} level(s), but only ${expected} permitted ` +
+                 `(one per 4 levels at L4 / 8 / 12 / 16 / 20).`,
+      });
+    }
+  }
+
+  // Feats should generally land on the RAW schedule (L1/3/6/9/12/15/18).
+  // We surface this as INFO not error — class bonus feats legitimately
+  // appear at other levels (Fighter L1/2/4/6/8/.., Wizard L5/10/15/20,
+  // monk bonuses, etc.) and a Pathfinder-style table has odd-level
+  // feats. The note is a "did you mean to put a feat here?" reminder.
+  function checkFeatScheduleLevels(history, issues) {
+    if (typeof CharacterHistory === 'undefined' ||
+        typeof CharacterHistory.featLevels !== 'function') return;
+    const rawSet = new Set(CharacterHistory.featLevels(false));
+    const pfSet  = new Set(CharacterHistory.featLevels(true));
+    for (const e of history) {
+      if (!(e.feats_taken || []).length) continue;
+      if (rawSet.has(e.level)) continue;
+      // Not on the RAW schedule — could be a class bonus feat, a
+      // Pathfinder-style table, or a mis-placed entry. Info only.
+      const onPF = pfSet.has(e.level);
+      issues.push({
+        id: `history:feat-off-schedule:${e.level}`,
+        severity: 'info',
+        message: `L${e.level} has ${e.feats_taken.length} feat(s) but ` +
+                 `RAW schedule grants feats at L1/3/6/9/12/15/18 ` +
+                 (onPF
+                   ? `(Pathfinder schedule includes L${e.level}). `
+                   : `(not in Pathfinder either). `) +
+                 `If these are class bonus feats (Fighter / Wizard / ` +
+                 `Monk / etc.), dismiss this.`,
+      });
+    }
+  }
+
+  // For each feat taken in history, check that any feat-prereqs
+  // were already in the character's feat list at that point. This
+  // is the canonical "took Cleave before Power Attack" check.
+  function checkFeatPrereqOrder(history, issues) {
+    if (typeof FeatPrereqs === 'undefined' ||
+        typeof FeatPrereqs.parse !== 'function') return;
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return;
+    // Build cumulative-feats-by-level once.
+    const featsAtOrBefore = new Map();  // level → Set<lowercase feat name>
+    let running = new Set();
+    for (const e of history) {
+      const cur = new Set(running);
+      for (const fn of (e.feats_taken || [])) {
+        cur.add(String(fn || '').trim().toLowerCase());
+      }
+      featsAtOrBefore.set(e.level, cur);
+      running = cur;
+    }
+    // Walk each acquired feat.
+    for (const e of history) {
+      const priorFeats = e.level > 1
+        ? (featsAtOrBefore.get(e.level - 1) || new Set())
+        : new Set();
+      for (const featName of (e.feats_taken || [])) {
+        const name = String(featName || '').trim();
+        if (!name) continue;
+        const row = DB.queryOne(
+          "SELECT json_extract(data, '$.prerequisites') AS p " +
+          "FROM entry WHERE type='feat' AND name = :n COLLATE NOCASE LIMIT 1",
+          { ':n': name });
+        if (!row || !row.p) continue;  // homebrew / unknown
+        const atoms = FeatPrereqs.parse(row.p);
+        for (const a of atoms) {
+          if (a.kind !== 'feat') continue;
+          const need = a.name.toLowerCase();
+          if (priorFeats.has(need)) continue;
+          // The prereq feat wasn't taken in a PRIOR level. It might
+          // be taken at the SAME level — check, and downgrade to a
+          // warning since RAW lets you list feats in any order on a
+          // single level (multiple feats can be acquired at one
+          // level via class bonus + standard slot).
+          const sameLevel = (e.feats_taken || []).map(s => String(s).trim().toLowerCase());
+          if (sameLevel.includes(need)) {
+            issues.push({
+              id: `history:prereq-same-level:${e.level}:${name}:${a.name}`,
+              severity: 'info',
+              message: `L${e.level}: ${name} requires ${a.name}, which ` +
+                       `was taken on the SAME level. Order on the same ` +
+                       `level is irrelevant by RAW, but worth confirming ` +
+                       `your DM accepts it.`,
+            });
+            continue;
+          }
+          issues.push({
+            id: `history:prereq-not-taken:${e.level}:${name}:${a.name}`,
+            severity: 'error',
+            message: `L${e.level}: ${name} requires ${a.name} as a feat ` +
+                     `prereq, but ${a.name} was not taken in any prior ` +
+                     `level. Re-order via the Build Timeline, or dismiss ` +
+                     `if a DM ruling allows it.`,
+          });
+        }
+      }
+    }
+  }
+
+  // ---- UI: trigger button -------------------------------------------
+
+  // Severity priority: error > warning > info > clean.
+  function worstSeverity(issues) {
+    if (issues.some(i => i.severity === 'error')) return 'error';
+    if (issues.some(i => i.severity === 'warning')) return 'warning';
+    if (issues.some(i => i.severity === 'info')) return 'info';
+    return 'clean';
+  }
+
+  const SEVERITY_ICONS = {
+    clean:   '✓',
+    info:    'ⓘ',
+    warning: '⚠',
+    error:   '✗',
+  };
+  const SEVERITY_LABELS = {
+    clean:   'No issues',
+    info:    'Info',
+    warning: 'Warnings',
+    error:   'Errors',
+  };
+
+  function ensureTriggerButton() {
+    if (triggerBtn) return triggerBtn;
+    triggerBtn = document.createElement('button');
+    triggerBtn.id = 'audit-trigger-btn';
+    triggerBtn.type = 'button';
+    triggerBtn.className = 'audit-trigger';
+    triggerBtn.title = 'Character audit';
+    triggerBtn.addEventListener('click', togglePopover);
+    // Place next to the lookup button if it exists, otherwise in the
+    // header. Both live in the same header bar so the audit chip
+    // ends up sitting alongside the lookup ❔ button.
+    const lookupBtn = document.getElementById('lookup-trigger-btn');
+    if (lookupBtn && lookupBtn.parentElement) {
+      lookupBtn.parentElement.insertBefore(triggerBtn, lookupBtn);
+    } else {
+      const header = document.querySelector('header');
+      if (header) header.appendChild(triggerBtn);
+      else document.body.appendChild(triggerBtn);
+    }
+    return triggerBtn;
+  }
+
+  function updateButton(issues) {
+    if (!triggerBtn) return;
+    const sev = worstSeverity(issues);
+    triggerBtn.dataset.severity = sev;
+    const count = issues.length;
+    const countLabel = count > 0 ? ` (${count})` : '';
+    triggerBtn.title = `${SEVERITY_LABELS[sev]}${countLabel} — click for details`;
+    triggerBtn.innerHTML = `<span class="audit-icon">${SEVERITY_ICONS[sev]}</span>` +
+      (count > 0 ? `<span class="audit-count">${count}</span>` : '');
+  }
+
+  // ---- UI: popover ---------------------------------------------------
+
+  function togglePopover() {
+    if (popoverEl) { closePopover(); return; }
+    openPopover();
+  }
+
+  function openPopover() {
+    const issues = collect();
+    popoverEl = document.createElement('div');
+    popoverEl.className = 'audit-popover';
+    renderPopover(issues);
+    document.body.appendChild(popoverEl);
+    positionPopover();
+    // Close on outside click (next tick so the trigger click doesn't
+    // immediately re-close us).
+    setTimeout(() => {
+      document.addEventListener('click', onOutsideClick, true);
+    }, 0);
+  }
+
+  function closePopover() {
+    if (!popoverEl) return;
+    popoverEl.remove();
+    popoverEl = null;
+    document.removeEventListener('click', onOutsideClick, true);
+  }
+
+  function onOutsideClick(ev) {
+    if (popoverEl && !popoverEl.contains(ev.target) &&
+        ev.target !== triggerBtn && !triggerBtn?.contains(ev.target)) {
+      closePopover();
+    }
+  }
+
+  function positionPopover() {
+    if (!popoverEl || !triggerBtn) return;
+    const r = triggerBtn.getBoundingClientRect();
+    popoverEl.style.position = 'fixed';
+    popoverEl.style.top = `${r.bottom + 6}px`;
+    // Right-align under the trigger; clamp to viewport.
+    const popW = 340;
+    let left = r.right - popW;
+    if (left < 8) left = 8;
+    popoverEl.style.left = `${left}px`;
+    popoverEl.style.width = `${popW}px`;
+  }
+
+  function renderPopover(issues) {
+    if (!popoverEl) return;
+    if (!issues.length) {
+      popoverEl.innerHTML =
+        `<div class="audit-header"><b>Character Audit</b></div>` +
+        `<div class="audit-empty">✓ No active issues.</div>` +
+        renderDismissedToggle();
+      bindDismissedToggle();
+      return;
+    }
+    const byBucket = { error: [], warning: [], info: [] };
+    for (const i of issues) byBucket[i.severity]?.push(i);
+    const sections = [];
+    for (const sev of ['error', 'warning', 'info']) {
+      const list = byBucket[sev];
+      if (!list.length) continue;
+      const heading = `${SEVERITY_ICONS[sev]} ${SEVERITY_LABELS[sev]} ` +
+                      `(${list.length})`;
+      const items = list.map(i =>
+        `<li class="audit-item audit-item-${sev}">` +
+        `<span class="audit-msg">${escapeHtml(i.message)}</span>` +
+        `<button class="audit-dismiss" data-id="${escapeHtml(i.id)}" ` +
+        `title="Dismiss this issue for this character">×</button>` +
+        `</li>`).join('');
+      sections.push(
+        `<div class="audit-section audit-section-${sev}">` +
+        `<div class="audit-section-head">${escapeHtml(heading)}</div>` +
+        `<ul class="audit-list">${items}</ul></div>`
+      );
+    }
+    popoverEl.innerHTML =
+      `<div class="audit-header"><b>Character Audit</b></div>` +
+      sections.join('') +
+      renderDismissedToggle();
+    popoverEl.querySelectorAll('.audit-dismiss').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dismiss(btn.dataset.id);
+      });
+    });
+    bindDismissedToggle();
+  }
+
+  function renderDismissedToggle() {
+    if (!dismissed.size) return '';
+    return `<div class="audit-dismissed-bar">` +
+      `<button class="audit-show-dismissed" type="button">` +
+      `${dismissed.size} dismissed — re-enable</button></div>`;
+  }
+
+  function bindDismissedToggle() {
+    const btn = popoverEl?.querySelector('.audit-show-dismissed');
+    if (!btn) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismissed.clear();
+      refresh();
+    });
+  }
+
+  // ---- Dismiss / refresh --------------------------------------------
+
+  function dismiss(id) {
+    dismissed.add(id);
+    refresh();
+  }
+
+  function refresh() {
+    const issues = collect();
+    updateButton(issues);
+    if (popoverEl) renderPopover(issues);
+  }
+
+  // ---- Save / Load --------------------------------------------------
+
+  function collectData() {
+    return { auditDismissed: [...dismissed] };
+  }
+
+  function loadData(d) {
+    dismissed.clear();
+    for (const id of (d?.auditDismissed || [])) dismissed.add(id);
+    refresh();
+  }
+
+  // ---- Public API ---------------------------------------------------
+
+  function build() {
+    ensureTriggerButton();
+    refresh();
+    document.addEventListener('audit-refresh', refresh);
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  return { build, refresh, collect, dismiss, collectData, loadData };
+})();

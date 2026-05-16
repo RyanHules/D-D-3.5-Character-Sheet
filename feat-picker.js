@@ -270,7 +270,21 @@
         if (types) bits.push(`<b>Type:</b> ${escapeHtml(types)}`);
       }
       if (full.prerequisites && full.prerequisites.trim()) {
-        bits.push(`<b>Prereq:</b> ${escapeHtml(full.prerequisites)}`);
+        // Live ✓/✗/? check against the current character state.
+        // Warn-only — never blocks. See feat-prereqs.js for parser
+        // coverage and known limitations.
+        if (typeof FeatPrereqs !== 'undefined') {
+          const ev = FeatPrereqs.evaluate(full.prerequisites);
+          const sumSym = ev.summary.label;
+          const sumCls = `fp-summary fp-summary-${ev.summary.status}`;
+          bits.push(
+            `<b>Prereq:</b> <span class="${sumCls}">${sumSym}</span> ` +
+            `${escapeHtml(full.prerequisites)}<br>` +
+            `<span class="fp-atoms">${ev.html}</span>`
+          );
+        } else {
+          bits.push(`<b>Prereq:</b> ${escapeHtml(full.prerequisites)}`);
+        }
       }
       if (full.benefit && full.benefit.trim()) {
         bits.push(`<b>Benefit:</b> ${escapeHtml(full.benefit)}`);

@@ -29,6 +29,22 @@ const Shadowcaster = (function () {
     return abs.map((a, i) => `<option value="${a}"${a === selected ? " selected" : ""}>${labels[i]}</option>`).join("");
   }
 
+  // Per-group mystery-level ranges (used to populate the per-mystery
+  // "Level" dropdown). The DC formula is the standard spell DC:
+  // 10 + mystery_level + ability_mod.
+  const GROUP_LEVELS = {
+    fund: [0],
+    app:  [1, 2, 3],
+    init: [4, 5, 6],
+    mast: [7, 8, 9],
+  };
+
+  function levelOptions(group, selected) {
+    return GROUP_LEVELS[group].map((lv) =>
+      `<option value="${lv}"${String(selected) === String(lv) ? " selected" : ""}>${lv}</option>`
+    ).join("");
+  }
+
   function buildHTML(idx, data) {
     const groupsHTML = GROUPS.map((g) => {
       const gdata = (data[g.key] || {});
@@ -57,15 +73,24 @@ const Shadowcaster = (function () {
         </div>
         <button class="btn-add sh-reset-all" style="margin-top:0.5rem">Reset All Uses</button>
       </section>
-      ${groupsHTML}
+      <div class="shadowcaster-2col">
+        ${groupsHTML}
+      </div>
     `;
   }
 
   function mysteryRow(group, m = {}) {
     const usedCount = int(m.used || 0);
+    // Each mystery has its own selected level (within the group's
+    // allowed range) and a computed DC (10 + level + ability mod).
+    const defaultLevel = m.level !== undefined && m.level !== ""
+      ? m.level
+      : GROUP_LEVELS[group.key][0];
     return `<div class="sh-mystery" data-group="${group.key}">
       <div class="sh-mystery-row">
         <textarea class="sh-myst-name" rows="2" placeholder="Mystery name &amp; description...">${m.name || ""}</textarea>
+        <div class="field field-sm sh-level-wrap"><label>Lvl</label><select class="sh-myst-level">${levelOptions(group.key, defaultLevel)}</select></div>
+        <div class="field field-sm sh-dc-wrap"><label>DC</label><span class="sh-myst-dc calc-field">--</span></div>
         <div class="field field-sm sh-extra-wrap"><label>+Extra Uses</label><input type="number" class="sh-myst-extra" min="0" value="${m.extra || ""}"></div>
         <div class="sh-myst-checks" data-used="${usedCount}"></div>
         <button class="btn-remove sh-remove-mystery" title="Remove">X</button>
@@ -101,16 +126,43 @@ const Shadowcaster = (function () {
     return panel.querySelector(`.sh-uses[data-group="${groupKey}"]`)?.value || "1";
   }
 
+  // Compute and stamp the mystery DC (10 + level + ability mod). The
+  // ability mod is read from the global Character recalc system via
+  // window.getAbilityMod (set by app.js); we fall back gracefully if
+  // it's not available.
+  function recalcDC(entry, abilityCode) {
+    const dcEl = entry.querySelector(".sh-myst-dc");
+    if (!dcEl) return;
+    const level = int(entry.querySelector(".sh-myst-level")?.value);
+    let mod = 0;
+    if (abilityCode && typeof window.getAbilityMod === "function") {
+      try { mod = window.getAbilityMod(abilityCode) || 0; }
+      catch (e) { mod = 0; }
+    }
+    dcEl.textContent = String(10 + level + mod);
+  }
+
+  function recalcAllDCs(panel) {
+    const ability = panel.querySelector(".sh-ability")?.value || "";
+    panel.querySelectorAll(".sh-mystery").forEach((entry) => recalcDC(entry, ability));
+  }
+
   function wire(panel) {
     function wireMystery(entry) {
       const group = entry.dataset.group;
       entry.querySelector(".sh-remove-mystery").addEventListener("click", () => entry.remove());
       const extraEl = entry.querySelector(".sh-myst-extra");
       if (extraEl) extraEl.addEventListener("input", () => rebuildChecks(entry, groupUsesValue(panel, group)));
+      const levelEl = entry.querySelector(".sh-myst-level");
+      if (levelEl) levelEl.addEventListener("change", () => recalcAllDCs(panel));
       rebuildChecks(entry, groupUsesValue(panel, group));
+      recalcDC(entry, panel.querySelector(".sh-ability")?.value || "");
     }
 
     panel.querySelectorAll(".sh-mystery").forEach(wireMystery);
+    // Re-compute DCs whenever the mystery-ability dropdown changes.
+    const abilEl = panel.querySelector(".sh-ability");
+    if (abilEl) abilEl.addEventListener("change", () => recalcAllDCs(panel));
 
     panel.querySelectorAll(".sh-add-mystery").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -155,6 +207,7 @@ const Shadowcaster = (function () {
         const wrap = entry.querySelector(".sh-myst-checks");
         g_obj.mysteries.push({
           name: entry.querySelector(".sh-myst-name")?.value || "",
+          level: entry.querySelector(".sh-myst-level")?.value || "",
           extra: entry.querySelector(".sh-myst-extra")?.value || "",
           used: wrap ? int(wrap.dataset.used) : 0,
         });

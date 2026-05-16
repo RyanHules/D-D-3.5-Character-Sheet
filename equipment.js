@@ -204,7 +204,7 @@ const Equipment = (function () {
     countersDiv.innerHTML = `
       <div class="field field-sm"><label>Max Soulmelds</label><input type="number" id="sm-max-soulmelds" min="0" value="0"></div>
       <div class="field field-sm"><label>Max Essentia</label><input type="number" id="sm-max-essentia" min="0" value="0"></div>
-      <div class="field field-sm"><label>Max Chakra Binds</label><input type="number" id="sm-max-binds" min="0" value="0"></div>
+      <div class="field field-sm"><label>Max Binds</label><input type="number" id="sm-max-binds" min="0" value="0"></div>
       <div class="field field-sm"><label>Base Capacity</label><input type="number" id="sm-base-capacity" min="0" value="0"></div>
       <div class="field field-sm"><label>Shaped</label><span id="sm-count-shaped" class="calc-field">0</span></div>
       <div class="field field-sm"><label>Essentia Used</label><span id="sm-count-essentia" class="calc-field">0</span></div>

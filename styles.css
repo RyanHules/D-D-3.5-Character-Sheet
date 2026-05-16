@@ -111,6 +111,100 @@ header h1 { font-size: 1.3rem; color: var(--accent); letter-spacing: 1px; white-
 }
 
 .field-sm { min-width: 80px; max-width: 140px; }
+.field-lg { min-width: 200px; flex: 2; }
+
+/* Spellcasting sub-tab two-column layout: spell list / prepared on
+   the LEFT (the main interaction area); slots/DC table on the RIGHT
+   (compact reference). At narrower viewports the columns stack. */
+.spellcasting-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+@media (max-width: 900px) {
+  .spellcasting-2col { grid-template-columns: 1fr; }
+}
+.spellcasting-list-col h3,
+.spellcasting-slot-col h3 {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+.spellcasting-slot-col .spell-slots-table {
+  font-size: 0.82em;
+  width: 100%;
+}
+.spellcasting-slot-col .spell-slots-table th,
+.spellcasting-slot-col .spell-slots-table td {
+  padding: 0.15rem 0.3rem;
+}
+.spellcasting-slot-col input[type="number"] {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Shadowcaster: tile the four mystery groups into two columns so
+   Fundamentals/Apprentice sit beside Initiate/Master. The
+   .sh-mystery rows themselves stay single-column inside each group. */
+.shadowcaster-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 900px) {
+  .shadowcaster-2col { grid-template-columns: 1fr; }
+}
+.sh-myst-dc { min-width: 2.2em; text-align: center; }
+.sh-level-wrap select { width: 100%; min-width: 0; }
+
+/* When the "Show Prepared" toggle is off, hide all prepared-spell
+   columns and stack the "Known" column to full width. */
+.sc-no-prepared .spell-list-content .two-column {
+  display: block;
+}
+.sc-no-prepared .spell-list-content .column:nth-child(2) {
+  display: none;
+}
+
+/* Stack the per-level spell list rows vertically (Prepared on top of
+   Known) per the 2026-05-16 redesign brief. Was previously
+   side-by-side; the new layout puts prepared above known so the user
+   types in prepared first and references known below. */
+.spell-list-content .two-column {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.4rem;
+}
+
+/* Collapsible lookup-form section (e.g. Class Lookup, Template Lookup).
+   Uses native <details> for accessibility; chevron + colored summary
+   match the dark theme. */
+.picker-section {
+  margin-top: 0.4rem;
+  border: 1px solid rgba(106, 138, 170, 0.25);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.picker-section > summary {
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--accent, #6a8aaa);
+  user-select: none;
+  list-style: revert;  /* keep native chevron */
+}
+.picker-section > summary:hover {
+  background: rgba(106, 138, 170, 0.08);
+}
+.picker-section[open] > summary {
+  border-bottom: 1px solid rgba(106, 138, 170, 0.2);
+  margin-bottom: 0.3rem;
+}
+.picker-section > *:not(summary) {
+  margin: 0.3rem 0.6rem;
+}
 
 .field label {
   font-size: 0.7rem;
@@ -444,6 +538,19 @@ textarea {
 .skill-ability-mod-col { width: 60px; text-align: center; }
 .skill-ranks-col { width: 60px; text-align: center; }
 .skill-misc-col { width: 60px; text-align: center; }
+
+/* Custom skill rows host a <select> in the ability column instead of
+   static text. The native dropdown arrow needs ~15px extra over the
+   plain-text width, so the standard 50px column would cause the select
+   to overflow into the adjacent Skill Mod cell. Widen the ability
+   column only inside the custom-skills table, and constrain the
+   select itself so it doesn't push past the column. */
+#custom-skills-body .skill-ability-col { width: 70px; }
+.custom-skill-ability {
+  width: 100%;
+  max-width: 64px;
+  box-sizing: border-box;
+}
 
 .skills-table input[type="checkbox"] { width: 16px;height: 16px;accent-color: var(--accent);}
 
@@ -1011,6 +1118,442 @@ textarea {
   line-height: 1.4;
 }
 .feat-rules b { color: #eef; }
+
+/* === Speed indicator (when reduced by load) === */
+.speed-reduced { color: var(--danger); font-weight: bold; }
+
+/* === Build Timeline === */
+.bt-reconstructed-badge {
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  background: rgba(255, 180, 80, 0.15);
+  border: 1px solid rgba(255, 180, 80, 0.5);
+  border-radius: 3px;
+  color: #fc8;
+  font-size: 0.8em;
+  font-weight: normal;
+}
+#bt-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.4rem;
+}
+.bt-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+.bt-row.bt-row-reconstructed { border-left: 3px solid #fc8; }
+.bt-row.bt-row-expanded { background: rgba(255, 255, 255, 0.06); }
+.bt-row-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.bt-row-summary:hover { background: rgba(255, 255, 255, 0.04); }
+.bt-level {
+  display: inline-block;
+  min-width: 2.5rem;
+  font-weight: bold;
+  color: var(--accent);
+}
+.bt-class {
+  flex: 1;
+  font-weight: bold;
+}
+.bt-hp, .bt-boost, .bt-feats {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.bt-boost { color: #cde; font-weight: bold; }
+.bt-row-recon-badge {
+  color: #fc8;
+  cursor: help;
+  font-size: 1.05em;
+}
+.bt-row-expand, .bt-row-remove {
+  flex-shrink: 0;
+  background: var(--btn-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.4rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bt-row-expand:hover, .bt-row-remove:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.bt-row-remove:hover { color: #f88; }
+.bt-row-editor {
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.bt-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.4rem 0.6rem;
+  font-size: 0.85em;
+}
+.bt-editor-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  color: var(--text-muted);
+}
+.bt-editor-grid input,
+.bt-editor-grid select,
+.bt-editor-grid textarea {
+  font: inherit;
+  font-size: 1em;
+}
+.bt-edit-feats-label,
+.bt-edit-notes-label {
+  grid-column: 1 / -1;
+}
+.bt-no-boost {
+  align-self: end;
+  padding-bottom: 0.2rem;
+}
+
+/* === Companion class-based progression panel === */
+.comp-progression-panel {
+  margin-bottom: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(106, 138, 170, 0.08);
+  border-left: 3px solid #6a8aaa;
+  border-radius: 0 3px 3px 0;
+  font-size: 0.9em;
+}
+.comp-progression-summary {
+  cursor: pointer;
+  color: #cce;
+  font-weight: bold;
+}
+.comp-progression-status {
+  font-weight: normal;
+  opacity: 0.85;
+  font-size: 0.9em;
+}
+.comp-progression-body { margin-top: 0.4rem; }
+.comp-prog-section {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 3px;
+}
+.comp-prog-section-head { color: #cce; margin-bottom: 0.15rem; }
+.comp-prog-contributions {
+  margin: 0.2rem 0 0.3rem 1.2rem;
+  padding: 0;
+  font-size: 0.9em;
+  color: #ccd;
+}
+.comp-prog-contributions li { margin: 0.1rem 0; }
+.comp-prog-feature { opacity: 0.55; font-style: italic; }
+.comp-prog-stats {
+  margin-top: 0.2rem;
+  padding: 0.2rem 0.4rem;
+  background: rgba(120, 180, 220, 0.06);
+  border-radius: 2px;
+  font-size: 0.9em;
+}
+.comp-prog-specials {
+  margin-top: 0.2rem;
+  font-size: 0.9em;
+  color: #dcd;
+}
+.comp-prog-note,
+.comp-prog-modifier {
+  margin-top: 0.2rem;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.comp-prog-modifier { color: #fc8; font-style: normal; }
+.comp-prog-negated { color: var(--danger); font-style: italic; }
+
+/* === Feat prerequisite indicators === */
+.btn-feat-prereq {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+  padding: 0.2rem 0.4rem;
+  background: var(--btn-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+  line-height: 1;
+  min-width: 1.8em;
+  text-align: center;
+}
+.btn-feat-prereq:hover { background: rgba(255, 255, 255, 0.08); }
+.btn-feat-prereq[data-status="satisfied"] { color: #7c7; border-color: rgba(120, 200, 120, 0.4); }
+.btn-feat-prereq[data-status="unmet"]     { color: #f88; border-color: rgba(244, 67, 54, 0.5); }
+.btn-feat-prereq[data-status="unknown"]   { color: #fc8; border-color: rgba(255, 180, 80, 0.45); }
+.btn-feat-prereq[data-status="none"]      { color: var(--text-muted); opacity: 0.5; }
+.btn-feat-prereq[data-status="neutral"]   { color: var(--text-muted); opacity: 0.4; }
+
+.feat-prereq-detail {
+  flex: 1 1 100%;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid #6a8aaa;
+  border-radius: 0 3px 3px 0;
+  color: #ccd;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.fp-atoms {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+.fp-atom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+  border: 1px solid transparent;
+  cursor: help;
+}
+.fp-atom.fp-ok  { background: rgba(120, 200, 120, 0.08); color: #cec; border-color: rgba(120, 200, 120, 0.25); }
+.fp-atom.fp-bad { background: rgba(244, 67, 54, 0.1);   color: #fcc; border-color: rgba(244, 67, 54, 0.35); }
+.fp-atom.fp-unk { background: rgba(255, 180, 80, 0.08); color: #fdc; border-color: rgba(255, 180, 80, 0.3); }
+.fp-none { font-style: italic; opacity: 0.6; }
+.fp-summary { display: inline-block; padding: 0 0.3em; border-radius: 3px; font-weight: bold; }
+.fp-summary.fp-summary-satisfied { color: #7c7; }
+.fp-summary.fp-summary-unmet     { color: #f88; }
+.fp-summary.fp-summary-unknown   { color: #fc8; }
+
+/* === Audit widget === */
+.audit-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--btn-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 1;
+  margin-right: 0.25rem;
+}
+.audit-trigger:hover { background: rgba(255, 255, 255, 0.08); }
+.audit-trigger .audit-icon { font-size: 1.1em; line-height: 1; }
+.audit-trigger .audit-count {
+  font-size: 0.75em;
+  padding: 0 0.3em;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  min-width: 1.2em;
+  text-align: center;
+}
+.audit-trigger[data-severity="clean"]   .audit-icon { color: #7c7; }
+.audit-trigger[data-severity="info"]    .audit-icon { color: #9bd; }
+.audit-trigger[data-severity="warning"] .audit-icon { color: #fc8; }
+.audit-trigger[data-severity="error"]   .audit-icon { color: #f88; }
+.audit-trigger[data-severity="error"] {
+  border-color: rgba(244, 67, 54, 0.5);
+  background: rgba(244, 67, 54, 0.1);
+}
+.audit-trigger[data-severity="warning"] {
+  border-color: rgba(255, 180, 80, 0.45);
+  background: rgba(255, 180, 80, 0.08);
+}
+
+.audit-popover {
+  background: var(--card-bg, #1c1c20);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+  max-height: 80vh;
+  overflow-y: auto;
+  font-size: 0.9em;
+  color: var(--text);
+}
+.audit-header {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 1em;
+}
+.audit-empty {
+  padding: 0.7rem;
+  text-align: center;
+  color: #7c7;
+}
+.audit-section {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.audit-section:last-of-type { border-bottom: none; }
+.audit-section-head {
+  padding: 0.25rem 0.7rem;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+.audit-section-error   .audit-section-head { color: #f88; }
+.audit-section-warning .audit-section-head { color: #fc8; }
+.audit-section-info    .audit-section-head { color: #9bd; }
+.audit-list { list-style: none; padding: 0; margin: 0; }
+.audit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-left: 3px solid transparent;
+}
+.audit-item-error   { border-left-color: rgba(244, 67, 54, 0.6); }
+.audit-item-warning { border-left-color: rgba(255, 180, 80, 0.6); }
+.audit-item-info    { border-left-color: rgba(140, 180, 220, 0.6); }
+.audit-msg { flex: 1; line-height: 1.35; }
+.audit-dismiss {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-muted);
+  border-radius: 3px;
+  padding: 0 0.4rem;
+  cursor: pointer;
+  font-size: 0.9em;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+.audit-dismiss:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.audit-dismissed-bar {
+  padding: 0.4rem 0.7rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.audit-show-dismissed {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.audit-show-dismissed:hover { color: var(--text); }
+
+/* === Conditions tracker === */
+.conditions-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+.condition-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, border-color 0.1s;
+}
+.condition-chip:hover { background: rgba(255, 255, 255, 0.08); }
+.condition-chip:has(input:checked) {
+  background: rgba(244, 67, 54, 0.15);
+  border-color: rgba(244, 67, 54, 0.5);
+  color: #f99;
+}
+.condition-chip input[type="checkbox"] {
+  accent-color: var(--danger);
+  cursor: pointer;
+}
+.conditions-summary {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.condition-line { margin-bottom: 0.25rem; }
+.condition-line b { color: #ecc; }
+.condition-totals {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fc8;
+}
+.condition-totals b { color: #fc8; }
+
+/* === Universal lookup: per-type detail tables === */
+.lookup-class-table,
+.lookup-rule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82em;
+  margin-top: 0.25rem;
+}
+.lookup-class-table th,
+.lookup-class-table td,
+.lookup-rule-table th,
+.lookup-rule-table td {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.15rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+.lookup-class-table th,
+.lookup-rule-table th {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: bold;
+}
+
+/* === Spells Known structured list === */
+.sc-known-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.sc-known-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.sc-known-row .sc-known-name {
+  flex: 1;
+  min-width: 8rem;
+}
+.sc-known-row .btn-feat-info,
+.sc-known-row .btn-remove {
+  flex-shrink: 0;
+  padding: 0.2rem 0.45rem;
+  line-height: 1;
+}
+.sc-known-rules {
+  /* Inherits from .feat-rules, but force full-row wrap. */
+  flex: 1 1 100%;
+}
+.sc-known-count {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+.sc-known-count.sc-known-over { color: var(--danger); font-weight: bold; }
+
+/* Toggle the entire Known column off when Show Spells Known is unchecked. */
+.sc-no-known .sc-known-col { display: none; }
+/* When Known is hidden, Prepared takes the full panel width. */
+.sc-no-known .two-column { grid-template-columns: 1fr; }
 
 /* === Rage Active === */
 #rage-section.rage-active { border-color: var(--danger);box-shadow: 0 0 8px rgba(244, 67, 54, 0.3);}

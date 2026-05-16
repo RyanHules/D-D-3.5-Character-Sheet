@@ -521,51 +521,325 @@
 
   // Type-specific extras shown below the description.
   function renderTypeSpecific(d, type) {
-    if (type === 'feat') {
-      const lines = [];
-      if (d.benefit) lines.push(`<b>Benefit:</b> ${escapeHtml(d.benefit)}`);
-      if (d.normal)  lines.push(`<b>Normal:</b> ${escapeHtml(d.normal)}`);
-      if (d.special) lines.push(`<b>Special:</b> ${escapeHtml(d.special)}`);
-      return lines.length
-        ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
-    }
-    if (type === 'spell' && d.augment) {
-      // (only Sha'ir gets augments — actually that's psionic powers)
-    }
-    if (type === 'vestige') {
-      const lines = [];
-      if (d.sign)       lines.push(`<b>Sign:</b> ${escapeHtml(d.sign)}`);
-      if (d.influence)  lines.push(`<b>Influence:</b> ${escapeHtml(d.influence)}`);
-      if (Array.isArray(d.granted_abilities) && d.granted_abilities.length) {
-        const list = d.granted_abilities.map(a =>
-          `${escapeHtml(a.name || '')}${a.type ? ` (${escapeHtml(a.type)})` : ''}` +
-          (a.description ? `: ${escapeHtml(a.description)}` : '')
-        ).join('<br>');
-        lines.push(`<b>Granted:</b><br>${list}`);
-      }
-      return lines.length
-        ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
-    }
-    if (type === 'domain') {
-      const lines = [];
-      if (d.granted_power) lines.push(`<b>Granted:</b> ${escapeHtml(d.granted_power)}`);
-      if (d.spells && typeof d.spells === 'object') {
-        const lvls = Object.keys(d.spells)
-          .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
-          .map(k => `<b>${escapeHtml(k)}:</b> ${escapeHtml(d.spells[k])}`)
-          .join(' · ');
-        lines.push(`<b>Spells:</b> ${lvls}`);
-      }
-      return lines.length
-        ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
-    }
-    if (type === 'power' && d.augment) {
+    if (type === 'feat')        return renderFeatExtra(d);
+    if (type === 'vestige')     return renderVestigeExtra(d);
+    if (type === 'domain')      return renderDomainExtra(d);
+    if (type === 'power'        && d.augment)
       return `<div class="lookup-detail-extra"><b>Augment:</b> ${escapeHtml(d.augment)}</div>`;
-    }
-    if (type === 'rule' && d.category && !d.description) {
-      // category already in meta; nothing more to render
-    }
+    if (type === 'class' || type === 'prc') return renderClassExtra(d);
+    if (type === 'race')        return renderRaceExtra(d);
+    if (type === 'creature')    return renderCreatureExtra(d);
+    if (type === 'weapon')      return renderWeaponExtra(d);
+    if (type === 'skill')       return renderSkillExtra(d);
+    if (type === 'mystery')     return renderMysteryExtra(d);
+    if (type === 'rule')        return renderRuleExtra(d);
     return '';
+  }
+
+  function renderFeatExtra(d) {
+    const lines = [];
+    if (d.benefit) lines.push(`<b>Benefit:</b> ${escapeHtml(d.benefit)}`);
+    if (d.normal)  lines.push(`<b>Normal:</b> ${escapeHtml(d.normal)}`);
+    if (d.special) lines.push(`<b>Special:</b> ${escapeHtml(d.special)}`);
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  function renderVestigeExtra(d) {
+    const lines = [];
+    if (d.sign)       lines.push(`<b>Sign:</b> ${escapeHtml(d.sign)}`);
+    if (d.influence)  lines.push(`<b>Influence:</b> ${escapeHtml(d.influence)}`);
+    if (Array.isArray(d.granted_abilities) && d.granted_abilities.length) {
+      const list = d.granted_abilities.map(a =>
+        `${escapeHtml(a.name || '')}${a.type ? ` (${escapeHtml(a.type)})` : ''}` +
+        (a.description ? `: ${escapeHtml(a.description)}` : '')
+      ).join('<br>');
+      lines.push(`<b>Granted:</b><br>${list}`);
+    }
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  function renderDomainExtra(d) {
+    const lines = [];
+    if (d.granted_power) lines.push(`<b>Granted:</b> ${escapeHtml(d.granted_power)}`);
+    if (d.spells && typeof d.spells === 'object') {
+      const lvls = Object.keys(d.spells)
+        .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+        .map(k => `<b>${escapeHtml(k)}:</b> ${escapeHtml(d.spells[k])}`)
+        .join(' · ');
+      lines.push(`<b>Spells:</b> ${lvls}`);
+    }
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  // Class / PrC: spellcasting metadata, class skills, hit die / BAB / save
+  // progressions (from data.bab_progression etc.), and a compact list of
+  // class features. The full class_table is too long for the modal — we
+  // show the first 5 rows plus a "(20 levels total)" hint.
+  function renderClassExtra(d) {
+    const lines = [];
+    if (d.spellcasting && typeof d.spellcasting === 'object') {
+      const sc = d.spellcasting;
+      const parts = [];
+      if (sc.key_ability)  parts.push(`Ability: ${sc.key_ability}`);
+      if (sc.style)        parts.push(`Style: ${sc.style}`);
+      if (sc.type)         parts.push(`Type: ${sc.type}`);
+      if (sc.list)         parts.push(`List: ${sc.list}`);
+      if (parts.length)
+        lines.push(`<b>Spellcasting:</b> ${escapeHtml(parts.join(' · '))}`);
+    }
+    const progs = [];
+    if (d.bab_progression)  progs.push(`BAB: ${d.bab_progression}`);
+    if (d.fort_progression) progs.push(`Fort: ${d.fort_progression}`);
+    if (d.ref_progression)  progs.push(`Ref: ${d.ref_progression}`);
+    if (d.will_progression) progs.push(`Will: ${d.will_progression}`);
+    if (progs.length)
+      lines.push(`<b>Progressions:</b> ${escapeHtml(progs.join(' · '))}`);
+    if (d.weapon_armor_proficiency)
+      lines.push(`<b>Proficiencies:</b> ${escapeHtml(d.weapon_armor_proficiency)}`);
+    if (Array.isArray(d.class_skills) && d.class_skills.length) {
+      lines.push(`<b>Class skills:</b> ${escapeHtml(d.class_skills.join(', '))}`);
+    }
+    if (d.starting_age || d.starting_gold) {
+      const parts = [];
+      if (d.starting_gold) parts.push(`Starting gold: ${d.starting_gold}`);
+      if (d.starting_age)  parts.push(`Starting age: ${d.starting_age}`);
+      lines.push(parts.map(escapeHtml).join(' · '));
+    }
+    if (Array.isArray(d.class_features) && d.class_features.length) {
+      const feats = d.class_features.map(f => {
+        const lvl = f.level_acquired != null
+          ? `L${f.level_acquired} ` : '';
+        const desc = f.description
+          ? `: ${escapeHtml(truncate(f.description, 140))}` : '';
+        return `<div style="margin-left:0.5rem">` +
+               `<b>${escapeHtml(lvl + (f.name || ''))}</b>${desc}</div>`;
+      }).join('');
+      lines.push(`<b>Class features:</b>${feats}`);
+    }
+    // Class table — first few rows, with a "20 levels total" note.
+    if (Array.isArray(d.class_table) && d.class_table.length) {
+      const rows = d.class_table.slice(0, 5);
+      const head = `<tr><th>L</th><th>BAB</th><th>Fort</th><th>Ref</th><th>Will</th><th>Special</th></tr>`;
+      const body = rows.map(r => {
+        const special = truncate(r.special || '—', 80);
+        return `<tr><td>${escapeHtml(String(r.level))}</td>` +
+               `<td>${escapeHtml(String(r.bab || ''))}</td>` +
+               `<td>${escapeHtml(String(r.fort || ''))}</td>` +
+               `<td>${escapeHtml(String(r.ref || ''))}</td>` +
+               `<td>${escapeHtml(String(r.will || ''))}</td>` +
+               `<td>${escapeHtml(special)}</td></tr>`;
+      }).join('');
+      const more = d.class_table.length > rows.length
+        ? `<div style="opacity:0.6;font-size:0.85em">… ${d.class_table.length - rows.length} more level${d.class_table.length - rows.length === 1 ? '' : 's'}.</div>`
+        : '';
+      lines.push(`<b>Class table:</b>` +
+        `<table class="lookup-class-table">${head}${body}</table>${more}`);
+    }
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  function renderRaceExtra(d) {
+    const lines = [];
+    if (Array.isArray(d.ability_mods) && d.ability_mods.length) {
+      const mods = d.ability_mods.map(m => {
+        const ab = (m.ability || '').toString();
+        const sign = (m.modifier || 0) >= 0 ? '+' : '';
+        return `${ab} ${sign}${m.modifier}`;
+      }).join(', ');
+      lines.push(`<b>Ability adjustments:</b> ${escapeHtml(mods)}`);
+    }
+    if (d.speed) lines.push(`<b>Speed:</b> ${escapeHtml(formatValue(d.speed))}`);
+    if (Array.isArray(d.languages) && d.languages.length) {
+      const auto = d.languages.filter(l => l.is_automatic).map(l => l.language);
+      const bonus = d.languages.filter(l => !l.is_automatic).map(l => l.language);
+      const parts = [];
+      if (auto.length)  parts.push(`automatic: ${auto.join(', ')}`);
+      if (bonus.length) parts.push(`bonus: ${bonus.join(', ')}`);
+      lines.push(`<b>Languages:</b> ${escapeHtml(parts.join('; '))}`);
+    }
+    if (Array.isArray(d.bonuses) && d.bonuses.length) {
+      const bs = d.bonuses.map(b => {
+        const amt = (b.amount >= 0 ? '+' : '') + (b.amount ?? '');
+        return `${amt} ${b.bonus_type || ''} to ${b.target}` +
+               (b.condition ? ` (${b.condition})` : '');
+      }).join('; ');
+      lines.push(`<b>Bonuses:</b> ${escapeHtml(bs)}`);
+    }
+    if (Array.isArray(d.traits) && d.traits.length) {
+      const ts = d.traits.map(t => {
+        const desc = t.description ? `: ${truncate(t.description, 200)}` : '';
+        return `<div style="margin-left:0.5rem"><b>${escapeHtml(t.name)}</b>${escapeHtml(desc)}</div>`;
+      }).join('');
+      lines.push(`<b>Traits:</b>${ts}`);
+    }
+    if (d.favored_class) lines.push(`<b>Favored class:</b> ${escapeHtml(d.favored_class)}`);
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  function renderCreatureExtra(d) {
+    const lines = [];
+    // Ability scores.
+    if (d.abilities && typeof d.abilities === 'object') {
+      const order = ['Str','Dex','Con','Int','Wis','Cha'];
+      const parts = order.map(k => {
+        const v = d.abilities[k] ?? d.abilities[k.toLowerCase()];
+        return `${k} ${v == null ? '—' : v}`;
+      });
+      lines.push(`<b>Abilities:</b> ${escapeHtml(parts.join(', '))}`);
+    }
+    if (d.hit_dice)       lines.push(`<b>HD:</b> ${escapeHtml(d.hit_dice)}`);
+    if (d.initiative)     lines.push(`<b>Init:</b> ${escapeHtml(formatValue(d.initiative))}`);
+    if (d.speed)          lines.push(`<b>Speed:</b> ${escapeHtml(formatValue(d.speed))}`);
+    if (d.armor_class)    lines.push(`<b>AC:</b> ${escapeHtml(formatValue(d.armor_class))}`);
+    if (d.saves || (d.fort_save != null || d.ref_save != null || d.will_save != null)) {
+      const sv = d.saves || {
+        Fort: d.fort_save, Ref: d.ref_save, Will: d.will_save,
+      };
+      lines.push(`<b>Saves:</b> ${escapeHtml(formatValue(sv))}`);
+    }
+    if (d.base_attack || d.grapple)
+      lines.push(`<b>Atk/Grp:</b> ${escapeHtml((d.base_attack || '') + ' / ' + (d.grapple || ''))}`);
+    if (d.attack)         lines.push(`<b>Attack:</b> ${escapeHtml(formatValue(d.attack))}`);
+    if (d.full_attack)    lines.push(`<b>Full attack:</b> ${escapeHtml(formatValue(d.full_attack))}`);
+    if (d.space || d.reach) {
+      const parts = [];
+      if (d.space) parts.push(`Space: ${d.space}`);
+      if (d.reach) parts.push(`Reach: ${d.reach}`);
+      lines.push(parts.map(escapeHtml).join(' · '));
+    }
+    if (d.special_attacks)    lines.push(`<b>Special attacks:</b> ${escapeHtml(formatValue(d.special_attacks))}`);
+    if (d.special_qualities)  lines.push(`<b>Special qualities:</b> ${escapeHtml(formatValue(d.special_qualities))}`);
+    if (d.spell_like_abilities) {
+      lines.push(`<b>SLAs:</b> ${escapeHtml(formatValue(d.spell_like_abilities))}`);
+    }
+    if (d.feats)          lines.push(`<b>Feats:</b> ${escapeHtml(formatValue(d.feats))}`);
+    if (d.skills)         lines.push(`<b>Skills:</b> ${escapeHtml(formatValue(d.skills))}`);
+    if (d.environment)    lines.push(`<b>Environment:</b> ${escapeHtml(d.environment)}`);
+    if (d.organization)   lines.push(`<b>Organization:</b> ${escapeHtml(formatValue(d.organization))}`);
+    if (d.treasure)       lines.push(`<b>Treasure:</b> ${escapeHtml(d.treasure)}`);
+    if (d.advancement)    lines.push(`<b>Advancement:</b> ${escapeHtml(formatValue(d.advancement))}`);
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  function renderWeaponExtra(d) {
+    const lines = [];
+    const group = d.weapon_group || d.group;
+    const category = d.weapon_category || d.category;
+    if (group)    lines.push(`<b>Group:</b> ${escapeHtml(group)}`);
+    if (category) lines.push(`<b>Category:</b> ${escapeHtml(category)}`);
+    if (d.damage_type) lines.push(`<b>Damage type:</b> ${escapeHtml(d.damage_type)}`);
+    if (Array.isArray(d.properties) && d.properties.length)
+      lines.push(`<b>Properties:</b> ${escapeHtml(d.properties.join(', '))}`);
+    if (d.special) lines.push(`<b>Special:</b> ${escapeHtml(d.special)}`);
+    // Damage by size, if structured.
+    if (d.damage_by_size && typeof d.damage_by_size === 'object') {
+      const order = ['Tiny','Small','Medium','Large','Huge'];
+      const parts = order
+        .filter(s => d.damage_by_size[s])
+        .map(s => `${s} ${d.damage_by_size[s]}`);
+      if (parts.length) lines.push(`<b>Damage by size:</b> ${escapeHtml(parts.join(' · '))}`);
+    }
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  // Skills: surface synergies from data.js. The DB doesn't carry synergy
+  // information today; data.js has the canonical PHB Table 4-5 (plus
+  // expansion-book additions). Match by name on either side.
+  function renderSkillExtra(d) {
+    const lines = [];
+    if (d.untrained != null)
+      lines.push(`<b>Untrained:</b> ${d.untrained === false || /no/i.test(String(d.untrained)) ? 'no' : 'yes'}`);
+    if (d.armor_check_penalty)
+      lines.push(`<b>Armor check penalty:</b> applies`);
+    if (d.check)        lines.push(`<b>Check:</b> ${escapeHtml(d.check)}`);
+    if (d.action)       lines.push(`<b>Action:</b> ${escapeHtml(d.action)}`);
+    if (d.try_again)    lines.push(`<b>Try again:</b> ${escapeHtml(d.try_again)}`);
+    if (d.synergy)      lines.push(`<b>Synergy:</b> ${escapeHtml(d.synergy)}`);
+    // Pull synergies from data.js. SKILL_SYNERGIES is keyed by source
+    // skill → list of { target, bonus, condition }. Show synergies
+    // both granted by this skill and granted to this skill.
+    // `DND35` is a top-level `const` (script-scope binding), not a
+    // `window` property. Use a typeof guard for cross-module access.
+    if (typeof DND35 !== 'undefined' && DND35.SKILL_SYNERGIES) {
+      const grants = [];
+      const receives = [];
+      const name = d.name || '';
+      const key = name.toLowerCase();
+      for (const [src, list] of Object.entries(DND35.SKILL_SYNERGIES)) {
+        if (src.toLowerCase() === key) {
+          for (const s of list) grants.push(`+${s.bonus || 2} ${s.target}${s.condition ? ` (${s.condition})` : ''}`);
+        }
+        for (const s of list) {
+          if ((s.target || '').toLowerCase() === key) {
+            receives.push(`from ${src} (5+ ranks) — +${s.bonus || 2}${s.condition ? ` ${s.condition}` : ''}`);
+          }
+        }
+      }
+      if (grants.length)
+        lines.push(`<b>Grants synergy:</b> ${escapeHtml(grants.join('; '))}`);
+      if (receives.length)
+        lines.push(`<b>Receives synergy:</b> ${escapeHtml(receives.join('; '))}`);
+    }
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  function renderMysteryExtra(d) {
+    const lines = [];
+    if (d.range)            lines.push(`<b>Range:</b> ${escapeHtml(d.range)}`);
+    if (d.area)             lines.push(`<b>Area:</b> ${escapeHtml(d.area)}`);
+    if (d.target)           lines.push(`<b>Target:</b> ${escapeHtml(d.target)}`);
+    if (d.duration)         lines.push(`<b>Duration:</b> ${escapeHtml(d.duration)}`);
+    if (d.saving_throw)     lines.push(`<b>Save:</b> ${escapeHtml(d.saving_throw)}`);
+    if (d.spell_resistance) lines.push(`<b>SR:</b> ${escapeHtml(d.spell_resistance)}`);
+    if (d.casting_time)     lines.push(`<b>Casting time:</b> ${escapeHtml(d.casting_time)}`);
+    if (d.descriptor)       lines.push(`<b>Descriptor:</b> ${escapeHtml(d.descriptor)}`);
+    return lines.length
+      ? `<div class="lookup-detail-extra">${lines.join('<br>')}</div>` : '';
+  }
+
+  // Rules: render tables when present. Tables come in two shapes from
+  // extraction: structured `{headers, rows}` or freeform text. We
+  // handle both.
+  function renderRuleExtra(d) {
+    if (!Array.isArray(d.tables) || !d.tables.length) return '';
+    const blocks = d.tables.map(t => {
+      const cap = t.caption || t.title || '';
+      if (Array.isArray(t.rows) && Array.isArray(t.headers)) {
+        const head = `<tr>${t.headers.map(h =>
+          `<th>${escapeHtml(String(h))}</th>`).join('')}</tr>`;
+        const body = t.rows.map(row => {
+          if (Array.isArray(row)) {
+            return `<tr>${row.map(c => `<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`;
+          }
+          if (typeof row === 'object') {
+            return `<tr>${t.headers.map(h =>
+              `<td>${escapeHtml(String(row[h] ?? ''))}</td>`).join('')}</tr>`;
+          }
+          return '';
+        }).join('');
+        return (cap ? `<div style="margin-top:0.4rem"><b>${escapeHtml(cap)}</b></div>` : '') +
+          `<table class="lookup-rule-table">${head}${body}</table>`;
+      }
+      // Freeform: just show whatever string representation we have.
+      const text = typeof t === 'string' ? t : (t.text || JSON.stringify(t));
+      return (cap ? `<div style="margin-top:0.4rem"><b>${escapeHtml(cap)}</b></div>` : '') +
+        `<pre style="white-space:pre-wrap;font-size:0.85em;margin:0.2rem 0">${escapeHtml(text)}</pre>`;
+    });
+    return `<div class="lookup-detail-extra">${blocks.join('')}</div>`;
+  }
+
+  function truncate(s, n) {
+    if (!s) return '';
+    s = String(s);
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
   }
 
   function renderTags(d) {
@@ -580,8 +854,22 @@
   function buildIndex() {
     if (entries.length) return;          // already built
     if (!DB.isLoaded()) return;
+    // Pull description/benefit/effect text into a `bodyKey` so the
+    // search can match on entry contents, not just titles. We query
+    // the most commonly populated narrative fields via json_extract
+    // (everything per-type ends up here, falling back to NULLs).
+    // Roughly ~5 MB of strings in memory for 12.5k entries — fine.
     const rows = DB.query(
-      "SELECT id, name, type, source FROM entry WHERE name IS NOT NULL"
+      "SELECT id, name, type, source, " +
+      "  COALESCE(" +
+      "    json_extract(data, '$.description'), " +
+      "    json_extract(data, '$.benefit'), " +
+      "    json_extract(data, '$.effect'), " +
+      "    json_extract(data, '$.granted_power'), " +
+      "    json_extract(data, '$.text'), " +
+      "    ''" +
+      "  ) AS body " +
+      "FROM entry WHERE name IS NOT NULL"
     );
     // Pull tags in one shot.
     const tagRows = DB.query(
@@ -597,6 +885,10 @@
       const nameKey = squash(r.name);
       const tags = tagsById.get(r.id) || new Set();
       typeCounts.set(r.type, (typeCounts.get(r.type) || 0) + 1);
+      // bodyKey is a lower-case, punctuation-flattened version of the
+      // entry's primary descriptive text. Used for tier-10 body-text
+      // matches in rankEntry.
+      const bodyKey = squash(r.body || '');
       return {
         id: r.id,
         name: r.name,
@@ -611,6 +903,7 @@
           (TYPE_LABELS[r.type] || r.type).toLowerCase() + '·' +
           (r.source || '').toLowerCase() + '·' +
           [...tags].join('·'),
+        bodyKey,
       };
     });
     console.log(`[lookup] indexed ${entries.length} entries across ` +
@@ -708,12 +1001,16 @@
     //    60 — word-boundary contains match
     //    40 — anywhere contains
     //    20 — searchKey contains (tag/type/source fallback)
+    //    10 — bodyKey contains (description/benefit/effect full-text)
     if (entry.nameKey === q) return 100;
     if (entry.nameKey.startsWith(q)) return 80;
     // Word boundary: " " + q must appear, OR nameKey starts with q.
     if ((' ' + entry.nameKey).includes(' ' + q)) return 60;
     if (entry.nameKey.includes(q)) return 40;
     if (entry.searchKey.includes(q)) return 20;
+    // Body-text fallback — least specific. Skip for very short queries
+    // (<3 chars) to avoid swamping results with noise.
+    if (q.length >= 3 && entry.bodyKey && entry.bodyKey.includes(q)) return 10;
     return 0;
   }
 

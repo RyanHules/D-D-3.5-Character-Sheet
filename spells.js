@@ -39,8 +39,10 @@ const Spells = (function () {
     panel.id = `caster-${idx}`;
     panel.dataset.casterType = type;
 
-    // Sub-tab notes field (for differentiating multiple tabs of same type)
-    const notesHTML = `<div class="field caster-notes-field"><label>Notes</label><input type="text" class="caster-notes" placeholder="e.g. Cleric spells, Arcane Trickster, etc." value="${data.notes || ""}"></div>`;
+    // Sub-tab notes field (for differentiating multiple tabs of same type).
+    // Multi-line textarea — auto-expands to fit content via app.js's
+    // autoExpandAll() rebind on load.
+    const notesHTML = `<div class="field caster-notes-field"><label>Notes</label><textarea class="caster-notes auto-expand" rows="1" placeholder="e.g. Cleric spells, Arcane Trickster, etc.">${data.notes || ""}</textarea></div>`;
 
     if (type === "spellcasting") {
       panel.innerHTML = notesHTML + buildSpellcastingHTML(idx, data);
@@ -49,6 +51,7 @@ const Spells = (function () {
       buildSpellLists(idx, panel);
       wireLevelTabs(panel);
       wireSpecialistDomainToggles(panel);
+      refreshMetamagicReference(panel);
     } else if (type === "psionics") {
       panel.innerHTML = notesHTML + buildPsionicsHTML(idx, data);
       container.appendChild(panel);
@@ -163,9 +166,43 @@ const Spells = (function () {
       `<div class="prohibited-entry"><input type="text" class="sc-prohibited" value="${s}" placeholder="School name"><button class="btn-remove sc-remove-prohibited" title="Remove">X</button></div>`
     ).join("");
 
+    // Show-prepared default: spontaneous casters (Sorcerer, Bard, Beguiler,
+    // etc.) typically don't need a separate prepared column, so the
+    // checkbox starts unchecked for them. Prepared casters (Wizard,
+    // Cleric, Druid, etc.) default to checked. The user can toggle either
+    // way per panel; the choice persists via `showPrepared` in the saved
+    // data.
+    const showPrepared = data.showPrepared !== undefined
+      ? !!data.showPrepared
+      : true;
+    // Spells Known list visibility — defaults on; Cleric / Druid /
+    // other prepared-from-list casters (who can prepare any spell on
+    // their list) typically turn this off.
+    const showKnown = data.showKnown !== undefined
+      ? !!data.showKnown
+      : true;
     return `
       <section class="section">
         <h2>Spellcasting</h2>
+        <div class="sc-spontaneous-mm-warning" style="display:none;
+             margin-bottom:0.5rem;padding:0.4rem 0.6rem;
+             background:rgba(170,140,80,0.15);
+             border-left:3px solid #c98;color:#dba;font-size:0.85em">
+          ⚠ <b>Spontaneous metamagic:</b> applying metamagic feats at
+          cast time takes one step longer than the spell's normal
+          action (standard → full-round; full-round → 1 round).
+          Quickened spells still use a swift action.
+        </div>
+        <details class="sc-metamagic-ref" style="display:none;
+                 margin-bottom:0.5rem;padding:0.4rem 0.6rem;
+                 background:rgba(255,255,255,0.03);
+                 border-left:2px solid #6a8aaa;border-radius:0 3px 3px 0">
+          <summary style="cursor:pointer;font-size:0.9em;color:#cce">
+            Metamagic Reference
+            <span class="sc-mm-ref-count" style="opacity:0.6"></span>
+          </summary>
+          <div class="sc-mm-ref-body" style="margin-top:0.4rem;font-size:0.85em;color:#ccd"></div>
+        </details>
         <div class="spell-header">
           <div class="field field-sm"><label>Caster Level</label><input type="number" class="sc-caster-level" min="1" value="${data.casterLevel || ""}"></div>
           <div class="field"><label>Spellcasting Ability</label><select class="sc-ability">${buildAbilityOptions(data.ability || "", false)}</select></div>
@@ -175,6 +212,8 @@ const Spells = (function () {
         <div class="spell-header" style="margin-top:0.5rem">
           <label class="mi-toggle"><input type="checkbox" class="sc-specialist-toggle" ${data.specialist ? "checked" : ""}> Specialist</label>
           <label class="mi-toggle"><input type="checkbox" class="sc-domain-toggle" ${data.domainAccess ? "checked" : ""}> Domain Access</label>
+          <label class="mi-toggle"><input type="checkbox" class="sc-show-known" ${showKnown ? "checked" : ""}> Show Spells Known</label>
+          <label class="mi-toggle"><input type="checkbox" class="sc-show-prepared" ${showPrepared ? "checked" : ""}> Show Prepared</label>
         </div>
         <div class="sc-specialist-section" style="${specVis}">
           <div class="info-grid">
@@ -190,24 +229,29 @@ const Spells = (function () {
           <div class="sc-domain-list"></div>
           <button class="btn-add sc-add-domain" style="margin-top:0.3rem">+ Add Domain</button>
         </div>
-        <table class="spell-slots-table" data-max-level="${maxLevel}">
-          <thead><tr>
-            <th>Spell Level</th><th>Spells Known</th><th>Save DC</th><th>Spells/Day</th><th>Bonus Spells</th>
-            <th class="sc-domain-col" style="${domainVis}">Domain</th>
-            <th class="sc-specialist-col" style="${specVis}">Specialist</th>
-            <th>Slots Used</th><th>Remaining</th>
-          </tr></thead>
-          <tbody>${rows.join("")}</tbody>
-        </table>
-        <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
-          <button class="btn-add sc-add-level">+ Add Spell Level</button>
-          <button class="btn-add sc-reset-slots">Reset All Expended Slots</button>
+        <div class="spellcasting-2col">
+          <div class="spellcasting-list-col">
+            <h3>Spell List &amp; Prepared</h3>
+            <div class="spell-list-tabs">${levelTabs}</div>
+            <div class="sc-spell-lists"></div>
+          </div>
+          <div class="spellcasting-slot-col">
+            <h3>Slots / DCs</h3>
+            <table class="spell-slots-table" data-max-level="${maxLevel}">
+              <thead><tr>
+                <th>Lvl</th><th>Known</th><th>DC</th><th>/Day</th><th>Bonus</th>
+                <th class="sc-domain-col" style="${domainVis}">Dom</th>
+                <th class="sc-specialist-col" style="${specVis}">Spec</th>
+                <th>Used</th><th>Left</th>
+              </tr></thead>
+              <tbody>${rows.join("")}</tbody>
+            </table>
+            <div style="display:flex;flex-direction:column;gap:0.3rem;margin-top:0.5rem">
+              <button class="btn-add sc-add-level">+ Add Spell Level</button>
+              <button class="btn-add sc-reset-slots">Reset Expended Slots</button>
+            </div>
+          </div>
         </div>
-      </section>
-      <section class="section">
-        <h2>Spell List & Prepared Spells</h2>
-        <div class="spell-list-tabs">${levelTabs}</div>
-        <div class="sc-spell-lists"></div>
       </section>
     `;
   }
@@ -234,17 +278,172 @@ const Spells = (function () {
     div.dataset.level = i;
     div.innerHTML = `
       <div class="two-column">
-        <div class="column">
-          <h3>${lbl} - Known/Available Spells</h3>
-          <textarea class="sc-spell-text" data-lvl="${i}" rows="8" placeholder="Enter ${lbl} spells..."></textarea>
+        <div class="column sc-known-col">
+          <h3>${lbl} - Known
+            <span class="sc-known-count" data-lvl="${i}"></span>
+          </h3>
+          <div class="sc-known-list" data-lvl="${i}"></div>
+          <button class="btn-add sc-add-known" data-lvl="${i}" style="margin-top:0.3rem">+ Add Spell</button>
         </div>
-        <div class="column">
+        <div class="column sc-prepared-col">
           <h3>${lbl} - Prepared Spells</h3>
           <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${lbl} spells. Mark used with [X]..."></textarea>
         </div>
       </div>
     `;
     container.appendChild(div);
+    // Wire + Add Spell button to insert an empty row.
+    div.querySelector(".sc-add-known").addEventListener("click", () => {
+      const row = createKnownRow(div.querySelector(`.sc-known-list[data-lvl="${i}"]`), i, "");
+      row.querySelector(".sc-known-name").focus();
+    });
+  }
+
+  // Build a single Known-spell row (feat-row-style: name input + ⓘ +
+  // →Prep + ×). The ⓘ rules expansion and →Prep handlers attach here;
+  // they're scoped per row but read DB / sibling DOM at click time.
+  function createKnownRow(listEl, lvl, spellName) {
+    const row = document.createElement("div");
+    row.className = "sc-known-row";
+    row.innerHTML =
+      `<input type="text" class="sc-known-name" list="spell-options" ` +
+      `autocomplete="off" ` +
+      `value="${escapeAttr(spellName)}" placeholder="Spell name">` +
+      `<button class="btn-feat-info sc-known-info" title="Show rules">ⓘ</button>` +
+      `<button class="btn-feat-info sc-known-to-prep" title="Copy to Prepared">&rarr;</button>` +
+      `<button class="btn-remove sc-known-remove" title="Remove">X</button>`;
+    listEl.appendChild(row);
+    const nameInput = row.querySelector(".sc-known-name");
+    const infoBtn   = row.querySelector(".sc-known-info");
+    const prepBtn   = row.querySelector(".sc-known-to-prep");
+    const rmBtn     = row.querySelector(".sc-known-remove");
+    const panel = listEl.closest(".inner-tab-content");
+
+    nameInput.addEventListener("input", () => {
+      // Collapse any rules panel — the row's spell identity may have
+      // changed, so a stale rules block would be misleading.
+      const existing = row.querySelector(".sc-known-rules");
+      if (existing) existing.remove();
+      infoBtn.classList.remove("active");
+      updateKnownCount(panel, lvl);
+    });
+    infoBtn.addEventListener("click", () => toggleKnownRules(row, nameInput.value));
+    prepBtn.addEventListener("click", () => copyKnownToPrepared(panel, lvl, nameInput.value));
+    rmBtn.addEventListener("click", () => {
+      row.remove();
+      updateKnownCount(panel, lvl);
+    });
+
+    // Re-evaluate the count immediately so the header updates when
+    // rows are added from loadData / spell-picker / Sha'ir prefill.
+    updateKnownCount(panel, lvl);
+    return row;
+  }
+
+  function escapeAttr(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Update the "(N / cap)" header counter. Cap comes from the slots
+  // table's per-level `.sc-known` input (auto-filled from class data;
+  // user-editable). Over-cap turns the counter red.
+  function updateKnownCount(panel, lvl) {
+    if (!panel) return;
+    const list = panel.querySelector(`.sc-known-list[data-lvl="${lvl}"]`);
+    const counter = panel.querySelector(`.sc-known-count[data-lvl="${lvl}"]`);
+    if (!list || !counter) return;
+    const count = list.querySelectorAll(".sc-known-row").length;
+    const capEl = panel.querySelector(`.sc-known[data-lvl="${lvl}"]`);
+    const cap = capEl && capEl.value !== "" ? parseInt(capEl.value, 10) : null;
+    if (cap !== null && !isNaN(cap)) {
+      counter.textContent = ` (${count} / ${cap})`;
+      counter.classList.toggle("sc-known-over", count > cap);
+    } else {
+      counter.textContent = count > 0 ? ` (${count})` : "";
+      counter.classList.remove("sc-known-over");
+    }
+  }
+
+  // Append `spellName` as a new line in the level's Prepared textarea.
+  // Skipped if the spell name is empty; harmless if Prepared is hidden.
+  function copyKnownToPrepared(panel, lvl, spellName) {
+    const name = (spellName || "").trim();
+    if (!name) return;
+    const ta = panel.querySelector(`.sc-spell-prepared[data-lvl="${lvl}"]`);
+    if (!ta) return;
+    const cur = ta.value;
+    ta.value = cur ? cur.replace(/\s+$/, "") + "\n" + name : name;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // ⓘ rules panel — query the DB for the spell by name and render
+  // school / casting time / range / target / save / SR / description.
+  // Falls back gracefully when DB isn't loaded or the spell name has
+  // no match (homebrew, typo, etc.).
+  function toggleKnownRules(row, spellName) {
+    const existing = row.querySelector(".sc-known-rules");
+    const infoBtn = row.querySelector(".sc-known-info");
+    if (existing) {
+      existing.remove();
+      infoBtn.classList.remove("active");
+      return;
+    }
+    const name = (spellName || "").trim();
+    if (!name) return;
+    const rules = document.createElement("div");
+    rules.className = "feat-rules sc-known-rules";
+    rules.innerHTML = renderSpellRules(name);
+    row.appendChild(rules);
+    infoBtn.classList.add("active");
+  }
+
+  function renderSpellRules(name) {
+    if (!window.DB || !DB.isLoaded()) {
+      return `<i>DB not loaded — pickers unavailable.</i>`;
+    }
+    // Strip a trailing parenthetical (e.g. "Detect Magic (Lesser)" →
+    // retry without if the first lookup misses) and try case-insensitive.
+    let row = DB.queryOne(
+      "SELECT id, data FROM entry WHERE type='spell' " +
+      "AND name = :n COLLATE NOCASE LIMIT 1", { ":n": name });
+    if (!row) {
+      const stripped = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      if (stripped && stripped !== name) {
+        row = DB.queryOne(
+          "SELECT id, data FROM entry WHERE type='spell' " +
+          "AND name = :n COLLATE NOCASE LIMIT 1", { ":n": stripped });
+      }
+    }
+    if (!row) {
+      return `<i>No DB match for <b>${escapeAttr(name)}</b> ` +
+             `(homebrew or unknown spell).</i>`;
+    }
+    let d;
+    try { d = JSON.parse(row.data); } catch (e) { return `<i>Parse error.</i>`; }
+    const bits = [];
+    if (d.school) {
+      const subs = [d.school];
+      if (d.subschool) subs.push(`(${d.subschool})`);
+      if (d.descriptor) subs.push(`[${d.descriptor}]`);
+      bits.push(`<b>${escapeAttr(name)}:</b> ${escapeAttr(subs.join(" "))}`);
+    } else {
+      bits.push(`<b>${escapeAttr(name)}</b>`);
+    }
+    if (d.casting_time)     bits.push(`<b>Time:</b> ${escapeAttr(d.casting_time)}`);
+    if (d.range)            bits.push(`<b>Range:</b> ${escapeAttr(d.range)}`);
+    if (d.target)           bits.push(`<b>Target:</b> ${escapeAttr(d.target)}`);
+    if (d.area)             bits.push(`<b>Area:</b> ${escapeAttr(d.area)}`);
+    if (d.effect)           bits.push(`<b>Effect:</b> ${escapeAttr(d.effect)}`);
+    if (d.duration)         bits.push(`<b>Duration:</b> ${escapeAttr(d.duration)}`);
+    if (d.saving_throw)     bits.push(`<b>Save:</b> ${escapeAttr(d.saving_throw)}`);
+    if (d.spell_resistance) bits.push(`<b>SR:</b> ${escapeAttr(d.spell_resistance)}`);
+    let html = bits.join(" &nbsp;·&nbsp; ");
+    if (d.description) {
+      html += `<div style="margin-top:0.4rem">${escapeAttr(d.description)}</div>`;
+    }
+    return html;
   }
   function addSpellcastingLevel(panel) {
     const table = panel.querySelector(".spell-slots-table");
@@ -312,6 +511,31 @@ const Spells = (function () {
         domSection.style.display = domToggle.checked ? "" : "none";
         toggleColumns(panel, "sc-domain-col", domToggle.checked);
       });
+    }
+
+    // Show Prepared toggle — hides the prepared-spells textarea
+    // (alongside its header) when unchecked. Spontaneous casters
+    // typically uncheck this since they don't prepare spells daily.
+    const prepToggle = panel.querySelector(".sc-show-prepared");
+    if (prepToggle) {
+      const applyPrep = () => {
+        const show = prepToggle.checked;
+        panel.classList.toggle("sc-no-prepared", !show);
+      };
+      prepToggle.addEventListener("change", applyPrep);
+      applyPrep();  // apply initial state
+    }
+    // Show Spells Known toggle — hides the Known list column.
+    // Cleric / Druid / other prepared-from-full-list casters (which
+    // can prepare any spell on their class list without limit)
+    // typically uncheck this.
+    const knownToggle = panel.querySelector(".sc-show-known");
+    if (knownToggle) {
+      const applyKnown = () => {
+        panel.classList.toggle("sc-no-known", !knownToggle.checked);
+      };
+      knownToggle.addEventListener("change", applyKnown);
+      applyKnown();
     }
 
     // Wire prohibited schools add/remove
@@ -430,21 +654,24 @@ const Spells = (function () {
           <div class="field field-sm"><label>PP/Day</label><span class="psi-pp-day calc-field">--</span></div>
           <div class="field field-sm"><label>PP Spent</label><input type="number" class="psi-pp-spent" min="0" value="${data.ppSpent || "0"}"></div>
           <div class="field field-sm"><label>PP Remaining</label><span class="psi-pp-remaining calc-field">--</span></div>
-        </div>
-        <div class="info-grid" style="margin-top:0.4rem">
           <div class="field field-sm"><label>Powers Known</label><input type="number" class="psi-powers-known" min="0" value="${data.powersKnown || ""}"></div>
           <div class="field field-sm"><label>Max Power Level</label><input type="number" class="psi-max-level" min="1" max="9" value="${data.maxLevel || ""}"></div>
         </div>
-        <table class="spell-slots-table psi-dc-table" data-max-level="${maxLevel}" style="max-width:400px">
-          <thead><tr><th>Power Level</th><th>Base PP Cost</th><th>Save DC</th></tr></thead>
-          <tbody>${dcRows.join("")}</tbody>
-        </table>
-        <button class="btn-add psi-add-level" style="margin-top:0.5rem">+ Add Power Level</button>
-      </section>
-      <section class="section">
-        <h2>Powers List</h2>
-        <div class="spell-list-tabs">${levelTabs}</div>
-        <div class="psi-power-lists"></div>
+        <div class="spellcasting-2col">
+          <div class="spellcasting-list-col">
+            <h3>Powers List</h3>
+            <div class="spell-list-tabs">${levelTabs}</div>
+            <div class="psi-power-lists"></div>
+          </div>
+          <div class="spellcasting-slot-col">
+            <h3>PP Costs / DCs</h3>
+            <table class="spell-slots-table psi-dc-table" data-max-level="${maxLevel}">
+              <thead><tr><th>Lvl</th><th>PP</th><th>DC</th></tr></thead>
+              <tbody>${dcRows.join("")}</tbody>
+            </table>
+            <button class="btn-add psi-add-level" style="margin-top:0.5rem">+ Add Power Level</button>
+          </div>
+        </div>
       </section>
     `;
   }
@@ -703,13 +930,16 @@ const Spells = (function () {
   // --- Recalculate DCs and slot tracking for all casters ---
   function recalc(getAbilityMod) {
     if (getAbilityMod) _getAbilityMod = getAbilityMod;
+    // Fall back to the cached ability-mod accessor when called without
+    // args (e.g. from intra-module live-update handlers).
+    const abilityModFn = getAbilityMod || _getAbilityMod;
     // Get arcane spell failure from character tab
     const spellFail = int($("#arcane-spell-failure")?.value);
 
     // Spellcasting sub-tabs
     $$("[data-caster-type='spellcasting']").forEach((panel) => {
       const ability = panel.querySelector(".sc-ability")?.value || "";
-      const abilityMod = ability && getAbilityMod ? getAbilityMod(ability) : 0;
+      const abilityMod = ability && abilityModFn ? abilityModFn(ability) : 0;
       const failEl = panel.querySelector(".sc-spell-fail");
       if (failEl) failEl.textContent = spellFail + "%";
       const maxLevel = int(panel.querySelector(".spell-slots-table")?.dataset.maxLevel || 9);
@@ -718,6 +948,29 @@ const Spells = (function () {
         const dcEl = panel.querySelector(`.sc-dc[data-lvl="${i}"]`);
         if (dcEl) dcEl.textContent = ability ? 10 + i + abilityMod : "--";
 
+        // Auto-fill bonus spell slots from the spellcasting-ability
+        // modifier (PHB Table 1-1). Spell level N gets +1 bonus slot
+        // when the caster's relevant ability mod >= N, and an extra
+        // +1 for every 4 mod points above N. Cantrips (lvl 0) never
+        // get bonus slots.
+        //
+        // We track the previously auto-filled value on the element's
+        // dataset; if the current input matches the stored auto value
+        // (or is empty), the user hasn't manually overridden, and
+        // we update. Anything else is a manual edit and we leave it.
+        const bonusEl = panel.querySelector(`.sc-bonus[data-lvl="${i}"]`);
+        if (bonusEl && ability) {
+          const autoVal = (i >= 1 && abilityMod >= i)
+            ? Math.floor((abilityMod - i) / 4) + 1
+            : 0;
+          const displayVal = autoVal > 0 ? String(autoVal) : "";
+          const lastAuto = bonusEl.dataset.autoBonus ?? "";
+          const current = bonusEl.value;
+          if (current === "" || current === lastAuto) {
+            bonusEl.value = displayVal;
+            bonusEl.dataset.autoBonus = displayVal;
+          }
+        }
         const perDay = int(panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value);
         const bonus = int(panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value);
         const domain = int(panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value);
@@ -744,13 +997,16 @@ const Spells = (function () {
             if (row) row.classList.remove("spell-row-exhausted");
           }
         }
+        // Refresh the Known-list counter — cap can change when the
+        // user edits the slot table's Known column or auto-fill runs.
+        updateKnownCount(panel, i);
       }
     });
 
     // Psionics sub-tabs
     $$("[data-caster-type='psionics']").forEach((panel) => {
       const ability = panel.querySelector(".psi-ability")?.value || "";
-      const abilityMod = ability && getAbilityMod ? getAbilityMod(ability) : 0;
+      const abilityMod = ability && abilityModFn ? abilityModFn(ability) : 0;
       const manifesterLevel = int(panel.querySelector(".psi-manifester-level")?.value);
       const maxLevel = int(panel.querySelector(".psi-dc-table")?.dataset.maxLevel || 9);
 
@@ -843,6 +1099,8 @@ const Spells = (function () {
         caster.ability = panel.querySelector(".sc-ability").value;
         caster.conditional = panel.querySelector(".sc-conditional").value;
         caster.specialist = panel.querySelector(".sc-specialist-toggle")?.checked || false;
+        caster.showPrepared = panel.querySelector(".sc-show-prepared")?.checked ?? true;
+        caster.showKnown = panel.querySelector(".sc-show-known")?.checked ?? true;
         caster.specialtySchool = panel.querySelector(".sc-specialty-school")?.value || "";
         caster.prohibitedSchools = Array.from(panel.querySelectorAll(".sc-prohibited")).map((el) => el.value).filter((v) => v);
         caster.domainAccess = panel.querySelector(".sc-domain-toggle")?.checked || false;
@@ -857,7 +1115,13 @@ const Spells = (function () {
           caster[`perDay-${i}`] = panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || "";
           caster[`bonus-${i}`] = panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value || "";
           caster[`used-${i}`] = panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value || "0";
-          caster[`text-${i}`] = panel.querySelector(`.sc-spell-text[data-lvl="${i}"]`)?.value || "";
+          // Spells Known is now a structured list (per spell name).
+          // Save as an array; legacy `text-${i}` is preserved on load
+          // for one-shot migration (see loadData).
+          const knownRows = panel.querySelectorAll(
+            `.sc-known-list[data-lvl="${i}"] .sc-known-row`);
+          caster[`knownList-${i}`] = Array.from(knownRows).map(r =>
+            r.querySelector(".sc-known-name")?.value || "").filter(s => s);
           caster[`prepared-${i}`] = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`)?.value || "";
           if (i >= 1) {
             caster[`domain-${i}`] = panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value || "";
@@ -962,8 +1226,24 @@ const Spells = (function () {
         if (caster.type === "spellcasting") {
           const scMax = int(caster.maxLevel || 9);
           for (let i = 0; i <= scMax; i++) {
-            const textEl = panel.querySelector(`.sc-spell-text[data-lvl="${i}"]`);
-            if (textEl && caster[`text-${i}`]) textEl.value = caster[`text-${i}`];
+            // Spells Known: new structured array (`knownList-N`) takes
+            // precedence; fall back to legacy textarea string
+            // (`text-N`) split by newline for one-shot migration.
+            const listEl = panel.querySelector(
+              `.sc-known-list[data-lvl="${i}"]`);
+            if (listEl) {
+              listEl.innerHTML = "";  // clear any default-empty rows
+              let names = [];
+              if (Array.isArray(caster[`knownList-${i}`])) {
+                names = caster[`knownList-${i}`];
+              } else if (typeof caster[`text-${i}`] === "string") {
+                names = caster[`text-${i}`]
+                  .split(/\r?\n/).map(s => s.trim()).filter(s => s);
+              }
+              for (const name of names) {
+                createKnownRow(listEl, i, name);
+              }
+            }
             const prepEl = panel.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`);
             if (prepEl && caster[`prepared-${i}`]) prepEl.value = caster[`prepared-${i}`];
           }
@@ -984,8 +1264,148 @@ const Spells = (function () {
       });
     }
 
+    // Rehydrate domain info panels. The .dom-pick-info <div> that
+    // shows the 1st–9th domain spell list is created on-demand by
+    // domain-picker.js when the user types or selects a domain name —
+    // it isn't part of the saved HTML. After load, the .sc-domain-name
+    // inputs have their values restored but no info panel sits below
+    // them, so fire a `change` event on each populated input to let
+    // the domain-picker's event delegation re-render the info line.
+    document.querySelectorAll('.sc-domain-name').forEach(input => {
+      if (input.value && input.value.trim()) {
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
     recalc();
   }
+  // Public-API helper for spell-picker.js so it can append into the
+  // structured Known list without needing to know how rows are built.
+  function addKnownSpell(listEl, lvl, spellName) {
+    return createKnownRow(listEl, lvl, spellName);
+  }
+
+  // DB-first metamagic lookup; falls back to JS catalog. Mirrors the
+  // helper in spell-picker.js so the Reference panel and the picker
+  // agree on every entry (all 79 catalogued feats, plus homebrew via
+  // the JS catalog). Returns `{ levelAdjustment, effect,
+  // actionTypeMod? }` or null.
+  const _mmRefCache = new Map();
+  function lookupMetamagicFromDB(name) {
+    const key = String(name || "").trim();
+    if (!key) return null;
+    if (_mmRefCache.has(key)) return _mmRefCache.get(key);
+    let result = null;
+    if (window.DB && DB.isLoaded()) {
+      const row = DB.queryOne(
+        "SELECT json_extract(data, '$.metamagic.level_adjustment') AS adj, " +
+        "       json_extract(data, '$.metamagic.action_type_mod')   AS act, " +
+        "       json_extract(data, '$.metamagic.effect_summary')    AS eff " +
+        "FROM entry WHERE type='feat' AND name = :n COLLATE NOCASE " +
+        "AND types_csv LIKE '%Metamagic%' LIMIT 1", { ":n": key });
+      if (row && row.adj !== null) {
+        const adj = row.adj;
+        result = {
+          levelAdjustment: (adj === "variable") ? "variable"
+                          : (typeof adj === "number" ? adj : parseInt(adj, 10)),
+          effect: row.eff || "",
+          actionTypeMod: row.act || undefined,
+        };
+      }
+    }
+    if (!result && window.MetamagicCatalog && MetamagicCatalog.has(key)) {
+      result = MetamagicCatalog.get(key);
+    }
+    _mmRefCache.set(key, result);
+    return result;
+  }
+
+  // --- Metamagic Reference panel + spontaneous-caster warning --------
+  // Reads the character's metamagic feats from the Feats tab, filters
+  // against the catalog, and populates the per-panel reference. Also
+  // surfaces the spontaneous-caster action-type warning when the
+  // panel's notes contain a known spontaneous class name. Called on
+  // panel build and whenever the Feats tab fires an input/change.
+  function refreshMetamagicReference(panel) {
+    if (!panel) return;
+    const ref = panel.querySelector(".sc-metamagic-ref");
+    const refBody = panel.querySelector(".sc-mm-ref-body");
+    const refCount = panel.querySelector(".sc-mm-ref-count");
+    const warning = panel.querySelector(".sc-spontaneous-mm-warning");
+    if (!ref || !refBody) return;
+
+    // Pull metamagic feats from the Feats tab. Feat names live in
+    // .feat-entry textareas (first line = feat name; additional
+    // lines are notes). Each name is looked up in the DB first
+    // (covers all 79 catalogued metamagic feats via build-time
+    // _metamagic_metadata.py), with the JS catalog as fallback for
+    // homebrew entries that aren't in the DB.
+    const featInputs = document.querySelectorAll("#feats-container .feat-entry");
+    const mmEntries = [];
+    for (const el of featInputs) {
+      const raw = String(el.value || "").trim();
+      if (!raw) continue;
+      const firstLine = raw.split(/\r?\n/)[0].trim();
+      const name = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      if (!name) continue;
+      const meta = lookupMetamagicFromDB(name);
+      if (meta) mmEntries.push({ name, meta });
+    }
+
+    if (!mmEntries.length) {
+      ref.style.display = "none";
+      refBody.innerHTML = "";
+      refCount.textContent = "";
+    } else {
+      ref.style.display = "";
+      refCount.textContent = ` (${mmEntries.length} feat${mmEntries.length === 1 ? "" : "s"})`;
+      const rows = mmEntries.map(({ name, meta }) => {
+        const adj = typeof meta.levelAdjustment === "number"
+          ? `+${meta.levelAdjustment}`
+          : "±var";
+        const action = meta.actionTypeMod
+          ? ` <span style="opacity:0.7">[${meta.actionTypeMod}]</span>`
+          : "";
+        return `<div style="margin-bottom:0.25rem">` +
+               `<b>${escapeAttr(name)}</b> ` +
+               `<span style="opacity:0.8">${adj}</span>${action} — ` +
+               `${escapeAttr(meta.effect)}</div>`;
+      });
+      refBody.innerHTML = rows.join("");
+    }
+    const mmFeats = mmEntries.map(e => e.name);
+
+    // Spontaneous-caster warning: only show when this panel's notes
+    // contain a known spontaneous class name AND the character has
+    // at least one metamagic feat (no warning needed otherwise).
+    if (warning) {
+      const notes = (panel.querySelector(".caster-notes")?.value || "").toLowerCase();
+      const SPONTANEOUS = [
+        "sorcerer", "bard", "favored soul", "spirit shaman", "warmage",
+        "beguiler", "dread necromancer", "healer", "hexblade",
+        "duskblade", "spellthief", "sha'ir", "shair", "shugenja",
+      ];
+      const isSpontaneous = SPONTANEOUS.some(c => notes.includes(c));
+      warning.style.display = (isSpontaneous && mmFeats.length > 0) ? "" : "none";
+    }
+  }
+
+  // Live-refresh whenever feats change on the Feats tab.
+  document.addEventListener("input", (e) => {
+    if (e.target?.closest?.("#tab-feats")) {
+      document.querySelectorAll("[data-caster-type='spellcasting']")
+        .forEach(refreshMetamagicReference);
+    }
+  });
+  // Also refresh whenever the panel notes change (since the
+  // spontaneous warning depends on the class name in the notes).
+  document.addEventListener("input", (e) => {
+    if (e.target?.classList?.contains("caster-notes")) {
+      const panel = e.target.closest("[data-caster-type='spellcasting']");
+      if (panel) refreshMetamagicReference(panel);
+    }
+  });
+
   // --- Public API ---
   return {
     addCaster,
@@ -994,5 +1414,6 @@ const Spells = (function () {
     resetSlots,
     collectData,
     loadData,
+    addKnownSpell,
   };
 })();

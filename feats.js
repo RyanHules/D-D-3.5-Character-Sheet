@@ -27,18 +27,104 @@ const Feats = (function () {
     info.setAttribute("aria-expanded", "false");
     info.textContent = "ⓘ";
     info.addEventListener("click", () => toggleFeatRules(div));
+    // Prereq audit badge — shows ✓ / ✗ / ? next to each existing
+    // feat row based on the character's current state. Click to
+    // expand a detailed atom-by-atom breakdown inline.
+    const prereq = document.createElement("button");
+    prereq.type = "button";
+    prereq.className = "btn-feat-prereq";
+    prereq.title = "Prerequisite check (click for breakdown)";
+    prereq.textContent = "·";
+    prereq.addEventListener("click", () => toggleFeatPrereqDetail(div));
     const btn = document.createElement("button");
     btn.className = "btn-remove";
     btn.textContent = "X";
     btn.addEventListener("click", () => div.remove());
-    // Collapse the panel when the user edits the feat name — the cached
-    // rules text might no longer match what they typed.
-    ta.addEventListener("input", () => collapseFeatRules(div));
+    // Collapse the rules panel + refresh the prereq badge whenever
+    // the user edits the feat name.
+    ta.addEventListener("input", () => {
+      collapseFeatRules(div);
+      refreshFeatPrereqBadge(div);
+    });
     div.appendChild(ta);
     div.appendChild(info);
+    div.appendChild(prereq);
     div.appendChild(btn);
     container.appendChild(div);
+    // Initial badge render (also triggered on subsequent edits).
+    refreshFeatPrereqBadge(div);
   }
+
+  // Look up the row's feat name in the DB, parse + check prereqs,
+  // and update the prereq badge (·/✓/✗/?) + tooltip. Cheap; called
+  // on every input event and on global character-state changes.
+  function refreshFeatPrereqBadge(row) {
+    const ta = row.querySelector(".feat-entry");
+    const badge = row.querySelector(".btn-feat-prereq");
+    if (!ta || !badge) return;
+    const raw = (ta.value || "").trim();
+    const firstLine = raw.split(/\r?\n/)[0].trim();
+    const name = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    badge.dataset.status = "neutral";
+    badge.textContent = "·";
+    badge.title = "Prerequisite check";
+    if (!name || !(window.DB && DB.isLoaded()) ||
+        typeof FeatPrereqs === 'undefined') return;
+    const row2 = DB.queryOne(
+      "SELECT json_extract(data, '$.prerequisites') AS p " +
+      "FROM entry WHERE type='feat' AND name = :n COLLATE NOCASE LIMIT 1",
+      { ":n": name });
+    if (!row2 || !row2.p || !row2.p.trim() ||
+        row2.p === "-" || /^none$/i.test(row2.p)) {
+      badge.dataset.status = "none";
+      badge.textContent = "—";
+      badge.title = "No prerequisites";
+      return;
+    }
+    const ev = FeatPrereqs.evaluate(row2.p);
+    badge.dataset.status = ev.summary.status;
+    badge.textContent = ev.summary.label;
+    badge.title = `Prereq: ${row2.p}\n` +
+      ev.atoms.map(a =>
+        `  ${a.status === 'satisfied' ? '✓' : a.status === 'unmet' ? '✗' : '?'} ${a.raw}${a.detail ? ` — ${a.detail}` : ''}`
+      ).join('\n');
+  }
+
+  function toggleFeatPrereqDetail(row) {
+    const existing = row.querySelector(".feat-prereq-detail");
+    if (existing) { existing.remove(); return; }
+    const ta = row.querySelector(".feat-entry");
+    const raw = (ta?.value || "").trim();
+    const firstLine = raw.split(/\r?\n/)[0].trim();
+    const name = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    if (!name || !(window.DB && DB.isLoaded()) ||
+        typeof FeatPrereqs === 'undefined') return;
+    const r = DB.queryOne(
+      "SELECT json_extract(data, '$.prerequisites') AS p " +
+      "FROM entry WHERE type='feat' AND name = :n COLLATE NOCASE LIMIT 1",
+      { ":n": name });
+    const detail = document.createElement("div");
+    detail.className = "feat-prereq-detail";
+    if (!r || !r.p || !r.p.trim() || r.p === "-" || /^none$/i.test(r.p)) {
+      detail.innerHTML = '<i style="opacity:.7">No prerequisites.</i>';
+    } else {
+      const ev = FeatPrereqs.evaluate(r.p);
+      detail.innerHTML =
+        `<b>Prereq:</b> ${r.p.replace(/[<>&]/g, c =>
+          ({'<':'&lt;','>':'&gt;','&':'&amp;'})[c])}<br>` +
+        `<span class="fp-atoms">${ev.html}</span>`;
+    }
+    row.appendChild(detail);
+  }
+
+  // Refresh every row's prereq badge — called on global state changes
+  // (ability scores edited, classes applied, other feats added, etc.).
+  function refreshAllPrereqBadges() {
+    document.querySelectorAll("#feats-container .feat-row")
+      .forEach(refreshFeatPrereqBadge);
+  }
+  // Wire the global hook on first module evaluation.
+  document.addEventListener("audit-refresh", refreshAllPrereqBadges);
 
   function toggleFeatRules(row) {
     const existing = row.querySelector(".feat-rules");
@@ -153,21 +239,143 @@ const Feats = (function () {
     ta.placeholder = "Ability name & description";
     ta.rows = 1;
     ta.value = text;
+    // ⓘ button toggles a collapsible panel below the row showing the
+    // class-feature's full rules text from the DB. Class-picker stamps
+    // entries as `[ClassName Level] AbilityName` — we parse that prefix
+    // to look up the matching class_features entry. Custom-typed
+    // abilities (no prefix) get a "no rules text" fallback.
+    const info = document.createElement("button");
+    info.type = "button";
+    info.className = "btn-feat-info";
+    info.title = "Show rules text";
+    info.setAttribute("aria-expanded", "false");
+    info.textContent = "ⓘ";
+    info.addEventListener("click", () => toggleAbilityRules(div));
     const btn = document.createElement("button");
     btn.className = "btn-remove";
     btn.textContent = "X";
     btn.addEventListener("click", () => div.remove());
+    ta.addEventListener("input", () => collapseAbilityRules(div));
     div.appendChild(ta);
+    div.appendChild(info);
     div.appendChild(btn);
     container.appendChild(div);
   }
 
+  function toggleAbilityRules(row) {
+    const existing = row.querySelector(".feat-rules");
+    if (existing) {
+      collapseAbilityRules(row);
+      return;
+    }
+    const ta = row.querySelector(".special-ability-entry");
+    const btn = row.querySelector(".btn-feat-info");
+    const text = (ta.value || "").trim();
+    const panel = document.createElement("div");
+    panel.className = "feat-rules";
+    if (!text) {
+      panel.innerHTML = '<i style="opacity:.7">Type an ability first.</i>';
+    } else if (!(window.DB && DB.isLoaded())) {
+      panel.innerHTML = '<i style="opacity:.7">Database not loaded — rules text unavailable.</i>';
+    } else {
+      panel.innerHTML = renderAbilityRules(text);
+    }
+    row.appendChild(panel);
+    btn.setAttribute("aria-expanded", "true");
+    btn.classList.add("active");
+  }
+
+  function collapseAbilityRules(row) {
+    const panel = row.querySelector(".feat-rules");
+    if (panel) panel.remove();
+    const btn = row.querySelector(".btn-feat-info");
+    if (btn) {
+      btn.setAttribute("aria-expanded", "false");
+      btn.classList.remove("active");
+    }
+  }
+
+  // Parse an entry like `[Wizard 5] Bonus feat` or `[Sha'ir 1] Summon
+  // Gen Familiar` into { className, abilityName }. Returns null for
+  // unprefixed (user-typed) entries.
+  function parseAbilityPrefix(text) {
+    const m = text.match(/^\[([^\]]+?)\s+\d+\]\s*(.+)$/);
+    if (!m) return null;
+    return { className: m[1].trim(), abilityName: m[2].trim() };
+  }
+
+  // Stem an ability label — strip trailing scaling notation that
+  // changes between class levels (Smite Evil 3/day vs Smite Evil 5/day)
+  // so we can match against the canonical class_features.name.
+  function stemAbilityName(name) {
+    return String(name || "")
+      .replace(/\s*\d+\/(?:day|week|round|encounter|hour|hr|minute|min)/gi, "")
+      .replace(/\s*[+\-]?\d+d\d+/g, "")
+      .replace(/\s*\([^)]*\)\s*$/g, "")
+      .replace(/\s+[+\-]?\d+\s*$/g, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function renderAbilityRules(text) {
+    const parsed = parseAbilityPrefix(text);
+    if (!parsed) {
+      return '<i style="opacity:.7">No class prefix detected — type the ' +
+        'ability as <code>[Class N] Ability Name</code> or use the class ' +
+        'picker to add it.</i>';
+    }
+    const { className, abilityName } = parsed;
+    const row = DB.queryOne(
+      "SELECT name, source, version, " +
+      "  json_extract(data, '$.class_features') AS f " +
+      "FROM entry WHERE type IN ('class','prc') AND name = ? " +
+      "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END LIMIT 1",
+      [className]
+    );
+    if (!row || !row.f) {
+      return `<i style="opacity:.7">Class "${escapeHtml(className)}" not ` +
+        `found in database.</i>`;
+    }
+    let features = [];
+    try { features = JSON.parse(row.f) || []; } catch (e) {}
+    const targetStem = stemAbilityName(abilityName);
+    // Try exact name match first; fall back to stem-against-stem.
+    let feat = features.find(f => (f.name || "").toLowerCase() === abilityName.toLowerCase());
+    if (!feat) feat = features.find(f => stemAbilityName(f.name) === targetStem);
+    if (!feat) {
+      return `<i style="opacity:.7">No matching feature "${escapeHtml(abilityName)}" ` +
+        `found in ${escapeHtml(className)}'s class_features.</i>`;
+    }
+    const bits = [];
+    bits.push(`<b>${escapeHtml(feat.name || abilityName)}</b>` +
+      ` <span style="opacity:.7">(${escapeHtml(row.name)}` +
+      (feat.level_acquired ? ` ${feat.level_acquired}` : "") +
+      `)</span>`);
+    if (feat.description) {
+      bits.push(escapeHtml(feat.description));
+    }
+    return bits.join("<br>");
+  }
+
   function collectData() {
     const data = {};
+    // Scope to #feats-container and #special-abilities-container — a
+    // global `.feat-entry` selector accidentally matches placeholder
+    // <div>s in the Companion tab (`comp-feats-list`, `comp-tricks-list`
+    // share the `feat-entry` styling class), which previously made the
+    // saved `feats` array end with stray nulls per companion list.
+    const featsRoot = $("#feats-container");
+    const specRoot = $("#special-abilities-container");
     data.feats = [];
-    $$(".feat-entry").forEach((input) => data.feats.push(input.value));
+    if (featsRoot) {
+      featsRoot.querySelectorAll(".feat-entry")
+        .forEach((input) => data.feats.push(input.value));
+    }
     data.specialAbilities = [];
-    $$(".special-ability-entry").forEach((input) => data.specialAbilities.push(input.value));
+    if (specRoot) {
+      specRoot.querySelectorAll(".special-ability-entry")
+        .forEach((input) => data.specialAbilities.push(input.value));
+    }
     data.languages = $("#languages").value;
     return data;
   }
@@ -175,10 +383,31 @@ const Feats = (function () {
   function loadData(data) {
     if (data.languages !== undefined) $("#languages").value = data.languages;
     $("#feats-container").innerHTML = "";
-    if (data.feats) data.feats.forEach((f) => addFeat(f));
+    // Filter out null/empty entries on load. Legacy saved characters
+    // (pre-2026-05-15 collector fix) may have accumulated trailing nulls
+    // from the unscoped `.feat-entry` selector picking up companion-tab
+    // <div>s. Without this filter, each null becomes an empty feat row
+    // (the reported "four empty feats keep showing up" bug). New saves
+    // are clean, but legacy localStorage entries still need this guard.
+    const realFeats = (data.feats || []).filter(
+      (f) => f != null && String(f).trim() !== ""
+    );
+    realFeats.forEach((f) => addFeat(f));
+    // Always show at least one empty row so the user has a place to type.
+    if (!realFeats.length) addFeat();
     $("#special-abilities-container").innerHTML = "";
-    if (data.specialAbilities) data.specialAbilities.forEach((a) => addSpecialAbility(a));
+    const realSpec = (data.specialAbilities || []).filter(
+      (a) => a != null && String(a).trim() !== ""
+    );
+    realSpec.forEach((a) => addSpecialAbility(a));
+    if (!realSpec.length) addSpecialAbility();
   }
 
-  return { addFeat, addSpecialAbility, collectData, loadData };
+  return {
+    addFeat, addSpecialAbility, collectData, loadData,
+    // Exposed for the Companion tab's feat list — same lookup logic
+    // (DB query by feat name + parenthetical-stripping fallback) used
+    // by the per-row ⓘ toggle on the main Feats tab.
+    renderFeatRules,
+  };
 })();

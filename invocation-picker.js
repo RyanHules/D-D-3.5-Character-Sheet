@@ -172,8 +172,11 @@
         flash(`"${r.name}" already in Special Abilities.`, '#aa8');
         return;
       }
-      if (typeof window.Feats?.addSpecialAbility === 'function') {
-        window.Feats.addSpecialAbility(text);
+      // `Feats` is a top-level `const` (script-scope binding), not a
+      // `window` property. typeof guard for cross-module access.
+      if (typeof Feats !== 'undefined' &&
+          typeof Feats.addSpecialAbility === 'function') {
+        Feats.addSpecialAbility(text);
         flash(`Added "${r.name}".`, '#7a9');
       } else {
         flash('Feats module unavailable.', '#a66');

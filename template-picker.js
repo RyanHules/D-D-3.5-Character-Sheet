@@ -76,18 +76,23 @@
 
     const wrap = document.createElement('div');
     wrap.id = 'template-picker';
+    // Template lookup is rarely needed once a campaign starts — collapse
+    // by default. User can expand via the summary chevron.
     wrap.innerHTML = `
-      <div>
-        <div class="field" style="flex:2 1 14rem; min-width:12rem">
-          <label>Template Lookup</label>
-          <input type="text" id="template-lookup" list="template-options"
-                 placeholder="e.g. Half-Dragon, Vampire, Lich" autocomplete="off">
-          <datalist id="template-options"></datalist>
+      <details class="picker-section">
+        <summary>Template Lookup</summary>
+        <div>
+          <div class="field" style="flex:2 1 14rem; min-width:12rem">
+            <label>Template Lookup</label>
+            <input type="text" id="template-lookup" list="template-options"
+                   placeholder="e.g. Half-Dragon, Vampire, Lich" autocomplete="off">
+            <datalist id="template-options"></datalist>
+          </div>
+          <button type="button" id="template-lookup-apply" class="btn-add btn-add-inline">+ Apply Template</button>
         </div>
-        <button type="button" id="template-lookup-apply" class="btn-add btn-add-inline">+ Apply Template</button>
-      </div>
-      <div id="template-info" class="race-info" style="display:none; border-left-color:#aa6a6a"></div>
-      <div id="template-applied-list"></div>
+        <div id="template-info" class="race-info" style="display:none; border-left-color:#aa6a6a"></div>
+        <div id="template-applied-list"></div>
+      </details>
     `;
     // Insert as the FIRST child after the info-grid so it precedes
     // the class & level textarea / class lookup.

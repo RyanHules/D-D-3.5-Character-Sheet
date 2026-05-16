@@ -782,6 +782,838 @@ test('lookup: errata popover query returns ordered records', (db) => {
   }
 });
 
+// ---- tests: class-picker multiclass advancement metadata -----------------
+//
+// Failure modes these tests guard against (real bugs we hit in May 2026):
+//
+//   1. Sha'ir wasn't in SPELLCASTING_TYPE. A PrC that advances arcane
+//      casting (e.g. Durthan) couldn't pick Sha'ir as a target, so the
+//      Sha'ir's effective caster level was never bumped.
+//   2. Durthan + Sand Shaper class_features describe casting advancement
+//      in prose ("at each X level, gain spells per day as if leveling
+//      in a previous arcane class") without the canonical "+1 level of
+//      existing X spellcasting class" marker in class_table.special.
+//      Source A regex in class-picker missed them, HARDCODED_ADVANCERS
+//      didn't list them, so advancement was silently lost.
+
+const CLASS_PICKER_SRC = fs.readFileSync(
+  path.join(ROOT, 'class-picker.js'), 'utf8'
+);
+
+// Pull the keys from HARDCODED_ADVANCERS and SPELLCASTING_TYPE without
+// requiring class-picker.js as a module (it's an IIFE).
+function extractObjectKeys(src, varName) {
+  const re = new RegExp(
+    `const\\s+${varName}\\s*=\\s*\\{([\\s\\S]*?)\\n\\s*\\};`, 'm'
+  );
+  const m = src.match(re);
+  if (!m) return new Set();
+  // Capture every `"Name":` or `'Name':` key. Use alternation so keys
+  // containing the opposite quote character (e.g. `"Sha'ir"`) match
+  // correctly — a single character class can't handle both quote
+  // styles simultaneously.
+  const body = m[1];
+  const keys = new Set();
+  const keyRe = /(?:"([^"\n]+?)"|'([^'\n]+?)')\s*:/g;
+  let km;
+  while ((km = keyRe.exec(body)) !== null) keys.add(km[1] || km[2]);
+  return keys;
+}
+
+const HARDCODED_ADVANCERS_KEYS = extractObjectKeys(
+  CLASS_PICKER_SRC, '_FALLBACK_HARDCODED_ADVANCERS'
+);
+const SPELLCASTING_TYPE_KEYS = extractObjectKeys(
+  CLASS_PICKER_SRC, '_FALLBACK_SPELLCASTING_TYPE'
+);
+const CASTER_STYLE_KEYS = extractObjectKeys(
+  CLASS_PICKER_SRC, '_FALLBACK_CASTER_STYLE'
+);
+
+// Extract `KEY: 'value'` pairs from an object literal in source. Returns
+// a Map<keyName, valueString>. Used to verify CASTER_STYLE values
+// against the DB descriptions.
+function extractObjectMap(src, varName) {
+  const re = new RegExp(
+    `const\\s+${varName}\\s*=\\s*\\{([\\s\\S]*?)\\n\\s*\\};`, 'm'
+  );
+  const m = src.match(re);
+  if (!m) return new Map();
+  const body = m[1];
+  const map = new Map();
+  // Match `"KEY": 'VALUE'` or `'KEY': "VALUE"` (single string value).
+  const re2 = /(?:"([^"\n]+?)"|'([^'\n]+?)')\s*:\s*(?:"([^"\n]+?)"|'([^'\n]+?)')/g;
+  let km;
+  while ((km = re2.exec(body)) !== null) {
+    const key = km[1] || km[2];
+    const val = km[3] || km[4];
+    map.set(key, val);
+  }
+  return map;
+}
+
+const CASTER_STYLE_MAP = extractObjectMap(CLASS_PICKER_SRC, '_FALLBACK_CASTER_STYLE');
+
+test('class-picker: HARDCODED_ADVANCERS keys extracted from source', () => {
+  // Sanity-check the extractor itself — if this fails the rest of the
+  // class-picker tests are bogus.
+  assertGE(HARDCODED_ADVANCERS_KEYS.size, 15,
+    `expected >= 15 hardcoded advancers, got ${HARDCODED_ADVANCERS_KEYS.size}`);
+  for (const known of ['Mystic Theurge', 'Archmage', 'Loremaster',
+                       'Arcane Trickster', 'Durthan', 'Sand Shaper']) {
+    assert(HARDCODED_ADVANCERS_KEYS.has(known),
+      `HARDCODED_ADVANCERS should contain '${known}'`);
+  }
+});
+
+test('class-picker: SPELLCASTING_TYPE keys extracted from source', () => {
+  assertGE(SPELLCASTING_TYPE_KEYS.size, 20);
+  for (const known of ['Wizard', 'Cleric', 'Psion', "Sha'ir"]) {
+    assert(SPELLCASTING_TYPE_KEYS.has(known),
+      `SPELLCASTING_TYPE should contain '${known}'`);
+  }
+});
+
+// Test A: every PrC whose class_features prose mentions casting
+// advancement language must be catchable by either the Source A regex
+// (canonical marker in class_table.special) OR the HARDCODED_ADVANCERS
+// list. Otherwise the picker silently drops the advancement when the
+// PrC is applied alongside a spellcasting base class.
+test('class-picker: every advancer PrC is wired (Source A regex or HARDCODED_ADVANCERS)', (db) => {
+  const rows = execAll(db,
+    "SELECT name, " +
+    "json_extract(data, '$.class_features') AS features_json, " +
+    "json_extract(data, '$.class_table')    AS table_json " +
+    "FROM entry WHERE type = 'prc'");
+
+  const ADVANCE_VERB = new RegExp(
+    'as if (?:had |she |he |you |they )?(?:also )?gained? a level' +
+    '|as if leveling in' +
+    '|advances? (?:your |her |his )?(?:arcane|divine|psionic|spellcasting)' +
+    '|\\+\\s*1\\s*level\\s+of\\s+(?:your\\s+|her\\s+|his\\s+)?existing',
+    'i'
+  );
+  const SPELL_NOUN = new RegExp(
+    'spells per day|caster level|spells known|spellcasting class' +
+    '|spellcasting ability|manifester level|powers known|power points',
+    'i'
+  );
+  // The canonical marker the class-picker's Source A scans for.
+  const CANONICAL_MARKER = new RegExp(
+    '\\+\\s*1\\s*level\\s+of\\s+existing\\s+' +
+    '(?:arcane|divine|manifesting|psionic)\\s+' +
+    '(?:spellcasting|manifesting)?\\s*class',
+    'i'
+  );
+
+  const missed = [];
+  for (const r of rows) {
+    let features = [];
+    try { features = JSON.parse(r.features_json || '[]'); } catch (e) {}
+    const text = features.map(f =>
+      (f.name || '') + ' ' + (f.description || '')
+    ).join(' ');
+    const looksLikeAdvancer = ADVANCE_VERB.test(text) && SPELL_NOUN.test(text);
+    if (!looksLikeAdvancer) continue;
+
+    let table = [];
+    try { table = JSON.parse(r.table_json || '[]'); } catch (e) {}
+    const tableSpecials = table.map(t => t.special || '').join(' ');
+    const hasCanonical = CANONICAL_MARKER.test(tableSpecials);
+
+    if (hasCanonical) continue;                            // Source A catches it
+    if (HARDCODED_ADVANCERS_KEYS.has(r.name)) continue;    // Source B catches it
+    missed.push(r.name);
+  }
+
+  assert(missed.length === 0,
+    `${missed.length} PrC(s) describe spell-advancement in their ` +
+    `class_features prose but aren't wired into class-picker:\n  ` +
+    missed.sort().join('\n  ') +
+    `\nFix: either add the canonical "+1 level of existing X spellcasting ` +
+    `class" marker to that PrC's class_table.special at the DB level ` +
+    `(preferred), or register the PrC in HARDCODED_ADVANCERS in ` +
+    `class-picker.js.`);
+});
+
+// Test 2b: every arcane/divine class in SPELLCASTING_TYPE must also have
+// a CASTER_STYLE classification. Ultimate Magus (and any future PrC
+// that requires specific styles) keys on this. Psionic classes are
+// excluded — UM doesn't advance psionics and "prepared/spontaneous"
+// doesn't map cleanly onto power-point manifesting.
+test('class-picker: every arcane/divine caster in SPELLCASTING_TYPE has a CASTER_STYLE', () => {
+  // SPELLCASTING_TYPE values can be 'arcane' / 'divine' / 'psionic' or
+  // an array. Re-extract value text from source so we can filter.
+  const typeMap = extractObjectMap(CLASS_PICKER_SRC, '_FALLBACK_SPELLCASTING_TYPE');
+  // Plus array-valued entries (Sha'ir = ['arcane','divine']).
+  const arrRe = /(?:"([^"\n]+?)"|'([^'\n]+?)')\s*:\s*\[([^\]]*)\]/g;
+  const typeMatch = CLASS_PICKER_SRC.match(
+    /const\s+SPELLCASTING_TYPE\s*=\s*\{([\s\S]*?)\n\s*\};/m
+  );
+  const typeBody = typeMatch ? typeMatch[1] : '';
+  let am;
+  while ((am = arrRe.exec(typeBody)) !== null) {
+    const key = am[1] || am[2];
+    const arrText = am[3].toLowerCase();
+    // Any of arcane/divine in the array → key is arcane/divine.
+    if (/arcane|divine/.test(arrText)) typeMap.set(key, 'arcane');
+  }
+
+  const missing = [];
+  for (const [className, type] of typeMap.entries()) {
+    if (type === 'psionic') continue;
+    if (!CASTER_STYLE_KEYS.has(className)) missing.push(className);
+  }
+  assert(missing.length === 0,
+    `${missing.length} arcane/divine class(es) in SPELLCASTING_TYPE ` +
+    `lack a CASTER_STYLE classification:\n  ` +
+    missing.sort().join('\n  ') +
+    `\nFix: add each to CASTER_STYLE in class-picker.js as either ` +
+    `'prepared' or 'spontaneous'. Ultimate Magus (and any future PrC ` +
+    `requiring specific casting styles) keys on this map to pick ` +
+    `eligible targets.`);
+});
+
+// Test 2c: hand-coded CASTER_STYLE values must match what each class's
+// own class_features description says. Catches drift if the DB updates
+// or if a hand-edit got the wrong style. Heuristic — checks the
+// "Spells" / "Spellcasting" feature text for prep/spont markers.
+test('class-picker: CASTER_STYLE values match DB class_features descriptions', (db) => {
+  // Some classes are intentionally hand-overridden — list here.
+  const OVERRIDES = new Set([
+    "Sha'ir",        // gen-fetched; rules-ambiguous, hand-pinned to prepared
+  ]);
+  const mismatches = [];
+  for (const [className, style] of CASTER_STYLE_MAP.entries()) {
+    if (OVERRIDES.has(className)) continue;
+    const row = execOne(db,
+      "SELECT json_extract(data, '$.class_features') AS f " +
+      "FROM entry WHERE name = ? AND type = 'class' LIMIT 1",
+      [className]);
+    if (!row || !row.f) continue;  // Class not in DB — skip
+    let features = [];
+    try { features = JSON.parse(row.f); } catch (e) { continue; }
+    const spellFeat = features.find(f =>
+      /^Spell(s|casting|book|s and )/i.test(f.name || ''));
+    if (!spellFeat) continue;
+    const desc = (spellFeat.description || '').toLowerCase();
+    if (!desc) continue;
+    // Decision tree mirroring how a player would read the rules:
+    let dbStyle = null;
+    if (/cast(s|ing)?\s+(\w+\s+)*spell(s)?\s+spontaneously|spontaneous(ly)?\s+(arcane|divine)/i.test(desc)) {
+      dbStyle = 'spontaneous';
+    } else if (/prepared|spellbook|prayerbook|prepare(d)?\s+in\s+advance/i.test(desc)) {
+      dbStyle = 'prepared';
+    } else if (/cast\s+any\s+spell\s+(she|he|they)\s+know(s)?\s+without\s+preparation/i.test(desc)) {
+      dbStyle = 'spontaneous';
+    }
+    if (!dbStyle) continue;  // Description ambiguous — skip
+    if (dbStyle !== style) {
+      mismatches.push(`${className}: hand-coded '${style}' but DB says '${dbStyle}'`);
+    }
+  }
+  assert(mismatches.length === 0,
+    `CASTER_STYLE values disagree with DB descriptions:\n  ` +
+    mismatches.join('\n  ') +
+    `\nFix: either correct the hand-coded value in class-picker.js, ` +
+    `or add the class to the OVERRIDES set in this test if the ` +
+    `mismatch is intentional.`);
+});
+
+// Test B: every base class that looks like a spellcaster — by any of
+// the data-shape heuristics — must be in SPELLCASTING_TYPE. Otherwise
+// an advancing PrC applied alongside it can't pick it as a target.
+test('class-picker: every base spellcaster class is in SPELLCASTING_TYPE', (db) => {
+  const rows = execAll(db,
+    "SELECT name, " +
+    "json_extract(data, '$.class_table') AS table_json, " +
+    "data AS data_json " +
+    "FROM entry WHERE type = 'class'");
+
+  // Heuristics: a class "looks like a spellcaster" if its data shape
+  // shows any spell-progression evidence. Heterogeneous because the
+  // manual-extraction schema isn't fully normalized — different books
+  // encode it differently.
+  // A "non-trivial" value: not null, not empty string / array / object,
+  // not a placeholder dash. Many non-caster classes (Knight, Thug,
+  // Swashbuckler, Generic Warrior) carry the schema keys with `null`
+  // values — those should NOT count as evidence of spellcasting.
+  function nonTrivial(v) {
+    if (v == null) return false;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      return s !== '' && s !== '—' && s !== '-';
+    }
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === 'object') return Object.keys(v).length > 0;
+    return true;
+  }
+  function looksLikeSpellcaster(row) {
+    let table = [];
+    try { table = JSON.parse(row.table_json || '[]'); } catch (e) {}
+    for (const t of table) {
+      for (const k of ['spells_per_day', 'spells_known',
+                       'power_points', 'powers_known', 'max_power_level']) {
+        if (nonTrivial(t[k])) return true;
+      }
+    }
+    let data = {};
+    try { data = JSON.parse(row.data_json || '{}'); } catch (e) {}
+    for (const [k, v] of Object.entries(data)) {
+      if (!nonTrivial(v)) continue;
+      if (/^(spell|spells)_(per_day|known)(_table)?$/i.test(k)) return true;
+      if (/^(.+_)?spell_list$/i.test(k)) return true;
+      if (/^power_list$|^power_points$|^manifesting/i.test(k)) return true;
+      if (/^spell_access_rules$/i.test(k)) return true;
+    }
+    return false;
+  }
+
+  // Classes we DELIBERATELY exclude from the check — they have
+  // spell-related data but aren't valid advancement targets:
+  //   - "Generic Spellcaster": UA placeholder, not a real class.
+  const EXCLUDE = new Set(['Generic Spellcaster']);
+
+  const missing = [];
+  for (const r of rows) {
+    if (EXCLUDE.has(r.name)) continue;
+    if (!looksLikeSpellcaster(r)) continue;
+    if (SPELLCASTING_TYPE_KEYS.has(r.name)) continue;
+    missing.push(r.name);
+  }
+
+  assert(missing.length === 0,
+    `${missing.length} base class(es) look like spellcasters but ` +
+    `aren't in SPELLCASTING_TYPE:\n  ` +
+    missing.sort().join('\n  ') +
+    `\nFix: add each to SPELLCASTING_TYPE in class-picker.js with the ` +
+    `right type ('arcane' / 'divine' / 'psionic'). PrCs that advance ` +
+    `that type can then target the class.`);
+});
+
+// ---- tests: DB-side class metadata merge ---------------------------------
+//
+// Centralized 2026-05-15 from class-picker.js hand-coded maps into
+// `_class_metadata.py` (DB project), merged into `entry.data` at build
+// time. These tests assert the merge actually fired on the rebuilt DB
+// — the JS picker reads these fields via getClassType / getCasterStyle
+// / getAdvancementSpec and falls back to the in-source maps only if
+// the merge is missing.
+
+test('class metadata: spellcasting.class_type populated for spellcaster classes', (db) => {
+  // Every base class that's in the JS fallback must also have
+  // spellcasting.class_type set in the DB, because the build merge
+  // should have stamped it.
+  const fallbackKeys = SPELLCASTING_TYPE_KEYS;
+  const placeholders = [...fallbackKeys].map(() => '?').join(',');
+  const rows = execAll(db,
+    `SELECT name, ` +
+    `json_extract(data, '$.spellcasting.class_type') AS ct ` +
+    `FROM entry WHERE type = 'class' AND name IN (${placeholders})`,
+    [...fallbackKeys]);
+  const missing = rows.filter(r => r.ct == null).map(r => r.name);
+  assert(missing.length === 0,
+    `${missing.length} class(es) listed in the JS fallback have no ` +
+    `spellcasting.class_type in the DB:\n  ${missing.join('\n  ')}\n` +
+    `This means the build merge in _class_metadata.py didn't fire ` +
+    `for those names. Check the canonical entry name in the DB ` +
+    `matches the SPELLCASTING_METADATA dict key (case-sensitive).`);
+});
+
+test('class metadata: advancement spec populated for parser-missed advancer PrCs', (db) => {
+  // Every PrC in the JS fallback that needs explicit advancement
+  // metadata (i.e. its class_table.special doesn't contain the
+  // canonical marker) should have entry.data.advancement set in the
+  // DB. This catches the case where _class_metadata.ADVANCEMENT_METADATA
+  // is missing an entry that the JS fallback still carries.
+  const placeholders = [...HARDCODED_ADVANCERS_KEYS]
+    .map(() => '?').join(',');
+  const rows = execAll(db,
+    `SELECT name, ` +
+    `json_extract(data, '$.advancement') AS adv ` +
+    `FROM entry WHERE type = 'prc' AND name IN (${placeholders})`,
+    [...HARDCODED_ADVANCERS_KEYS]);
+  const missing = rows.filter(r => r.adv == null).map(r => r.name);
+  assert(missing.length === 0,
+    `${missing.length} PrC(s) in the JS fallback have no advancement ` +
+    `spec in the DB:\n  ${missing.join('\n  ')}\n` +
+    `Add them to ADVANCEMENT_METADATA in _class_metadata.py and ` +
+    `rebuild the DB.`);
+});
+
+// ---- tests: class progression fields are always populated ----------------
+//
+// Mirror of the Python TestClassMetadata test_every_class_has_progression_fields.
+// We also assert here because the character sheet IS what queries these
+// fields — and we want the test to fire on the loaded DB blob the picker
+// actually uses, not just the source build. If a DB ships with null
+// progressions, the multiclass aggregator silently contributes 0 BAB/save
+// for that class (Sand Shaper / Durthan / 257 other entries did this
+// before the 2026-05-16 build-time backfill in _class_metadata.py).
+test('class-picker: every class/prc has non-null bab/fort/ref/will progressions', (db) => {
+  const rows = execAll(db,
+    "SELECT name, type, source FROM entry " +
+    "WHERE type IN ('class','prc') AND (" +
+    "json_extract(data, '$.bab_progression')  IS NULL OR " +
+    "json_extract(data, '$.fort_progression') IS NULL OR " +
+    "json_extract(data, '$.ref_progression')  IS NULL OR " +
+    "json_extract(data, '$.will_progression') IS NULL)");
+  assert(rows.length === 0,
+    `${rows.length} class/prc entries have null progression fields. ` +
+    `Sample: ${JSON.stringify(rows.slice(0, 5))}. ` +
+    `Rebuild the DB — _class_metadata._infer_progressions_if_missing ` +
+    `should fill these in at build time.`);
+});
+
+// ---- tests: spontaneous-caster spells_known is populated ----------------
+//
+// The Sorcerer/Bard/Hexblade/Favored Soul/Spirit Shaman et al. all have
+// per-level Spells Known progressions in their source rules. These need
+// to make it into class_table rows so class-picker.js can auto-fill the
+// "Known" column on the Spellcasting panel. Before 2026-05-17 the build
+// pipeline only merged spells_per_day; spells_known fell on the floor.
+//
+// "Knows-whole-list" casters (Beguiler / Warmage / Dread Necromancer /
+// Sha'ir / Healer / Duskblade) genuinely have no per-level table — they
+// know every spell on their list — and are excluded.
+test('class-picker: every per-level spontaneous caster has spells_known on every row that has spells_per_day', (db) => {
+  // "Knows whole list" casters — no per-level Spells Known table in source.
+  // Sha'ir IS NOT in this set: Dragon Compendium Table 2-12 gives Sha'ir
+  // a normal per-level Spells Known progression; the gen-retrieval
+  // mechanic is just a preparation-speed bonus, not a "know everything"
+  // pass like Beguiler / Warmage / etc.
+  const WHOLE_LIST = new Set([
+    'Beguiler', 'Warmage', 'Dread Necromancer',
+    'Healer', 'Duskblade',
+  ]);
+  const rows = execAll(db,
+    "SELECT name, data FROM entry " +
+    "WHERE type = 'class' AND " +
+    "json_extract(data, '$.spellcasting.style') = 'spontaneous'");
+  const broken = [];
+  for (const r of rows) {
+    if (WHOLE_LIST.has(r.name)) continue;
+    const d = JSON.parse(r.data);
+    const tbl = d.class_table;
+    if (!Array.isArray(tbl) || !tbl.length) continue;
+    // Find the highest-level row that has spells_per_day populated.
+    const lastCasting = [...tbl].reverse().find(row =>
+      Array.isArray(row.spells_per_day) &&
+      row.spells_per_day.some(v => v !== null && v !== undefined));
+    if (!lastCasting) continue;  // never gets to cast (shouldn't happen)
+    if (!Array.isArray(lastCasting.spells_known) ||
+        !lastCasting.spells_known.some(v => v !== null && v !== undefined &&
+          v !== '-' && v !== '—')) {
+      broken.push(r.name);
+    }
+  }
+  assert(broken.length === 0,
+    `${broken.length} spontaneous caster(s) have no per-level spells_known ` +
+    `merged into class_table:\n  ${broken.join('\n  ')}\n` +
+    `Either add the Spells Known data to the upstream Python data file ` +
+    `and re-run emit_*.py + normalize_schema.py, or — if the class is a ` +
+    `"knows-whole-list" caster — add its name to the WHOLE_LIST set ` +
+    `here and the KNOWS_WHOLE_LIST_NOTES map in class-picker.js.`);
+});
+
+// ---- tests: companion metadata coverage ----------------------------------
+//
+// Every class feature whose description mentions an animal companion,
+// familiar, special mount, or cohort should EITHER have a structured
+// `companion` block populated by _companion_metadata.py OR be an
+// explicitly-excluded entry in the override map (signified by a None
+// value — those don't get a `companion` field but ARE listed in the
+// keyed overrides). When neither is true, the audit fails and the
+// new class feature needs an override added.
+test('companion: every relevant class feature has metadata or explicit exclusion', (db) => {
+  // Mirror the keyword set from _companion_metadata.py.
+  // Intentionally not the same regex — we want to catch mentions
+  // the Python regex might have missed, so this is broader.
+  const KEYWORDS = /\b(animal\s+companion|familiar|special\s+mount|paladin'?s?\s+mount|divine\s+mount|bonded\s+mount|telthor\s+companion|cohort|leadership)\b/i;
+  // Phrases that indicate an incidental mention — Leadership listed as
+  // a feat option, anti-companion abilities, transformation rules, etc.
+  const INCIDENTAL = /leadership\s+score|feat\s+from:?\b[^.]*leadership|\bex-\w+|\bbecomes?\s+\w+|sever\s+bonded|except\s+(?:spellcasting\s+and\s+)?animal\s+companion|does\s+not\s+grant.*familiar|magical\s+materials/i;
+  // Hand-curated set of (class, feature) pairs we explicitly excluded
+  // — must match the None entries in _companion_metadata.OVERRIDES.
+  // (We could DB-query for the OVERRIDES set but a Python-vs-JS mirror
+  // is simpler and self-documents the intentional exclusions here.)
+  const EXCLUSIONS = new Set([
+    'Generic Warrior/Bonus Feats',
+    'Guild Thief/Bonus Feat',
+    'Guild Thief/Reputation',
+    'Hexblade/Ex-Hexblades',
+    'Mountebank/Infernal Escape (Su)',
+    'Cerebremancer/Spells per Day / Powers Known',
+    'Hierophant/Power of Nature (Su)',
+    'Hierophant/Power of Nature [druid-only special ability]',
+    'Blighter/Unbond (Sp)',
+    "Sha'ir/Spells",
+    'Prestige Paladin/Class Features',
+    'Aglarondan Griffonrider/Flyby Attack',
+    'Aglarondan Griffonrider/Aerial Evasion (Ex)',
+    'Aglarondan Griffonrider/Hover (Ex)',
+    'Aglarondan Griffonrider/Power Dive (Ex)',
+    'Aglarondan Griffonrider/Superior Flight (Ex)',
+  ]);
+
+  const rows = execAll(db,
+    "SELECT name, json_extract(data, '$.class_features') AS cf " +
+    "FROM entry WHERE type IN ('class','prc') " +
+    "AND json_extract(data, '$.class_features') IS NOT NULL");
+  const missing = [];
+  for (const r of rows) {
+    let cf;
+    try { cf = JSON.parse(r.cf); } catch { continue; }
+    if (!Array.isArray(cf)) continue;
+    for (const f of cf) {
+      const text = (f.name || '') + ' ' + (f.description || '');
+      if (!KEYWORDS.test(text)) continue;
+      if (INCIDENTAL.test(text)) continue;
+      if (f.companion) continue;          // metadata present → ok
+      const key = `${r.name}/${f.name}`;
+      if (EXCLUSIONS.has(key)) continue;  // explicit exclusion → ok
+      missing.push(key);
+    }
+  }
+  assert(missing.length === 0,
+    `${missing.length} class feature(s) mention companion keywords ` +
+    `but have no companion metadata and no explicit exclusion:\n  ` +
+    missing.join('\n  ') + '\n' +
+    `Add an entry to _companion_metadata.py::OVERRIDES (with a ` +
+    `companion dict, or None to explicitly exclude) and update the ` +
+    `EXCLUSIONS set in this test.`);
+});
+
+// ---- tests: metamagic metadata coverage ----------------------------------
+//
+// Every feat tagged Metamagic in types_csv should have populated
+// metamagic.level_adjustment after the DB build. Backstop against
+// regressions in the regex extractor or manual-override map in
+// _metamagic_metadata.py.
+test('metamagic: every Metamagic feat has level_adjustment', (db) => {
+  const rows = execAll(db,
+    "SELECT name, source FROM entry " +
+    "WHERE type='feat' AND types_csv LIKE '%Metamagic%' " +
+    "AND json_extract(data, '$.metamagic.level_adjustment') IS NULL");
+  assert(rows.length === 0,
+    `${rows.length} metamagic feat(s) have no level_adjustment.\n` +
+    `Sample: ${JSON.stringify(rows.slice(0, 5))}\n` +
+    `Add to MANUAL_OVERRIDES in _metamagic_metadata.py or check that ` +
+    `the regex extractor in extract_level_adjustment() picks them up.`);
+});
+
+test('metamagic: level_adjustment values are integer 0-9 or "variable"', (db) => {
+  const rows = execAll(db,
+    "SELECT name, " +
+    "json_extract(data, '$.metamagic.level_adjustment') AS adj " +
+    "FROM entry WHERE type='feat' AND types_csv LIKE '%Metamagic%' " +
+    "AND json_extract(data, '$.metamagic.level_adjustment') IS NOT NULL");
+  const bad = rows.filter(r => {
+    const a = r.adj;
+    if (a === 'variable') return false;
+    if (typeof a === 'number' && a >= 0 && a <= 9 && Number.isInteger(a)) return false;
+    return true;
+  });
+  assert(bad.length === 0,
+    `${bad.length} feat(s) have non-canonical level_adjustment:\n  ` +
+    bad.slice(0, 8).map(r => `${r.name}: ${JSON.stringify(r.adj)}`).join('\n  '));
+});
+
+test('class-picker: progression values are in canonical set', (db) => {
+  const VALID_BAB = new Set(['good', 'average', 'poor']);
+  const VALID_SAVE = new Set(['good', 'poor']);
+  const rows = execAll(db,
+    "SELECT name, " +
+    "json_extract(data, '$.bab_progression')  AS bab, " +
+    "json_extract(data, '$.fort_progression') AS fort, " +
+    "json_extract(data, '$.ref_progression')  AS ref, " +
+    "json_extract(data, '$.will_progression') AS will " +
+    "FROM entry WHERE type IN ('class','prc')");
+  const bad = [];
+  for (const r of rows) {
+    if (r.bab  && !VALID_BAB.has(r.bab))   bad.push(`${r.name}: bab=${r.bab}`);
+    if (r.fort && !VALID_SAVE.has(r.fort)) bad.push(`${r.name}: fort=${r.fort}`);
+    if (r.ref  && !VALID_SAVE.has(r.ref))  bad.push(`${r.name}: ref=${r.ref}`);
+    if (r.will && !VALID_SAVE.has(r.will)) bad.push(`${r.name}: will=${r.will}`);
+  }
+  assert(bad.length === 0,
+    `${bad.length} class/prc entries have non-canonical progression ` +
+    `values:\n  ${bad.slice(0, 10).join('\n  ')}\n` +
+    `BAB must be one of ${[...VALID_BAB]}; saves must be one of ${[...VALID_SAVE]}.`);
+});
+
+// ---- tests: save/load collector scoping ----------------------------------
+//
+// Real bug from 2026-05-15: `Feats.collectData()` was using a global
+// `$$('.feat-entry')` selector, which also matched <div>s in the
+// Companion tab that reuse the `feat-entry` styling class. Those <div>s
+// have no `.value`, so the saved `feats` array gained `null` entries
+// for every companion list — round-trip lost data and exports were
+// polluted. The fix scopes the selector to `#feats-container`. These
+// tests guard against the bug recurring, and against similar bugs
+// being introduced in other collectors that share styling classes
+// across unrelated panels.
+
+function readSource(name) {
+  return fs.readFileSync(path.join(ROOT, name), 'utf8');
+}
+
+// Helper: extract a function body by name from a source string.
+function extractFunctionBody(src, name) {
+  // Match `function NAME(...args) {` … balanced braces … `}`.
+  const start = src.indexOf(`function ${name}(`);
+  if (start < 0) return null;
+  const brace = src.indexOf('{', start);
+  if (brace < 0) return null;
+  let depth = 1, i = brace + 1;
+  while (i < src.length && depth > 0) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    // Skip strings/comments crudely — adequate for current sources.
+    else if (ch === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+    } else if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch;
+      i++;
+      while (i < src.length && src[i] !== quote) {
+        if (src[i] === '\\') i++;
+        i++;
+      }
+    }
+    i++;
+  }
+  return src.slice(brace + 1, i - 1);
+}
+
+// ---- tests: CharacterHistory substrate -----------------------------------
+//
+// Phase 1 of #3 — pure-data module. We test it in Node by evaluating
+// character-history.js directly (it has no DOM / DB dependencies in
+// the public API surface tested here).
+
+function loadCharacterHistory() {
+  const src = fs.readFileSync(path.join(ROOT, 'character-history.js'), 'utf8');
+  // Eval in a sandbox so the module's top-level `const` binds locally
+  // and we can return the public API to the caller.
+  const fn = new Function(src + '\nreturn CharacterHistory;');
+  return fn();
+}
+
+test('CharacterHistory: round-trip preserves the history array', () => {
+  const CH = loadCharacterHistory();
+  const hist = [
+    { level: 1, class_taken: 'Wizard', hp_rolled: 4,
+      feats_taken: ['Combat Casting'], skills_purchased: { Concentration: 4 },
+      spells_learned: ['Magic Missile'], notes: '' },
+    { level: 2, class_taken: 'Wizard', hp_rolled: 3,
+      feats_taken: [], skills_purchased: { Concentration: 1 },
+      spells_learned: ['Fly'], notes: '' },
+  ];
+  CH.set(hist, { reconstructed: false });
+  const dumped = CH.collectData();
+  assert(Array.isArray(dumped.history), 'collectData returns .history array');
+  assert(dumped.history.length === 2, 'two entries round-tripped');
+  assert(dumped.history[0].class_taken === 'Wizard', 'class preserved');
+  assert(!dumped.history_reconstructed, 'reconstructed flag false');
+
+  // Load on a fresh module instance
+  const CH2 = loadCharacterHistory();
+  CH2.loadData(dumped);
+  assert(CH2.get().length === 2, 'loaded back 2 entries');
+  assert(CH2.get()[1].spells_learned[0] === 'Fly', 'nested data preserved');
+});
+
+test('CharacterHistory: missing history triggers reconstruction with opts', () => {
+  const CH = loadCharacterHistory();
+  CH.loadData({}, {
+    classes: [{ className: 'Druid', level: 5 }, { className: 'Beastmaster', level: 3 }],
+    feats: ['Power Attack', 'Cleave', 'Improved Bull Rush'],
+    options: { pathfinderFeats: false },
+  });
+  const h = CH.get();
+  assert(h.length === 8, '8 levels reconstructed (Druid 5 + Beastmaster 3)');
+  assert(h[0].class_taken === 'Druid', 'L1 is Druid');
+  assert(h[5].class_taken === 'Beastmaster', 'L6 is Beastmaster');
+  assert(h[7].class_taken === 'Beastmaster', 'L8 is Beastmaster');
+  // Feats land at L1, L3, L6 (RAW schedule).
+  assert(h[0].feats_taken.includes('Power Attack'), 'L1 feat slot');
+  assert(h[2].feats_taken.includes('Cleave'), 'L3 feat slot');
+  assert(h[5].feats_taken.includes('Improved Bull Rush'), 'L6 feat slot');
+  assert(h.every(e => e._reconstructed === true),
+    'all entries flagged _reconstructed');
+  assert(CH.isReconstructed(), 'top-level reconstructed flag set');
+});
+
+test('CharacterHistory: reconstructFromTotals returns empty for unbuilt characters', () => {
+  const CH = loadCharacterHistory();
+  const h = CH.reconstructFromTotals([], []);
+  assert(Array.isArray(h) && h.length === 0,
+    'no classes = empty history (no fabricated L1)');
+});
+
+test('CharacterHistory: pathfinder feat schedule covers odd levels', () => {
+  const CH = loadCharacterHistory();
+  const raw = CH.featLevels(false);
+  const pf  = CH.featLevels(true);
+  assert(JSON.stringify(raw) === JSON.stringify([1,3,6,9,12,15,18]),
+    'RAW = L1, 3, 6, 9, 12, 15, 18');
+  assert(JSON.stringify(pf) === JSON.stringify([1,3,5,7,9,11,13,15,17,19]),
+    'Pathfinder = every odd level');
+});
+
+test('CharacterHistory: ability boost levels are L4/8/12/16/20', () => {
+  const CH = loadCharacterHistory();
+  for (let lvl = 1; lvl <= 20; lvl++) {
+    const expected = (lvl % 4 === 0);
+    assert(CH.isAbilityBoostLevel(lvl) === expected,
+      `L${lvl}: expected boost=${expected}`);
+  }
+});
+
+test('CharacterHistory: explicit history wins over reconstruction', () => {
+  const CH = loadCharacterHistory();
+  const hist = [{ level: 1, class_taken: 'Sorcerer', hp_rolled: 4,
+                  feats_taken: [], skills_purchased: {},
+                  spells_learned: [], notes: '' }];
+  CH.loadData({ history: hist, history_reconstructed: false }, {
+    // Even with reconstruction opts available, explicit history
+    // should win and NOT trigger reconstruction.
+    classes: [{ className: 'Wizard', level: 5 }],
+    feats: ['Power Attack'],
+  });
+  assert(CH.get().length === 1, 'explicit history kept (not reconstructed)');
+  assert(CH.get()[0].class_taken === 'Sorcerer', 'explicit class preserved');
+  assert(!CH.isReconstructed(), 'reconstructed flag stays false');
+});
+
+// ---- tests: window.X guard pattern ---------------------------------------
+//
+// Top-level `const Foo = (function(){...})()` creates a script-scope
+// binding, NOT a property of `window`. Cross-module guards that use
+// `if (window.Foo)` silently early-return because Foo is undefined on
+// window — same bug fixed three separate times in feats.js,
+// feat-picker.js, and companion.js. The audit walks every JS file and
+// flags any `window.X` reference where X is a known top-level module
+// that doesn't explicitly assign to window.
+test('audit: no window.X guards on top-level const modules', () => {
+  // Modules confirmed to assign to window (these are safe to reference
+  // as window.X). Add any new explicit-window-assignment modules here.
+  const ON_WINDOW = new Set([
+    'DB', 'ClassPicker', 'ErrataBadge', 'Lookup', 'MetamagicCatalog',
+    // Built-in / non-module references that should never trigger:
+    'document', 'requestAnimationFrame', 'localStorage', 'location',
+  ]);
+  // Top-level `const` modules that are NOT on window — referencing
+  // these via window.X is the bug we're guarding against.
+  const TOP_LEVEL_CONSTS = [
+    'DND35', 'Skills', 'Character', 'Equipment', 'Spells', 'Feats',
+    'Companion', 'ClassFeatures', 'Conditions', 'Audit', 'FeatPrereqs',
+    'Shadowcaster',
+  ];
+  const rx = new RegExp(`\\bwindow\\.(${TOP_LEVEL_CONSTS.join('|')})\\b`, 'g');
+  const offenders = [];
+  for (const file of fs.readdirSync(ROOT)) {
+    if (!file.endsWith('.js')) continue;
+    if (file.startsWith('.')) continue;
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    let m;
+    while ((m = rx.exec(src)) !== null) {
+      // Skip explicit `window.X = ...` assignments (we already vetted
+      // the assignment list above).
+      const lineStart = src.lastIndexOf('\n', m.index) + 1;
+      const lineEnd = src.indexOf('\n', m.index);
+      const line = src.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
+      if (/window\.\w+\s*=\s*[^=]/.test(line)) continue;
+      offenders.push(`${file}: ${line.trim()}`);
+    }
+  }
+  assert(offenders.length === 0,
+    `${offenders.length} window.<topLevelConst> reference(s) found ` +
+    `(these always evaluate to undefined and silently fail):\n  ` +
+    offenders.join('\n  ') + '\n' +
+    `Replace with \`typeof X !== 'undefined'\` guard or move the ` +
+    `module to explicit window assignment (and add to ON_WINDOW set).`);
+});
+
+test('save: Feats.collectData scopes .feat-entry to its container', () => {
+  const src = readSource('feats.js');
+  const body = extractFunctionBody(src, 'collectData');
+  assert(body, "Couldn't extract Feats.collectData body");
+  // Disallow the unscoped global pattern.
+  assert(!/\$\$\(\s*['"]\.feat-entry['"]\s*\)/.test(body),
+    "Feats.collectData uses a global `$$('.feat-entry')` selector. " +
+    "That accidentally matches the companion tab's `.feat-entry` " +
+    "styling <div>s and pollutes the saved `feats` array with nulls. " +
+    "Scope to #feats-container instead.");
+  // Disallow the same for special abilities.
+  assert(!/\$\$\(\s*['"]\.special-ability-entry['"]\s*\)/.test(body),
+    "Feats.collectData uses a global `$$('.special-ability-entry')` " +
+    "selector. Scope to #special-abilities-container.");
+  // Require evidence of scoping — either a container query or the
+  // querySelector('#feats-container') pattern.
+  assert(
+    /#feats-container/.test(body) || /featsRoot/.test(body),
+    "Feats.collectData should reference #feats-container to scope its " +
+    "`.feat-entry` query."
+  );
+});
+
+test('save: companion.js still uses .feat-entry as a styling class', () => {
+  // Sanity check that this collision still exists — the companion
+  // module reuses the styling. If someone renames it the test above
+  // becomes less interesting (and we can simplify); flag the rename.
+  const src = readSource('companion.js');
+  assert(
+    /feat-entry/.test(src),
+    "companion.js no longer references `feat-entry` — the Feats " +
+    "collector scoping is no longer needed for the documented reason. " +
+    "Update the comment in feats.js#collectData."
+  );
+});
+
+test('save: every UI module exposes collectData + loadData', () => {
+  // Catch the case where a new module is added without persistence.
+  const modules = [
+    'character.js', 'equipment.js', 'spells.js', 'feats.js',
+    'companion.js', 'class-features.js', 'skills.js',
+  ];
+  const missing = [];
+  for (const m of modules) {
+    const src = readSource(m);
+    if (!/function collectData\s*\(/.test(src)) missing.push(`${m}: collectData`);
+    if (!/function loadData\s*\(/.test(src))     missing.push(`${m}: loadData`);
+  }
+  assert(missing.length === 0,
+    `Missing persistence functions:\n  ${missing.join('\n  ')}`);
+});
+
+test('save: app.js#collectData wires every UI module', () => {
+  // Catch the case where collectData/loadData is added to a module but
+  // not plumbed through app.js.
+  const src = readSource('app.js');
+  const body = extractFunctionBody(src, 'collectData');
+  assert(body, "Couldn't extract app.js#collectData body");
+  for (const mod of ['Character', 'Equipment', 'Spells', 'Feats',
+                     'Companion', 'ClassFeatures', 'Skills']) {
+    assert(
+      new RegExp(`${mod}\\.collect(Data|CustomSkills)?\\s*\\(`).test(body),
+      `app.js#collectData does not call ${mod}.collectData() — saves ` +
+      `will silently drop this module's state.`
+    );
+  }
+  const loadBody = extractFunctionBody(src, 'loadData');
+  assert(loadBody, "Couldn't extract app.js#loadData body");
+  for (const mod of ['Character', 'Equipment', 'Spells', 'Feats',
+                     'Companion', 'ClassFeatures', 'Skills']) {
+    assert(
+      new RegExp(`${mod}\\.load(Data|CustomSkills)?\\s*\\(`).test(loadBody),
+      `app.js#loadData does not call ${mod}.loadData() — imports ` +
+      `will silently drop this module's state.`
+    );
+  }
+});
+
 // ---- runner ---------------------------------------------------------------
 
 (async function main() {

@@ -200,6 +200,12 @@
         <button type="button" id="item-add-magic" class="btn-add"
                 title="Add to Magic Items list (items with body slot or persistent effect)"
                 style="height:2rem">+ Magic Item</button>
+        <button type="button" id="item-add-armor-affix" class="btn-add"
+                title="Append this affix to the Armor's Special Properties"
+                style="height:2rem; display:none">+ Armor Affix</button>
+        <button type="button" id="item-add-shield-affix" class="btn-add"
+                title="Append this affix to the Shield's Special Properties"
+                style="height:2rem; display:none">+ Shield Affix</button>
       </div>
       <div id="item-info"
            style="display:none;font-size:0.85em;color:#ccc;margin-top:0.4rem">
@@ -207,13 +213,15 @@
     `;
     addBtn.parentElement.insertBefore(wrap, addBtn);
 
-    const itemInput = document.getElementById('item-lookup');
-    const typeSel   = document.getElementById('item-lookup-type');
-    const tagSel    = document.getElementById('item-lookup-tag');
-    const addGear   = document.getElementById('item-add-gear');
-    const addMagic  = document.getElementById('item-add-magic');
-    const info      = document.getElementById('item-info');
-    const datalist  = document.getElementById('item-options');
+    const itemInput     = document.getElementById('item-lookup');
+    const typeSel       = document.getElementById('item-lookup-type');
+    const tagSel        = document.getElementById('item-lookup-tag');
+    const addGear       = document.getElementById('item-add-gear');
+    const addMagic      = document.getElementById('item-add-magic');
+    const addArmorAffix = document.getElementById('item-add-armor-affix');
+    const addShieldAffix= document.getElementById('item-add-shield-affix');
+    const info          = document.getElementById('item-info');
+    const datalist      = document.getElementById('item-options');
 
     function applyFilters() {
       const n = refreshDatalist(datalist, typeSel.value, tagSel.value);
@@ -228,11 +236,44 @@
     typeSel.addEventListener('change', applyFilters);
     tagSel.addEventListener('change', applyFilters);
 
+    // Detect whether `item_type` is an armor- or shield-affix. The DB
+    // uses several near-synonyms ("Armor Special Ability", "Magic
+    // Armor Property", "Armor Property" etc.) — match any of them.
+    // Returns 'armor' / 'shield' / null.
+    function affixCategory(itemType) {
+      if (!itemType) return null;
+      const t = String(itemType).toLowerCase();
+      if (/(^|\b)(magic\s+)?armor\s+(property|special ability)\b/.test(t)) return 'armor';
+      if (/(^|\b)(magic\s+)?shield\s+(property|special ability)\b/.test(t)) return 'shield';
+      return null;
+    }
+
+    // Show the relevant +Affix button and hide the irrelevant defaults
+    // when an affix item is selected; restore normal buttons otherwise.
+    function updateAffixButtons(itemType) {
+      const cat = affixCategory(itemType);
+      addArmorAffix.style.display  = cat === 'armor'  ? '' : 'none';
+      addShieldAffix.style.display = cat === 'shield' ? '' : 'none';
+      // Affixes aren't "gear" and aren't standalone "magic items" —
+      // hide those destinations to steer the user to the right slot.
+      const hideDefaults = cat !== null;
+      addGear.style.display  = hideDefaults ? 'none' : '';
+      addMagic.style.display = hideDefaults ? 'none' : '';
+    }
+
     function updateInfo() {
       const typed = itemInput.value.trim();
-      if (!typed) { info.style.display = 'none'; info.innerHTML = ''; return; }
+      if (!typed) {
+        info.style.display = 'none'; info.innerHTML = '';
+        updateAffixButtons(null);
+        return;
+      }
       const entry = itemIndex.get(typed.toLowerCase());
-      if (!entry) { info.style.display = 'none'; info.innerHTML = ''; return; }
+      if (!entry) {
+        info.style.display = 'none'; info.innerHTML = '';
+        updateAffixButtons(null);
+        return;
+      }
       const full = fullItemRow(entry.primaryRow.item_id);
       if (!full) return;
       const bits = [];
@@ -255,6 +296,7 @@
       info.innerHTML = bits.join('<br>');
       if (window.ErrataBadge) ErrataBadge.attach(info, entry.primaryRow.item_id);
       info.style.display = 'block';
+      updateAffixButtons(full.type);
     }
     itemInput.addEventListener('input', updateInfo);
     itemInput.addEventListener('change', updateInfo);
@@ -314,6 +356,31 @@
       });
       flash(`Added "${it.name}" to Magic Items.`, '#7a9');
     });
+
+    // Append affix name to the relevant Special Properties textarea
+    // (`#armor-special` / `#shield-special`). Duplicates are allowed
+    // — a +1 keen flaming holy weapon really does carry three lines.
+    function appendAffix(targetId, label) {
+      const it = resolveTyped();
+      if (!it) return;
+      const ta = document.getElementById(targetId);
+      if (!ta) {
+        flash(`No ${label} field on this sheet.`, '#a66');
+        return;
+      }
+      const cur = String(ta.value || '').replace(/\s+$/, '');
+      ta.value = cur ? `${cur}\n${it.name}` : it.name;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      // Equipment.recalc / Character.recalcAC pick up new special-
+      // property text through the existing input listener delegation;
+      // no explicit recalc call needed.
+      flash(`Added "${it.name}" to ${label} Special Properties.`, '#7a9');
+    }
+
+    addArmorAffix.addEventListener('click',
+      () => appendAffix('armor-special', 'Armor'));
+    addShieldAffix.addEventListener('click',
+      () => appendAffix('shield-special', 'Shield'));
   }
 
   function escapeHtml(s) {

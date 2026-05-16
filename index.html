@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <title>D&D 3.5 Character Sheet</title>
-  <link rel="stylesheet" href="styles.css?v=20260516a">
+  <link rel="stylesheet" href="styles.css?v=20260516n">
 </head>
 <body>
   <header>
@@ -41,9 +41,9 @@
     <section class="section">
       <h2>Character Information</h2>
       <div class="info-grid">
-        <div class="field"><label>Character Name</label><input type="text" id="char-name"></div>
+        <div class="field field-lg"><label>Character Name</label><input type="text" id="char-name"></div>
         <div class="field"><label>Player</label><input type="text" id="char-player"></div>
-        <div class="field"><label>Race</label><input type="text" id="char-race"></div>
+        <div class="field field-lg"><label>Race</label><input type="text" id="char-race"></div>
         <div class="field"><label>Type</label><input type="text" id="char-type" placeholder="e.g. Humanoid, Outsider"></div>
         <div class="field">
           <label>Alignment</label>
@@ -77,22 +77,44 @@
         <div class="field field-sm"><label>Eyes</label><input type="text" id="char-eyes"></div>
         <div class="field field-sm"><label>Hair</label><input type="text" id="char-hair"></div>
         <div class="field field-sm"><label>Skin</label><input type="text" id="char-skin"></div>
-        <div class="field"><label>Campaign</label><input type="text" id="char-campaign"></div>
-        <div class="field field-sm"><label>Experience Points</label><input type="text" id="char-xp" inputmode="numeric"></div>
+        <div class="field field-lg"><label>Campaign</label><input type="text" id="char-campaign"></div>
+        <div class="field field-sm"><label>Experience Points</label><input type="number" id="char-xp" min="0" step="1"></div>
+        <div class="field field-sm"><label>To Next Level</label><span id="xp-progress" class="calc-field">--</span></div>
       </div>
       <div class="field sql-picker-row" style="margin-top:0.5rem"><label>Class & Level</label><textarea id="char-class" rows="1" placeholder="e.g. Fighter 5 / Wizard 3"></textarea></div>
-      <div class="sql-picker-row class-lookup-row">
-        <div class="field" style="flex:1 1 14rem; min-width:10rem">
-          <label>Class Lookup</label>
-          <input type="text" id="class-lookup" placeholder="e.g. Wizard">
+      <details class="picker-section" open>
+        <summary>Class Lookup</summary>
+        <div class="sql-picker-row class-lookup-row">
+          <div class="field" style="flex:1 1 14rem; min-width:10rem">
+            <label>Class Lookup</label>
+            <input type="text" id="class-lookup" placeholder="e.g. Wizard">
+          </div>
+          <div class="field" style="flex:0 0 5.5rem">
+            <label>Level</label>
+            <input type="number" id="class-lookup-level" min="1" max="40" value="1">
+          </div>
+          <button type="button" id="class-lookup-apply" class="btn-add btn-add-inline">Apply to Sheet</button>
         </div>
-        <div class="field" style="flex:0 0 5.5rem">
-          <label>Level</label>
-          <input type="number" id="class-lookup-level" min="1" max="40" value="1">
+        <div id="class-info" class="race-info" style="display: none;"></div>
+      </details>
+      <!-- Build Timeline: per-level history of class/HP/feats/ability
+           boosts. Populated by character-history.js. Hidden when no
+           classes applied. See build-timeline.js. -->
+      <details class="picker-section" id="build-timeline-section" style="margin-top:0.5rem;display:none">
+        <summary>
+          Build Timeline
+          <span id="bt-reconstructed-badge" class="bt-reconstructed-badge" style="display:none"
+                title="Auto-reconstructed from current totals. Review each level and edit to clear this badge.">
+            ⚠ auto-reconstructed
+          </span>
+        </summary>
+        <div id="build-timeline-body">
+          <div id="bt-rows"></div>
+          <div style="margin-top:0.5rem">
+            <button type="button" id="bt-add-level" class="btn-add btn-add-inline">+ Add Level</button>
+          </div>
         </div>
-        <button type="button" id="class-lookup-apply" class="btn-add btn-add-inline">Apply to Sheet</button>
-      </div>
-      <div id="class-info" class="race-info" style="display: none;"></div>
+      </details>
     </section>
 
     <div class="two-column">
@@ -144,7 +166,9 @@
             <div class="field"><label>Damage Reduction</label><input type="text" id="damage-reduction" placeholder="e.g. 5/magic"></div>
           </div>
           <div class="hp-row">
-            <div class="field"><label>Speed</label><input type="text" id="char-speed" placeholder="e.g. 30 ft."></div>
+            <div class="field"><label>Speed (base)</label><input type="text" id="char-speed" placeholder="e.g. 30 ft."></div>
+            <div class="field"><label>Speed (current)</label><span id="speed-current" class="calc-field">--</span></div>
+            <div class="field"><label class="mi-toggle" title="Dwarves, certain class features (Mountain Movement), and other abilities ignore the speed reduction from medium/heavy load."><input type="checkbox" id="ignore-encumbrance"> Ignore encumbrance</label></div>
           </div>
         </section>
 
@@ -255,6 +279,12 @@
             </tbody>
           </table>
           <div class="field"><label>Conditional Save Modifiers</label><textarea id="save-conditional" rows="1" placeholder="e.g. +2 vs. enchantments"></textarea></div>
+        </section>
+
+        <!-- Conditions tracker -->
+        <section class="section">
+          <h2>Conditions</h2>
+          <div id="conditions-container"></div>
         </section>
       </div>
     </div>
@@ -404,7 +434,7 @@
       <div class="column">
         <!-- Magic Item Slots -->
         <section class="section">
-          <h2>Magic Items / Soulmelds Worn</h2>
+          <h2>Magic Items Worn / Soulmelds</h2>
           <div class="paper-doll-row">
             <svg id="paper-doll" viewBox="0 0 120 260" class="paper-doll">
               <!-- Head -->
@@ -563,35 +593,41 @@
     </section>
   </div>
 
-  <script src="data.js?v=20260516a"></script>
-  <script src="skills.js?v=20260516a"></script>
-  <script src="character.js?v=20260516a"></script>
-  <script src="equipment.js?v=20260516a"></script>
-  <script src="shadowcaster.js?v=20260516a"></script>
-  <script src="spells.js?v=20260516a"></script>
-  <script src="feats.js?v=20260516a"></script>
-  <script src="companion.js?v=20260516a"></script>
-  <script src="class-features.js?v=20260516a"></script>
-  <script src="app.js?v=20260516a"></script>
+  <script src="data.js?v=20260516n"></script>
+  <script src="skills.js?v=20260516n"></script>
+  <script src="character.js?v=20260516n"></script>
+  <script src="equipment.js?v=20260516n"></script>
+  <script src="shadowcaster.js?v=20260516n"></script>
+  <script src="spells.js?v=20260516n"></script>
+  <script src="feats.js?v=20260516n"></script>
+  <script src="companion.js?v=20260516n"></script>
+  <script src="class-features.js?v=20260516n"></script>
+  <script src="conditions.js?v=20260516n"></script>
+  <script src="feat-prereqs.js?v=20260516n"></script>
+  <script src="character-history.js?v=20260516n"></script>
+  <script src="build-timeline.js?v=20260516n"></script>
+  <script src="audit.js?v=20260516n"></script>
+  <script src="app.js?v=20260516n"></script>
 
   <!-- D&D 3.5 database (sql.js + dnd35.db). Purely additive: failing to
        load these leaves the sheet operating in manual-entry mode. -->
-  <script src="vendor/sql-wasm.js?v=20260516a"></script>
-  <script src="database.js?v=20260516a"></script>
-  <script src="race-picker.js?v=20260516a"></script>
-  <script src="template-picker.js?v=20260516a"></script>
-  <script src="class-picker.js?v=20260516a"></script>
-  <script src="spell-picker.js?v=20260516a"></script>
-  <script src="feat-picker.js?v=20260516a"></script>
-  <script src="item-picker.js?v=20260516a"></script>
-  <script src="domain-picker.js?v=20260516a"></script>
-  <script src="maneuver-picker.js?v=20260516a"></script>
-  <script src="power-picker.js?v=20260516a"></script>
-  <script src="mystery-picker.js?v=20260516a"></script>
-  <script src="soulmeld-picker.js?v=20260516a"></script>
-  <script src="vestige-picker.js?v=20260516a"></script>
-  <script src="invocation-picker.js?v=20260516a"></script>
-  <script src="errata-badge.js?v=20260516a"></script>
-  <script src="lookup.js?v=20260516a"></script>
+  <script src="vendor/sql-wasm.js?v=20260516n"></script>
+  <script src="database.js?v=20260516n"></script>
+  <script src="race-picker.js?v=20260516n"></script>
+  <script src="template-picker.js?v=20260516n"></script>
+  <script src="class-picker.js?v=20260516n"></script>
+  <script src="metamagic-catalog.js?v=20260516n"></script>
+  <script src="spell-picker.js?v=20260516n"></script>
+  <script src="feat-picker.js?v=20260516n"></script>
+  <script src="item-picker.js?v=20260516n"></script>
+  <script src="domain-picker.js?v=20260516n"></script>
+  <script src="maneuver-picker.js?v=20260516n"></script>
+  <script src="power-picker.js?v=20260516n"></script>
+  <script src="mystery-picker.js?v=20260516n"></script>
+  <script src="soulmeld-picker.js?v=20260516n"></script>
+  <script src="vestige-picker.js?v=20260516n"></script>
+  <script src="invocation-picker.js?v=20260516n"></script>
+  <script src="errata-badge.js?v=20260516n"></script>
+  <script src="lookup.js?v=20260516n"></script>
 </body>
 </html>

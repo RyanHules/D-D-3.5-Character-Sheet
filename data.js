@@ -85,6 +85,112 @@ const DND35 = {
     return "heavy";
   },
 
+  // ---- Companion progression tables --------------------------------
+  //
+  // Canonical level-based stat adjustments for the four companion
+  // types. Indexed by effective master level (1-20). Each entry is
+  // the cumulative bonus AT THAT LEVEL (so consult once with the
+  // effective level — no need to sum across rows).
+  //
+  // Used by companion.js's auto-computed "Progression" info panel
+  // and (Phase 2) by the auto-fill of stat fields.
+  //
+  // Sources: PHB Table 5-1 (p.36 Animal Companion), p.53 sidebar
+  // (Wizard/Sorcerer Familiar), Table 3-9 (p.45 Paladin Mount).
+
+  // Returns null when level is outside the valid range for that
+  // companion type (e.g. paladin mount before level 5).
+  companionProgressions: {
+    animal_companion: [
+      // level, bonusHD, naAdj, abilityAdj (Str AND Dex), bonusTricks, specials
+      { lvlMin: 1,  lvlMax: 2,  bonusHD:  0, naAdj:  0, abilityAdj: 0, bonusTricks: 1,
+        specials: ['Link', 'Share Spells'] },
+      { lvlMin: 3,  lvlMax: 5,  bonusHD:  2, naAdj:  2, abilityAdj: 1, bonusTricks: 2,
+        specials: ['Evasion'] },
+      { lvlMin: 6,  lvlMax: 8,  bonusHD:  4, naAdj:  4, abilityAdj: 2, bonusTricks: 3,
+        specials: ['Devotion'] },
+      { lvlMin: 9,  lvlMax: 11, bonusHD:  6, naAdj:  6, abilityAdj: 3, bonusTricks: 4,
+        specials: ['Multiattack'] },
+      { lvlMin: 12, lvlMax: 14, bonusHD:  8, naAdj:  8, abilityAdj: 4, bonusTricks: 5,
+        specials: [] },
+      { lvlMin: 15, lvlMax: 17, bonusHD: 10, naAdj: 10, abilityAdj: 5, bonusTricks: 6,
+        specials: ['Improved Evasion'] },
+      { lvlMin: 18, lvlMax: 20, bonusHD: 12, naAdj: 12, abilityAdj: 6, bonusTricks: 7,
+        specials: [] },
+    ],
+    familiar: [
+      // level, naAdj, intMin, specials (cumulative; abilities are gained
+      // at the listed level, persist thereafter)
+      { lvlMin: 1,  lvlMax: 2,  naAdj:  1, intMin: 6,
+        specials: ['Alertness', 'Improved Evasion', 'Share Spells', 'Empathic Link'] },
+      { lvlMin: 3,  lvlMax: 4,  naAdj:  2, intMin: 7,
+        specials: ['Deliver Touch Spells'] },
+      { lvlMin: 5,  lvlMax: 6,  naAdj:  3, intMin: 8,
+        specials: ['Speak with Master'] },
+      { lvlMin: 7,  lvlMax: 8,  naAdj:  4, intMin: 9,
+        specials: ['Speak with Animals of Its Kind'] },
+      { lvlMin: 9,  lvlMax: 10, naAdj:  5, intMin: 10, specials: [] },
+      { lvlMin: 11, lvlMax: 12, naAdj:  6, intMin: 11,
+        specials: ['Spell Resistance (5 + master level)'] },
+      { lvlMin: 13, lvlMax: 14, naAdj:  7, intMin: 12,
+        specials: ['Scry on Familiar'] },
+      { lvlMin: 15, lvlMax: 16, naAdj:  8, intMin: 13, specials: [] },
+      { lvlMin: 17, lvlMax: 18, naAdj:  9, intMin: 14, specials: [] },
+      { lvlMin: 19, lvlMax: 20, naAdj: 10, intMin: 15, specials: [] },
+    ],
+    special_mount: [
+      // Paladin mount only kicks in at L5+. Returns null below L5.
+      { lvlMin: 5,  lvlMax: 7,  bonusHD: 2, naAdj:  4, strAdj: 1, intMin: 6,
+        specials: ['Empathic Link', 'Improved Evasion', 'Share Spells',
+                   'Share Saving Throws'] },
+      { lvlMin: 8,  lvlMax: 10, bonusHD: 4, naAdj:  6, strAdj: 2, intMin: 7,
+        specials: ['Improved Speed'] },
+      { lvlMin: 11, lvlMax: 14, bonusHD: 6, naAdj:  8, strAdj: 3, intMin: 8,
+        specials: ['Command Creatures of Its Kind'] },
+      { lvlMin: 15, lvlMax: 20, bonusHD: 8, naAdj: 10, strAdj: 4, intMin: 9,
+        specials: ['Spell Resistance (5 + master level)'] },
+    ],
+    // Cohort progression isn't a stat block — Leadership (PHB p.97)
+    // grants a cohort whose max level is the leader's level - 2.
+    // We expose only the cap rule; the cohort is itself a character
+    // and its sheet is built separately.
+    cohort: null,
+  },
+
+  // Look up the progression row for a given type + effective level.
+  // Returns null when the level is below the type's threshold.
+  getCompanionProgression(type, effectiveLevel) {
+    const table = this.companionProgressions[type];
+    if (!Array.isArray(table)) return null;
+    for (const row of table) {
+      if (effectiveLevel >= row.lvlMin && effectiveLevel <= row.lvlMax) {
+        return row;
+      }
+    }
+    // Above L20: clamp to the last row (epic rules vary).
+    if (effectiveLevel > 20) return table[table.length - 1];
+    return null;
+  },
+
+  // Speed reduction table from PHB p.162 (also used for medium/heavy
+  // armor speed reductions, which follow the same numeric pattern):
+  // a 1/3 reduction rounded to the nearest 5 ft increment.
+  //   30 → 20, 20 → 15, 40 → 30, 15 → 10, etc.
+  // Heavy and medium loads apply the same reduction.
+  reducedSpeed(baseFt) {
+    if (!baseFt || baseFt <= 0) return baseFt || 0;
+    if (baseFt === 5)  return 5;
+    if (baseFt === 10) return 5;
+    if (baseFt === 15) return 10;
+    if (baseFt === 20) return 15;
+    if (baseFt === 30) return 20;
+    if (baseFt === 40) return 30;
+    if (baseFt === 50) return 35;
+    if (baseFt === 60) return 40;
+    // Fallback for unusual speeds: 2/3 rule, rounded down to 5 ft.
+    return Math.max(5, Math.floor((baseFt * 2 / 3) / 5) * 5);
+  },
+
   // Size categories and their modifiers
   sizes: {
     "Fine": { acMod: 8, grappleMod: -16, hideMod: 16, carryMult: 1/8 },

@@ -303,7 +303,16 @@ const Skills = (function () {
       const abilityModEl = row.querySelector(".skill-ability-mod");
       if (abilityModEl) abilityModEl.textContent = fmt(abilityMod);
       const totalEl = row.querySelector(".skill-total");
-      if (totalEl) totalEl.textContent = fmt(total);
+      if (totalEl) {
+        // Trained-only skills with 0 ranks: show "NR" (Not Ranked /
+        // cannot be used) instead of a numeric total. Look up the
+        // base skill's `untrained` flag from DND35.skills via the
+        // row's skill name (or subtype-base name for subtypes).
+        const baseSkillName = row.dataset.subtypeOf || skillName;
+        const baseSkill = DND35.skills.find(s => s.name === baseSkillName);
+        const trainedOnly = baseSkill && baseSkill.untrained === false;
+        totalEl.textContent = (trainedOnly && ranks === 0) ? "NR" : fmt(total);
+      }
 
       // Show synergy info badges (unconditional only)
       const synInfoEl = row.querySelector(".synergy-info");

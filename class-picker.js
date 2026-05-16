@@ -219,31 +219,124 @@
     ],
   };
 
-  // Spellcasting type per class — used to match "+1 level of existing
-  // arcane/divine/manifesting class" PrCs to a target.
-  const SPELLCASTING_TYPE = {
+  // Spellcasting type per class. Primary source is the DB
+  // (`entry.data.spellcasting.class_type`, populated by
+  // `_class_metadata.py` at build time). The `_FALLBACK_*` map below
+  // is a defensive backstop for legacy data — if a class entry was
+  // built before the metadata merge landed, we still want the picker
+  // to work. Access via `getClassType(name)` (defined below).
+  //
+  // Value shape: string `'arcane'` / `'divine'` / `'psionic'` OR an
+  // array `['arcane', 'divine']` for dual-list casters (Sha'ir's gen
+  // fetches from both arcane and divine lists).
+  const _FALLBACK_SPELLCASTING_TYPE = {
     'Wizard': 'arcane',  'Sorcerer': 'arcane',  'Bard': 'arcane',
     'Hexblade': 'arcane','Warmage': 'arcane',   'Beguiler': 'arcane',
     'Dread Necromancer': 'arcane', 'Wu Jen': 'arcane',
     'Duskblade': 'arcane', 'Assassin': 'arcane',
+    "Sha'ir": ['arcane', 'divine'],  // Dragon Compendium gen-fetched casting from both lists
+    'Spellthief': 'arcane',     // Complete Adventurer
+    'Jester': 'arcane',         // Dragon Compendium
+    'Death Master': 'arcane',   // Dragon Compendium
     'Cleric': 'divine',  'Druid': 'divine',
     'Paladin': 'divine', 'Ranger': 'divine',
     'Healer': 'divine',  'Shugenja': 'divine',
     'Spirit Shaman': 'divine', 'Sohei': 'divine',
     'Apostle of Peace': 'divine', 'Blackguard': 'divine',
+    'Archivist': 'divine',      // Heroes of Horror
+    'Favored Soul': 'divine',   // Complete Divine
+    'Urban Druid': 'divine',    // Dragon Compendium
     'Psion': 'psionic', 'Wilder': 'psionic',
     'Psychic Warrior': 'psionic', 'Ardent': 'psionic',
     'Erudite': 'psionic',
   };
 
+  // Casting style per class. Primary source is the DB
+  // (`entry.data.spellcasting.style`, populated by `_class_metadata.py`
+  // at build time). Fallback map below for legacy data. Access via
+  // `getCasterStyle(name)`.
+  //
+  // Used by PrCs that require specific styles (e.g. Ultimate Magus
+  // requires one prepared + one spontaneous arcane caster). Values:
+  // 'prepared' (spellbook/list, daily preparation), 'spontaneous'
+  // (fixed known list, cast freely), 'manifesting' (psionic).
+  //
+  // Sha'ir is classified 'prepared' because its gens fetch specific
+  // spells per day and "remain memorized until cast" — mechanically the
+  // closest analogue to preparation, even though the source list is
+  // open. (If the player wants to treat Sha'ir as the spontaneous
+  // partner in an Ultimate Magus build, the per-level UI still lets
+  // them advance Sha'ir; this flag only gates which eligible classes
+  // are shown in each "prepared" / "spontaneous" slot.)
+  const _FALLBACK_CASTER_STYLE = {
+    // Arcane prepared
+    'Wizard': 'prepared',
+    'Wu Jen': 'prepared',
+    'Death Master': 'prepared',
+    'Assassin': 'prepared',
+    // Arcane spontaneous (incl. "fixed list" spontaneous casters)
+    'Sorcerer': 'spontaneous',
+    'Bard': 'spontaneous',
+    'Hexblade': 'spontaneous',
+    'Warmage': 'spontaneous',
+    'Beguiler': 'spontaneous',
+    'Dread Necromancer': 'spontaneous',
+    'Duskblade': 'spontaneous',
+    'Spellthief': 'spontaneous',
+    'Jester': 'spontaneous',
+    // Divine prepared
+    'Cleric': 'prepared',
+    'Druid': 'prepared',
+    'Paladin': 'prepared',
+    'Ranger': 'prepared',
+    'Archivist': 'prepared',
+    // (Shugenja moved to spontaneous below — DB description confirms
+    // "spontaneously without preparation".)
+    'Sohei': 'prepared',
+    'Urban Druid': 'prepared',
+    'Apostle of Peace': 'prepared',
+    'Blackguard': 'prepared',
+    // Divine spontaneous
+    'Favored Soul': 'spontaneous',
+    'Spirit Shaman': 'spontaneous',
+    'Healer': 'spontaneous',
+    'Shugenja': 'spontaneous',
+    // Dual arcane/divine
+    "Sha'ir": 'prepared',
+  };
+
+  // Primary source is the DB (`entry.data.advancement`, populated by
+  // `_class_metadata.py` at build time). The `_FALLBACK_*` map is a
+  // defensive backstop for legacy data; access via
+  // `getAdvancementSpec(name)`.
+  //
   // PrCs whose `class_level.special` text doesn't include the
   // "+1 level of existing X spellcasting class" marker (parser missed
   // it, or the rules text only appears in the class description).
-  // Each entry: { types: ['arcane'|'divine'|'psionic'|'any', …],
-  //               advancesAllLevels: bool }. advancesAllLevels=true
-  // means the PrC's full level count is the advancement count
-  // (Mystic Theurge, Archmage, Loremaster, Arcane Trickster, etc.).
-  const HARDCODED_ADVANCERS = {
+  // Each entry:
+  //   { types: ['arcane'|'divine'|'psionic'|'any', …],
+  //     advancesAllLevels: bool,
+  //     nonAdvancingLevels: [int, …]    // optional
+  //     perLevelChoice: bool,            // optional — Ultimate Magus
+  //     requiresStyles: ['prepared'|'spontaneous', …]  // optional
+  //     allowsMultiAdvance: bool         // optional — multi-target/level
+  //   }
+  // - advancesAllLevels=true means the PrC's full level count is the
+  //   advancement count (Mystic Theurge, Archmage, Loremaster, …).
+  // - nonAdvancingLevels lists PrC levels that DON'T grant caster
+  //   advancement (e.g. Sand Shaper: levels 1 and 9). Effective
+  //   advancement = picked_level - count(nonAdvancingLevels ≤ picked_level).
+  // - perLevelChoice=true means each non-skip PrC level is allocated
+  //   independently by the player. UI builds one row of target pickers
+  //   per non-skip level; advancement is stored on the entry as
+  //   `advancementSlots: [{prcLevel, targets:[…]}, …]`.
+  // - requiresStyles names the CASTER_STYLE values that must each have
+  //   at least one matching class in pickedClasses (Ultimate Magus
+  //   needs one 'prepared' and one 'spontaneous' arcane caster).
+  // - allowsMultiAdvance=true means the player can pick MORE THAN ONE
+  //   target per slot (UM: both prepared + spontaneous at the same
+  //   level). Without this flag, each slot accepts exactly one target.
+  const _FALLBACK_HARDCODED_ADVANCERS = {
     'Mystic Theurge':   { types: ['arcane', 'divine'], advancesAllLevels: true },
     'Archmage':         { types: ['arcane'],           advancesAllLevels: true },
     'Loremaster':       { types: ['any'],              advancesAllLevels: true },
@@ -265,7 +358,195 @@
     'Thaumaturgist':    { types: ['divine'],           advancesAllLevels: true },
     'True Necromancer': { types: ['arcane', 'divine'], advancesAllLevels: true },
     'Ur-Priest':        { types: ['divine'],           advancesAllLevels: true },
+    // Unapproachable East: durthan advances arcane casting at every
+    // level via "Spells per Day/Spells Known" feature (no canonical
+    // marker in the parsed class_table).
+    'Durthan':          { types: ['arcane'],           advancesAllLevels: true },
+    // Sandstorm: sand shaper advances arcane casting at every level
+    // EXCEPT 1st and 9th — those are the "PrC entry" and "capstone"
+    // levels respectively.
+    'Sand Shaper':      { types: ['arcane'],           advancesAllLevels: true,
+                          nonAdvancingLevels: [1, 9] },
+    // Additional PrCs whose class_table.special doesn't carry the
+    // canonical "+1 level of existing X spellcasting class" marker
+    // (the parser missed it; the advancement language only appears in
+    // the class_features prose). Audited 2026-05-15 via
+    // `tests/test_pickers.js` and added below to keep that audit
+    // green going forward.
+    'Arachnomancer':         { types: ['any'],     advancesAllLevels: true,
+                               nonAdvancingLevels: [2, 5, 8, 9, 10] },
+    'Black Flame Zealot':    { types: ['divine'],  advancesAllLevels: true },
+    'Church Inquisitor':     { types: ['divine'],  advancesAllLevels: true },
+    'Daggerspell Mage':      { types: ['arcane'],  advancesAllLevels: true },
+    'Daggerspell Shaper':    { types: ['divine'],  advancesAllLevels: true },
+    'Entropomancer':         { types: ['divine'],  advancesAllLevels: true },
+    'Exalted Arcanist':      { types: ['arcane'],  advancesAllLevels: true },
+    'Eye of Lolth':          { types: ['divine'],  advancesAllLevels: true },
+    'Fist of Raziel':        { types: ['divine'],  advancesAllLevels: true },
+    'Fochlucan Lyrist':      { types: ['arcane', 'divine'], advancesAllLevels: true },
+    'Insidious Corruptor':   { types: ['any'],     advancesAllLevels: true },
+    'Lion of Talisid':       { types: ['divine'],  advancesAllLevels: true },
+    'Lord of Tides':         { types: ['divine'],  advancesAllLevels: true },
+    'Maester':               { types: ['any'],     advancesAllLevels: true },
+    'Master of the Yuirwood': { types: ['arcane'], advancesAllLevels: true },
+    'Mythic Exemplar':       { types: ['any'],     advancesAllLevels: true },
+    'Ollam':                 { types: ['arcane'],  advancesAllLevels: true },
+    'Prophet of Erathaol':   { types: ['divine'],  advancesAllLevels: true },
+    'Raumathari Battlemage': { types: ['arcane'],  advancesAllLevels: true,
+                               nonAdvancingLevels: [5] },
+    'Scion of Tem-Et-Nu':    { types: ['divine'],  advancesAllLevels: true },
+    'Sentinel of Bharrai':   { types: ['divine'],  advancesAllLevels: true },
+    'Shadowbane Stalker':    { types: ['divine'],  advancesAllLevels: true,
+                               nonAdvancingLevels: [4, 9] },
+    'Shadowmind':            { types: ['psionic'], advancesAllLevels: true },
+    'Skylord':               { types: ['divine'],  advancesAllLevels: true },
+    'Swanmay':               { types: ['divine'],  advancesAllLevels: true },
+    'Talontar Blightlord':   { types: ['divine'],  advancesAllLevels: true,
+                               nonAdvancingLevels: [6, 10] },
+    'Troubadour of Stars':   { types: ['arcane'],  advancesAllLevels: true },
+    'Ultimate Magus':        { types: ['arcane'],  advancesAllLevels: true,
+                               // UM advances at EVERY level, but:
+                               //   - L1, 4, 7: auto-advance the LOWER
+                               //     of the two arcane classes
+                               //     (tie-break = player choice).
+                               //   - All other levels: player picks
+                               //     +1 prepared, +1 spontaneous, or
+                               //     both.
+                               // Requires one prepared and one
+                               // spontaneous arcane caster.
+                               perLevelChoice: true,
+                               requiresStyles: ['prepared', 'spontaneous'],
+                               allowsMultiAdvance: true,
+                               autoAdvanceLowerLevels: [1, 4, 7] },
+    'Virtuoso':              { types: ['arcane'],  advancesAllLevels: true },
+    'Walker in the Waste':   { types: ['divine'],  advancesAllLevels: true,
+                               nonAdvancingLevels: [1, 10] },
+    // Epic Level Handbook epic PrCs that advance spellcasting via the
+    // standard Spells per Day class feature (their class_table.special
+    // entries don't carry the canonical "+1 level of existing X
+    // spellcasting class" marker because each level's special column is
+    // dedicated to class-feature names like "Uncanny location" or
+    // "Granted domain"). The advancement is described only in prose.
+    'Agent Retriever':       { types: ['any'],     advancesAllLevels: true },
+    'Cosmic Descryer':       { types: ['any'],     advancesAllLevels: true,
+                               nonAdvancingLevels: [1, 3, 5, 7, 9] },
+    'Divine Emissary':       { types: ['divine'],  advancesAllLevels: true },
+    'High Proselytizer':     { types: ['divine'],  advancesAllLevels: true,
+                               nonAdvancingLevels: [1, 3, 5, 7, 9] },
   };
+
+  // ----------------------------------------------------------------------
+  // DB-backed metadata accessors
+  //
+  // Spellcasting type, caster style, and advancement spec all live on
+  // the class/prc entry's `data` blob in the DB (merged at build time
+  // by `_class_metadata.py`). These accessors prefer DB data and fall
+  // back to the hand-coded maps above for classes that don't have the
+  // merged fields yet (defensive — supports loading older DB blobs).
+  // ----------------------------------------------------------------------
+  const _dbMetaCache = new Map();  // className → { classType, style, advancement }
+  let _dbMetaLoaded = false;
+
+  // Normalize a free-form ability name from the DB ("Charisma", "Cha",
+  // "CHA") into the 3-letter code consumed by SPELLCASTING_ABILITY users.
+  const _ABILITY_TO_CODE = {
+    'strength': 'STR', 'str': 'STR',
+    'dexterity': 'DEX', 'dex': 'DEX',
+    'constitution': 'CON', 'con': 'CON',
+    'intelligence': 'INT', 'int': 'INT',
+    'wisdom': 'WIS', 'wis': 'WIS',
+    'charisma': 'CHA', 'cha': 'CHA',
+  };
+  function _normalizeAbility(v) {
+    if (!v) return '';
+    const k = String(v).trim().toLowerCase();
+    return _ABILITY_TO_CODE[k] || '';
+  }
+
+  function loadDbMetadata() {
+    if (_dbMetaLoaded) return;
+    if (!window.DB || !DB.isLoaded()) return; // try again later
+    _dbMetaLoaded = true;
+    // Pull EVERY class/prc row so we get key_ability / class_skills
+    // even for non-casters (Fighter has class_skills too). Filtering
+    // is per-field below.
+    const rows = DB.query(
+      "SELECT name, " +
+      "json_extract(data, '$.spellcasting.class_type')   AS class_type, " +
+      "json_extract(data, '$.spellcasting.style')         AS style, " +
+      "json_extract(data, '$.spellcasting.key_ability')   AS key_ability, " +
+      "json_extract(data, '$.class_skills')               AS class_skills, " +
+      "json_extract(data, '$.advancement')                AS advancement " +
+      "FROM entry WHERE type IN ('class','prc')"
+    );
+    for (const r of rows) {
+      let ct = r.class_type;
+      // class_type may be JSON-encoded (array shape: '["arcane","divine"]')
+      if (typeof ct === 'string' && ct[0] === '[') {
+        try { ct = JSON.parse(ct); } catch (e) { /* keep string */ }
+      }
+      let adv = null;
+      if (r.advancement) {
+        try { adv = JSON.parse(r.advancement); } catch (e) { adv = null; }
+        if (adv) {
+          // Normalize Python snake_case → JS camelCase for picker
+          // consumers that already use camelCase.
+          adv = {
+            types: adv.types,
+            advancesAllLevels: !!adv.advances_all_levels,
+            nonAdvancingLevels: adv.non_advancing_levels,
+            autoAdvanceLowerLevels: adv.auto_advance_lower_levels,
+            perLevelChoice: !!adv.per_level_choice,
+            requiresStyles: adv.requires_styles,
+            allowsMultiAdvance: !!adv.allows_multi_advance,
+          };
+        }
+      }
+      let skills = null;
+      if (r.class_skills) {
+        try { skills = JSON.parse(r.class_skills); } catch (e) { skills = null; }
+      }
+      _dbMetaCache.set(r.name, {
+        classType: ct,
+        style: r.style,
+        advancement: adv,
+        keyAbility: _normalizeAbility(r.key_ability),
+        classSkills: Array.isArray(skills) ? skills : null,
+      });
+    }
+  }
+
+  // Public accessors: prefer DB metadata, fall back to hand-coded maps.
+  function getClassType(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.classType != null) return m.classType;
+    return _FALLBACK_SPELLCASTING_TYPE[className] ?? null;
+  }
+  function getCasterStyle(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.style != null) return m.style;
+    return _FALLBACK_CASTER_STYLE[className] ?? null;
+  }
+  function getAdvancementSpec(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.advancement) return m.advancement;
+    return _FALLBACK_HARDCODED_ADVANCERS[className] ?? null;
+  }
+  function getKeyAbility(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.keyAbility) return m.keyAbility;
+    return SPELLCASTING_ABILITY[className] ?? '';
+  }
+  function getClassSkills(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.classSkills) return m.classSkills;
+    return CLASS_SKILLS[className] ?? null;
+  }
 
   function babAt(prog, lvl) {
     if (lvl <= 0) return 0;
@@ -418,11 +699,10 @@
     let lvl = 0;
     for (const e of entries) lvl += e.level;
     const g = levelGroups(entries);
-    let bab, fort, ref, will;
+    let bab = 0, fort = 0, ref = 0, will = 0;
     if (useFractional) {
-      // UA p.73: BAB +1/lvl good, +3/4/lvl avg, +1/2/lvl poor; floor at end.
-      // Save +2 (once per save) if any good levels, +1/2/lvl good, +1/3/lvl
-      // poor; floor at end.
+      // UA p.73 fractional: sum fractions per type across all classes,
+      // then floor once. This is the "smooth" multiclass model.
       bab = Math.floor(g.bab.good + g.bab.avg * 0.75 + g.bab.poor * 0.5);
       const frac = (gg, pp) =>
         Math.floor((gg > 0 ? 2 : 0) + gg * 0.5 + pp / 3);
@@ -430,9 +710,20 @@
       ref  = frac(g.ref.good,  g.ref.poor);
       will = frac(g.will.good, g.will.poor);
     } else {
-      // Consolidated PHB: apply each formula ONCE per progression group.
-      // Good BAB = level; avg = floor(level*3/4); poor = floor(level/2).
-      // Good save = 2 + floor(level/2); poor save = floor(level/3).
+      // Pooled-levels model (the common house rule for multiclass
+      // saves): sum total levels by progression type, then apply each
+      // formula ONCE. Critically, the "+2" flat base bonus on a good
+      // save is granted ONCE per save type, not once per class —
+      // 7 levels across multiple good-save classes still yields
+      // 2 + floor(7/2) = 5, not 14.
+      //
+      // Strict RAW per-class summation (DMG p.30) would give the +2
+      // flat bonus per class with a good save in that type, but in
+      // practice that produces save totals that climb unreasonably
+      // fast for builds with many same-save classes — so the pooled
+      // model is what most tables actually use, and what we render
+      // by default. (Use the UA fractional toggle for the
+      // smoother-but-strictly-RAW alternative.)
       const babSeg = (n, t) =>
         n <= 0 ? 0 :
         t === 'good' ? n :
@@ -559,6 +850,12 @@
       list.appendChild(chip);
     }
 
+    // Below the chip row, render advance-target choosers for any
+    // advancer entries that have ≥2 eligible targets (simple case)
+    // or perLevelChoice flag (Ultimate Magus). Single-eligible
+    // advancers don't need UI — the auto-pick is the only choice.
+    renderAdvancerChoosers(list);
+
     if (pickedClasses.length >= 2) {
       const clear = document.createElement('button');
       clear.type = 'button';
@@ -572,6 +869,256 @@
       list.appendChild(clear);
     }
     list.appendChild(toggleWrap);
+  }
+
+  // Render per-advancer target choosers. Inserts a row below the chip
+  // list for each advancer that needs UI:
+  //   - Simple advancer with ≥2 eligible targets: a <select> per type.
+  //   - perLevelChoice advancer (Ultimate Magus): one row per advancing
+  //     PrC level, with checkboxes for prepared and spontaneous slots.
+  function renderAdvancerChoosers(listEl) {
+    const advancers = pickedClasses.filter(e =>
+      e.advancesTypes && e.advancesTypes.length);
+    if (!advancers.length) return;
+
+    for (const adv of advancers) {
+      if (adv.perLevelChoice) {
+        renderPerLevelChooser(listEl, adv);
+      } else {
+        renderSimpleChooser(listEl, adv);
+        renderSimpleWarnings(listEl, adv);
+      }
+    }
+  }
+
+  // For classic (non-perLevel) advancers, render a ⚠ warning row whenever
+  // ANY of the entry's advancesTypes has no eligible target in
+  // pickedClasses. Catches the case of e.g. Mystic Theurge applied
+  // without a divine caster — the picker silently dropped that
+  // advancement before, with no UI feedback.
+  function renderSimpleWarnings(listEl, adv) {
+    const issues = [];
+    for (let i = 0; i < (adv.advancesTypes || []).length; i++) {
+      const t = adv.advancesTypes[i];
+      const tgt = (adv.advancesTargets || [])[i];
+      const eligible = eligibleTargetsForType(adv, t);
+      if (!tgt && !eligible.length) {
+        const typeLabel = t === 'any' ? 'spellcasting' : t;
+        issues.push(
+          `no ${typeLabel} class to advance — add one to enable this`
+        );
+      }
+    }
+    if (!issues.length) return;
+    const row = document.createElement('div');
+    row.className = 'mc-advance-warning';
+    row.style.cssText =
+      'flex:1 1 100%; font-size:0.82em; color:#c88; ' +
+      'padding:0.2rem 0.4rem; background:rgba(170, 80, 80, 0.08); ' +
+      'border-left:2px solid #844; border-radius:0 3px 3px 0;';
+    row.textContent =
+      `⚠ ${adv.className} ${adv.level}: ${issues.join('; ')}.`;
+    listEl.appendChild(row);
+  }
+
+  function eligibleTargetsForType(advancerEntry, typeStr) {
+    return pickedClasses.filter(e => {
+      if (e === advancerEntry) return false;
+      if (!e.classId) return false;
+      const t = getClassType(e.className);
+      if (t == null) return false;
+      const ts = Array.isArray(t) ? t : [t];
+      return typeStr === 'any' || ts.includes(typeStr);
+    });
+  }
+
+  function renderSimpleChooser(listEl, adv) {
+    // Only render if at least one type has ≥2 eligible targets.
+    const ambiguous = adv.advancesTypes.some(t =>
+      eligibleTargetsForType(adv, t).length >= 2);
+    if (!ambiguous) return;
+    const row = document.createElement('div');
+    row.className = 'mc-advance-row';
+    row.style.cssText =
+      'flex:1 1 100%; font-size:0.82em; opacity:0.9; ' +
+      'display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; ' +
+      'padding:0.15rem 0.4rem; background:rgba(255,255,255,0.03); ' +
+      'border-left:2px solid #6a8aaa; border-radius:0 3px 3px 0;';
+    const label = document.createElement('span');
+    label.textContent = `${adv.className} ${adv.level} advances:`;
+    label.style.cssText = 'opacity:0.7;';
+    row.appendChild(label);
+    for (let i = 0; i < adv.advancesTypes.length; i++) {
+      const t = adv.advancesTypes[i];
+      const opts = eligibleTargetsForType(adv, t);
+      if (opts.length < 2) continue;
+      const sel = document.createElement('select');
+      sel.style.cssText =
+        'background:#1a1f29; color:#eef; border:1px solid #44516a; ' +
+        'border-radius:3px; padding:0.05rem 0.3rem; font:inherit; font-size:1em;';
+      sel.title = `Which ${t} class should ${adv.className} advance?`;
+      for (const o of opts) {
+        const opt = document.createElement('option');
+        opt.value = o.className;
+        opt.textContent = `${o.className} (${t})`;
+        if (adv.advancesTargets && adv.advancesTargets[i] === o.className) {
+          opt.selected = true;
+        }
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => {
+        const next = (adv.advancesTargets || []).slice();
+        while (next.length <= i) next.push(null);
+        next[i] = sel.value;
+        adv.advancesTargets = next;
+        refreshAllSpellTabs();
+        renderClassList();
+      });
+      row.appendChild(sel);
+    }
+    listEl.appendChild(row);
+  }
+
+  function renderPerLevelChooser(listEl, adv) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mc-advance-perlevel';
+    wrap.style.cssText =
+      'flex:1 1 100%; font-size:0.82em; ' +
+      'padding:0.4rem 0.6rem; background:rgba(255,255,255,0.03); ' +
+      'border-left:2px solid #6a8aaa; border-radius:0 3px 3px 0; ' +
+      'display:grid; grid-template-columns:auto 1fr; gap:0.2rem 0.6rem; ' +
+      'align-items:center;';
+    const header = document.createElement('div');
+    header.style.cssText = 'grid-column:1 / -1; opacity:0.7;';
+    header.textContent =
+      `${adv.className} ${adv.level} — per-level advancement` +
+      (adv.requiresStyles
+        ? ` (requires ${adv.requiresStyles.join(' + ')} arcane casters)`
+        : '');
+    wrap.appendChild(header);
+
+    // Gather candidate targets per slot. UM: prepared and spontaneous
+    // arcane casters. Generic: any class matching adv.advancesTypes.
+    const primaryType = adv.advancesTypes[0];
+    const candidates = eligibleTargetsForType(adv, primaryType);
+    // Warn if requiresStyles isn't met.
+    if (adv.requiresStyles) {
+      const have = new Set(candidates
+        .map(c => getCasterStyle(c.className))
+        .filter(Boolean));
+      const missing = adv.requiresStyles.filter(s => !have.has(s));
+      if (missing.length) {
+        const warn = document.createElement('div');
+        warn.style.cssText =
+          'grid-column:1 / -1; color:#c88; font-size:0.92em; ' +
+          'padding:0.2rem 0; border-bottom:1px dashed #844;';
+        warn.textContent =
+          `⚠ Missing ${missing.join(' + ')} arcane class — ` +
+          `${adv.className}'s advancement is incomplete until you add one.`;
+        wrap.appendChild(warn);
+      }
+    }
+
+    for (const slot of (adv.advancementSlots || [])) {
+      const lvLbl = document.createElement('span');
+      lvLbl.textContent = `L${slot.prcLevel}:`;
+      lvLbl.style.cssText = 'text-align:right; opacity:0.7;';
+      wrap.appendChild(lvLbl);
+      const slotRow = document.createElement('span');
+      slotRow.style.cssText = 'display:inline-flex; flex-wrap:wrap; gap:0.5rem; align-items:center;';
+      if (slot.kind === 'auto-lower') {
+        renderAutoLowerSlot(slotRow, adv, slot, candidates);
+      } else {
+        renderChoiceSlot(slotRow, adv, slot, candidates);
+      }
+      wrap.appendChild(slotRow);
+    }
+    listEl.appendChild(wrap);
+  }
+
+  // Render a choice slot: checkboxes (or radios) for each eligible
+  // target, filtered by requiresStyles.
+  function renderChoiceSlot(rowEl, adv, slot, candidates) {
+    for (const cand of candidates) {
+      const style = getCasterStyle(cand.className);
+      // Skip candidates that don't satisfy requiresStyles, IF set.
+      if (adv.requiresStyles && style &&
+          !adv.requiresStyles.includes(style)) continue;
+      const label = document.createElement('label');
+      label.style.cssText =
+        'display:inline-flex; align-items:center; gap:0.2rem; cursor:pointer;';
+      const cb = document.createElement('input');
+      cb.type = adv.allowsMultiAdvance ? 'checkbox' : 'radio';
+      cb.name = `mc-slot-${adv.className}-${slot.prcLevel}`;
+      cb.value = cand.className;
+      cb.checked = (slot.targets || []).includes(cand.className);
+      cb.addEventListener('change', () => {
+        let next = (slot.targets || []).slice();
+        if (adv.allowsMultiAdvance) {
+          if (cb.checked) {
+            if (!next.includes(cand.className)) next.push(cand.className);
+          } else {
+            next = next.filter(t => t !== cand.className);
+          }
+        } else {
+          next = cb.checked ? [cand.className] : [];
+        }
+        slot.targets = next;
+        refreshAllSpellTabs();
+        renderClassList();  // re-render to refresh auto-lower resolution
+      });
+      label.appendChild(cb);
+      const txt = document.createTextNode(
+        ` ${cand.className}${style ? ` (${style[0]})` : ''}`
+      );
+      label.appendChild(txt);
+      rowEl.appendChild(label);
+    }
+  }
+
+  // Render an auto-lower slot: shows the auto-picked target (read-only),
+  // plus a tiebreaker dropdown if there's a tie.
+  function renderAutoLowerSlot(rowEl, adv, slot, candidates) {
+    const auto = (slot.targets || [])[0];
+    const tag = document.createElement('span');
+    tag.style.cssText =
+      'display:inline-flex; align-items:center; gap:0.3rem; ' +
+      'padding:0.05rem 0.4rem; background:rgba(106,138,170,0.15); ' +
+      'border:1px dashed #44516a; border-radius:3px;';
+    const autoLabel = document.createElement('span');
+    autoLabel.style.cssText = 'opacity:0.7; font-size:0.92em;';
+    autoLabel.textContent = 'auto (lower):';
+    tag.appendChild(autoLabel);
+    if (slot.tiedOptions && slot.tiedOptions.length > 1) {
+      // Tie — render a small selector for the user's preference.
+      const sel = document.createElement('select');
+      sel.style.cssText =
+        'background:#1a1f29; color:#eef; border:1px solid #44516a; ' +
+        'border-radius:3px; padding:0 0.3rem; font:inherit; font-size:1em;';
+      sel.title = 'Tiebreak: which class to advance when both are equal';
+      for (const opt of slot.tiedOptions) {
+        const o = document.createElement('option');
+        o.value = opt;
+        o.textContent = opt;
+        if (opt === auto) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.addEventListener('change', () => {
+        slot.tieBreaker = sel.value;
+        refreshAllSpellTabs();
+        renderClassList();
+      });
+      tag.appendChild(sel);
+      const note = document.createElement('span');
+      note.style.cssText = 'opacity:0.6; font-size:0.85em;';
+      note.textContent = '(tied)';
+      tag.appendChild(note);
+    } else {
+      const tgt = document.createElement('b');
+      tgt.textContent = auto || '—';
+      tag.appendChild(tgt);
+    }
+    rowEl.appendChild(tag);
   }
 
   function removeClass(className) {
@@ -622,9 +1169,20 @@
     if (!pickedClasses.length) return;
     if (!confirm(`Remove all ${pickedClasses.length} applied classes?`)) return;
     // Remove each class via the normal path so spells tabs + special
-    // abilities get cleaned up consistently.
+    // abilities get cleaned up consistently. We snapshot the name list
+    // BEFORE the loop because each removeClass() mutates pickedClasses
+    // (and re-renders the chip list, which would otherwise re-bind the
+    // Clear All button to fresh state mid-iteration). The defensive
+    // try/catch ensures a single failed removal doesn't strand the
+    // remaining classes — previously, an exception in any class's
+    // removal path would short-circuit the loop, leaving the rest
+    // applied (reported 2026-05-16 as "Clear All removes one at a
+    // time").
     const names = pickedClasses.map(e => e.className);
-    for (const n of names) removeClass(n);
+    for (const n of names) {
+      try { removeClass(n); }
+      catch (err) { console.warn('[class-picker] removeClass failed for', n, err); }
+    }
   }
 
   // ============================================================
@@ -655,6 +1213,14 @@
           advancesTypes:   e.advancesTypes,
           advancesLevels:  e.advancesLevels,
           advancesTargets: e.advancesTargets,
+          // Per-level allocation (Ultimate Magus style). Stored when
+          // present; nothing else cares about these fields.
+          perLevelChoice:         e.perLevelChoice,
+          advancingLevels:        e.advancingLevels,
+          autoAdvanceLowerLevels: e.autoAdvanceLowerLevels,
+          requiresStyles:         e.requiresStyles,
+          allowsMultiAdvance:     e.allowsMultiAdvance,
+          advancementSlots:       e.advancementSlots,
         }));
       }
       if (useFractional) out._fractionalBaseBonus = true;
@@ -692,6 +1258,12 @@
             advancesTypes:   stub.advancesTypes   || undefined,
             advancesLevels:  stub.advancesLevels  || undefined,
             advancesTargets: stub.advancesTargets || undefined,
+            perLevelChoice:         stub.perLevelChoice         || undefined,
+            advancingLevels:        stub.advancingLevels        || undefined,
+            autoAdvanceLowerLevels: stub.autoAdvanceLowerLevels || undefined,
+            requiresStyles:         stub.requiresStyles         || undefined,
+            allowsMultiAdvance:     stub.allowsMultiAdvance     || undefined,
+            advancementSlots:       stub.advancementSlots       || undefined,
           });
         }
       }
@@ -809,9 +1381,39 @@
     if (hits > 0) {
       return { types: [...types], levels: hits };
     }
-    const hard = HARDCODED_ADVANCERS[className];
+    const hard = getAdvancementSpec(className);
     if (hard && hard.advancesAllLevels) {
-      return { types: hard.types.slice(), levels: level };
+      // Subtract any "non-advancing levels" that fall at or below the
+      // picked level. For Sand Shaper (nonAdvancingLevels: [1, 9]) at
+      // level 5, effective advancement is 5 - 1 = 4 (only L1 has been
+      // passed). At level 9, it's 9 - 2 = 7 (both L1 and L9 are
+      // non-advancing).
+      //
+      // autoAdvanceLowerLevels DOES count toward effective — those
+      // levels DO advance (just automatically to the lower of the
+      // requiresStyles pair). For Ultimate Magus, every PrC level
+      // contributes +1 caster level somewhere.
+      let effective = level;
+      const nonAdvancing = hard.nonAdvancingLevels || [];
+      const autoLower = hard.autoAdvanceLowerLevels || [];
+      for (const n of nonAdvancing) {
+        if (n <= level) effective--;
+      }
+      if (effective <= 0) return null;
+      const out = { types: hard.types.slice(), levels: effective };
+      if (hard.perLevelChoice) {
+        const advancingLevels = [];
+        for (let lv = 1; lv <= level; lv++) {
+          if (nonAdvancing.includes(lv)) continue;
+          advancingLevels.push(lv);
+        }
+        out.perLevelChoice = true;
+        out.advancingLevels = advancingLevels;
+        out.autoAdvanceLowerLevels = autoLower.filter(lv => lv <= level);
+        out.requiresStyles = hard.requiresStyles || null;
+        out.allowsMultiAdvance = !!hard.allowsMultiAdvance;
+      }
+      return out;
     }
     return null;
   }
@@ -827,9 +1429,151 @@
         if (getSpellcastingDataAtLevel(e.classId, e.level)) return e.className;
         continue;
       }
-      if (SPELLCASTING_TYPE[e.className] === typeStr) return e.className;
+      // SPELLCASTING_TYPE may be a single string or an array (e.g.
+      // Sha'ir = ['arcane', 'divine']). Normalize before comparison.
+      const t = getClassType(e.className);
+      if (t == null) continue;
+      const types = Array.isArray(t) ? t : [t];
+      if (types.includes(typeStr)) return e.className;
     }
     return null;
+  }
+
+  // For a per-level-choice advancer entry (Ultimate Magus, …), build
+  // `entry.advancementSlots` — one slot per advancingLevels entry. Each
+  // slot's `targets` lists which base classes received +1 at that PrC
+  // level. Defaults: when `requiresStyles` is set (UM: prepared +
+  // spontaneous), seed targets with one of each style. Otherwise seed
+  // with the first eligible target. Preserves any prior user picks for
+  // slots whose prcLevel survives.
+  function seedAdvancementSlots(entry) {
+    if (!entry.perLevelChoice) return;
+    const wantStyles = entry.requiresStyles || [];
+    const types = entry.advancesTypes || ['any'];
+    const autoLower = new Set(entry.autoAdvanceLowerLevels || []);
+    const eligible = pickedClasses.filter(e => {
+      if (e === entry) return false;
+      if (!e.classId) return false;
+      const t = getClassType(e.className);
+      if (t == null) return false;
+      const ts = Array.isArray(t) ? t : [t];
+      // 'any' matches anything; specific type must be in the class's type list.
+      return types.some(want => want === 'any' || ts.includes(want));
+    });
+    // Pick a default target per CHOICE slot. For UM-style PrCs with
+    // requiresStyles=['prepared','spontaneous'] and allowsMultiAdvance,
+    // we default to advancing BOTH at each level (i.e. one prepared +
+    // one spontaneous together). That's the standard build pattern;
+    // the user can de-select to allocate manually.
+    const defaultChoiceTargets = [];
+    for (const wantStyle of wantStyles) {
+      const match = eligible.find(e => getCasterStyle(e.className) === wantStyle);
+      if (match) defaultChoiceTargets.push(match.className);
+    }
+    if (!defaultChoiceTargets.length && eligible.length) {
+      defaultChoiceTargets.push(eligible[0].className);
+    }
+    // Build/refresh slots. Preserve existing user picks for slot levels
+    // that survive; seed defaults for newly-added ones. Slot `kind`
+    // is 'auto-lower' for levels in autoAdvanceLowerLevels, else
+    // 'choice'. Auto-lower slot targets are recomputed later by
+    // resolveAutoLowerSlots(); seed them as empty.
+    const prev = new Map();
+    for (const s of (entry.advancementSlots || [])) prev.set(s.prcLevel, s);
+    entry.advancementSlots = entry.advancingLevels.map(lvl => {
+      const isAuto = autoLower.has(lvl);
+      const existing = prev.get(lvl);
+      if (existing) {
+        // Update kind on schema drift (e.g. autoAdvanceLowerLevels added).
+        existing.kind = isAuto ? 'auto-lower' : 'choice';
+        if (isAuto) {
+          // Auto-lower slots get their targets recomputed. Preserve
+          // the user's tiebreaker preference, if any.
+          existing.targets = existing.targets || [];
+        } else if (!existing.targets) {
+          existing.targets = defaultChoiceTargets.slice();
+        }
+        return existing;
+      }
+      return isAuto
+        ? { prcLevel: lvl, kind: 'auto-lower', targets: [], tieBreaker: null }
+        : { prcLevel: lvl, kind: 'choice',     targets: defaultChoiceTargets.slice() };
+    });
+  }
+
+  // For each auto-lower slot in an advancer entry, compute which class
+  // (of the requiresStyles candidates) currently has the LOWER effective
+  // spell level — that's the target for that slot. Walks slots in level
+  // order because each auto-advance affects the running tally that
+  // later slots see. Tie-break uses the slot's `tieBreaker` (user
+  // preference) when set, otherwise falls back to the first eligible
+  // class in pickedClasses order.
+  function resolveAutoLowerSlots(entry) {
+    if (!entry.perLevelChoice) return;
+    if (!entry.advancementSlots) return;
+    const wantStyles = entry.requiresStyles || [];
+    if (!wantStyles.length) return;
+    const styleClasses = wantStyles.map(s => {
+      const match = pickedClasses.find(e =>
+        e !== entry && getCasterStyle(e.className) === s);
+      return match ? match.className : null;
+    });
+    if (styleClasses.some(c => !c)) return; // missing one — skip; warning surfaces in UI
+    // Tally running advancement count per style-class, walking slots
+    // in PrC level order.
+    const running = Object.create(null);
+    for (const cls of styleClasses) running[cls] = 0;
+    // Tally NON-UM advancement contributions from other entries
+    // (Mystic Theurge etc.) baseline.
+    for (const e of pickedClasses) {
+      if (e === entry) continue;
+      if (e.advancementSlots) {
+        for (const s of e.advancementSlots) {
+          for (const t of s.targets || []) {
+            if (t in running) running[t]++;
+          }
+        }
+      } else if (e.advancesTargets) {
+        for (const t of e.advancesTargets) {
+          if (t in running) running[t] += (e.advancesLevels || 0);
+        }
+      }
+    }
+    // Add base class level so "effective spell level" comparison uses
+    // the full sum (not just advancement contributions). Without this,
+    // a Wizard 5 + Sorcerer 3 + UM build would treat both as "0
+    // advancement" and auto-pick alphabetically rather than picking
+    // the lower-base Sorcerer.
+    for (const cls of styleClasses) {
+      const base = pickedClasses.find(e => e.className === cls);
+      if (base) running[cls] += base.level;
+    }
+    // Walk slots; assign auto-lower targets.
+    const sortedSlots = entry.advancementSlots
+      .slice()
+      .sort((a, b) => a.prcLevel - b.prcLevel);
+    for (const slot of sortedSlots) {
+      if (slot.kind === 'auto-lower') {
+        // Find the minimum running value; collect ties.
+        const min = Math.min(...styleClasses.map(c => running[c]));
+        const tied = styleClasses.filter(c => running[c] === min);
+        let target;
+        if (tied.length === 1) {
+          target = tied[0];
+        } else if (slot.tieBreaker && tied.includes(slot.tieBreaker)) {
+          target = slot.tieBreaker;
+        } else {
+          target = tied[0]; // deterministic fallback
+        }
+        slot.targets = [target];
+        slot.tiedOptions = tied.length > 1 ? tied.slice() : null;
+        running[target]++;
+      } else if (slot.kind === 'choice') {
+        for (const t of slot.targets || []) {
+          if (t in running) running[t]++;
+        }
+      }
+    }
   }
 
   // Resolve advancesTargets for an entry by re-running pickAdvanceTarget
@@ -837,6 +1581,19 @@
   // already targeting an entry that still exists.
   function refreshAdvanceTargets(entry) {
     if (!entry.advancesTypes || !entry.advancesTypes.length) return;
+    // Per-level entries manage their own slots via seedAdvancementSlots
+    // and the UI. Refresh slot targets here too so removed classes drop
+    // out and new candidates can be auto-picked.
+    if (entry.perLevelChoice) {
+      const stillExists = (name) =>
+        pickedClasses.some(e => e.className.toLowerCase() === name.toLowerCase());
+      for (const slot of (entry.advancementSlots || [])) {
+        slot.targets = (slot.targets || []).filter(t => t && stillExists(t));
+      }
+      // Re-seed any slots emptied by class removal.
+      seedAdvancementSlots(entry);
+      return;
+    }
     const stillExists = (name) =>
       pickedClasses.some(e => e.className.toLowerCase() === name.toLowerCase());
     const oldTargets = entry.advancesTargets || [];
@@ -858,10 +1615,41 @@
   // Compute the effective spell-class level for a given base entry
   // (its native level + sum of advancers pointing at it). Capped at 20
   // to avoid querying epic-level rows that aren't in the DB.
+  //
+  // Two advancement shapes are honored:
+  //
+  //   1. `e.advancesTargets` (list of N target class names) +
+  //      `e.advancesLevels` (int). The advancer's full advancesLevels
+  //      bonus is added to each target in the list. Used for the
+  //      classic "advances +1 of existing X class at every PrC level"
+  //      shape (Mystic Theurge, Archmage, Loremaster, Eldritch Knight,
+  //      Durthan, Sand Shaper, etc.).
+  //
+  //   2. `e.advancementSlots` (array of { prcLevel: int, targets: [..] }).
+  //      Each slot represents one non-skip PrC level and lists which
+  //      base classes received +1 at that level. Used for per-level
+  //      allocation PrCs (Ultimate Magus: at each non-skip level,
+  //      the player picks prepared, spontaneous, or both).
+  //
+  // A given advancer entry uses ONE shape, not both. perLevelChoice PrCs
+  // populate advancementSlots; everything else populates advancesTargets.
   function effectiveSpellLevel(target) {
     let bonus = 0;
     for (const e of pickedClasses) {
       if (e === target) continue;
+      // Shape 2: per-level slots.
+      if (e.advancementSlots && e.advancementSlots.length) {
+        for (const slot of e.advancementSlots) {
+          if (!slot || !slot.targets) continue;
+          for (const tgt of slot.targets) {
+            if (tgt && tgt.toLowerCase() === target.className.toLowerCase()) {
+              bonus++;
+            }
+          }
+        }
+        continue;  // Don't also count advancesTargets for this entry.
+      }
+      // Shape 1: classic all-at-once.
       if (!e.advancesTargets || !e.advancesTargets.length) continue;
       for (const tgt of e.advancesTargets) {
         if (tgt && tgt.toLowerCase() === target.className.toLowerCase()) {
@@ -878,6 +1666,12 @@
   // …) don't get tabs themselves.
   function refreshAllSpellTabs() {
     for (const e of pickedClasses) refreshAdvanceTargets(e);
+    // After targets settle, resolve auto-lower slots (UM L1/4/7) using
+    // the current state. This must come AFTER refreshAdvanceTargets
+    // because slot targets are recomputed there for per-level entries.
+    for (const e of pickedClasses) {
+      if (e.perLevelChoice) resolveAutoLowerSlots(e);
+    }
     for (const target of pickedClasses) {
       if (!target.classId) continue;
       const effLvl = effectiveSpellLevel(target);
@@ -1006,12 +1800,21 @@
     }
 
     if (lvlRow) {
+      // `spells_per_day_json` is an array for native casters but can
+      // be a STRING for advancer PrCs (e.g. Durthan stores
+      // "+1 level of existing spellcasting class" verbatim in the
+      // spells_per_day column). Calling `.some()` on a string throws
+      // and the rest of updatePreview never runs, leaving the panel
+      // empty. Guard with Array.isArray before treating as a slot
+      // array — and surface the advance marker as a separate bit.
       const spd = parseJsonArray(lvlRow.spells_per_day_json);
-      if (spd && spd.some(x => x !== null && x !== undefined)) {
+      if (Array.isArray(spd) && spd.some(x => x !== null && x !== undefined)) {
         bits.push(`<b>Spells/Day:</b> ${formatSpellArray(spd)}`);
+      } else if (typeof spd === 'string' && /level of existing/i.test(spd)) {
+        bits.push(`<b>Advances:</b> ${escapeHtml(spd)}`);
       }
       const sk = parseJsonArray(lvlRow.spells_known_json);
-      if (sk && sk.some(x => x !== null && x !== undefined)) {
+      if (Array.isArray(sk) && sk.some(x => x !== null && x !== undefined)) {
         bits.push(`<b>Spells Known:</b> ${formatSpellArray(sk)}`);
       }
       if (lvlRow.power_points_per_day) {
@@ -1061,15 +1864,40 @@
     if (adv) {
       entry.advancesTypes = adv.types;
       entry.advancesLevels = adv.levels;
+      if (adv.perLevelChoice) {
+        // Mark the entry so the UI renders per-level pickers and
+        // effectiveSpellLevel routes to advancementSlots.
+        entry.perLevelChoice = true;
+        entry.advancingLevels = adv.advancingLevels;
+        entry.autoAdvanceLowerLevels = adv.autoAdvanceLowerLevels || [];
+        entry.requiresStyles = adv.requiresStyles;
+        entry.allowsMultiAdvance = adv.allowsMultiAdvance;
+      }
     }
     if (existingIdx >= 0) {
       // Preserve user-pinned target overrides on re-apply (advancesTargets
-      // may have been manually selected by the user later via UI).
+      // / advancementSlots may have been manually selected by the user
+      // later via UI). For perLevelChoice PrCs we preserve slots whose
+      // prcLevel is still within the new advancingLevels list and
+      // discard the rest (e.g. user dropped UM from L5 → L3, slots at
+      // L4+ disappear).
       const prev = pickedClasses[existingIdx];
       if (prev.advancesTargets) entry.advancesTargets = prev.advancesTargets;
+      if (prev.advancementSlots && entry.perLevelChoice) {
+        const keep = new Set(entry.advancingLevels);
+        entry.advancementSlots = prev.advancementSlots
+          .filter(s => keep.has(s.prcLevel));
+      }
       pickedClasses[existingIdx] = entry;
     } else {
       pickedClasses.push(entry);
+    }
+    // Seed advancementSlots for new perLevelChoice entries (or freshly
+    // re-added slots after a level bump). Defaults each slot to the
+    // first eligible target of the appropriate style; the user can
+    // change via the chip-list UI.
+    if (entry.perLevelChoice) {
+      seedAdvancementSlots(entry);
     }
 
     const totals = applyAggregatesToSheet();
@@ -1213,12 +2041,33 @@
     return null;
   }
 
+  // "Knows-whole-list" casters have no per-level Spells Known table in
+  // their source (they know every spell on their list of any castable
+  // level, with whatever advanced-learning rules apply). For these we
+  // skip the spells-known auto-fill and prefill the notes with the
+  // canonical "knows everything" reminder so the user understands why
+  // the Known column stays blank.
+  // Sha'ir DOES have a per-level Spells Known table (Dragon Compendium
+  // Table 2-12) — the gen-retrieval mechanic interacts with it but
+  // doesn't replace it, so Sha'ir is handled as a normal spontaneous
+  // caster. The classes below have no per-level Spells Known table in
+  // their source (they know every spell on their list of any castable
+  // level); for them we prefill the panel notes so the user understands
+  // why the Known column stays blank.
+  const KNOWS_WHOLE_LIST_NOTES = {
+    'Beguiler': "Beguiler — knows every spell on the beguiler spell list of any level she can cast (plus advanced learning).",
+    'Warmage': 'Warmage — knows every spell on the warmage spell list of any level he can cast (plus advanced learning).',
+    'Dread Necromancer': 'Dread Necromancer — knows every spell on the dread necromancer spell list of any level he can cast (plus advanced learning).',
+    'Healer': 'Healer — knows every spell on the healer spell list of any level she can cast.',
+  };
+
   function upsertSpellcastingPanel(className, classLevel, sc, offset) {
+    const notesText = KNOWS_WHOLE_LIST_NOTES[className] || className;
     const data = {
       name: className,
-      notes: className,
+      notes: notesText,
       casterLevel: classLevel,
-      ability: SPELLCASTING_ABILITY[className] || '',
+      ability: getKeyAbility(className) || '',
       maxLevel: 9,
     };
     let anyBonus = false;
@@ -1243,6 +2092,22 @@
     // Cleric is the canonical case; specialist wizards get +1 too but
     // the stored generic-wizard progression doesn't include it.
     if (anyBonus && className === 'Cleric') data.domainAccess = true;
+    // Sha'ir: gen-retrieval gives access to spells from nine fixed
+    // elemental and conceptual domains (Air, Chaos, Earth, Fire,
+    // Knowledge, Law, Luck, Sun, Water) per Dragon Compendium. Domain
+    // *spells* are retrievable; no granted power. Prefill the nine
+    // entries so the domain-picker's spell-list info panels render
+    // for the player without manual typing.
+    if (className === "Sha'ir") {
+      data.domainAccess = true;
+      data.domains = [
+        'Air', 'Chaos', 'Earth', 'Fire',
+        'Knowledge', 'Law', 'Luck', 'Sun', 'Water',
+      ].map(n => ({
+        name: n,
+        power: "Sha'ir — spells only, no granted power.",
+      }));
+    }
 
     const existing = findExistingCasterPanel('spellcasting', className);
     if (existing) {
@@ -1448,7 +2313,7 @@
   }
 
   function applyClassSkills(className) {
-    const skills = CLASS_SKILLS[className];
+    const skills = getClassSkills(className);
     if (!skills) return;
     for (const spec of skills) {
       for (const cb of findSkillCheckboxesForSpec(spec)) {

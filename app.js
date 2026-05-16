@@ -62,6 +62,13 @@
     const base = $(`#${ab}-score`).value;
     const race = $(`#${ab}-race`)?.value;
     const tpl  = $(`#${ab}-template`)?.value;
+    // "—" (em dash), "–" (en dash), or "-" (hyphen) means "no ability
+    // score" — RAW says constructs/undead with no score get +0 mod, not
+    // the -5 a literal 0 would produce. Short-circuit before the
+    // arithmetic so racial/template/bonus adjustments don't bring a
+    // scoreless ability back into negative-mod territory.
+    const active = temp !== "" ? temp : base;
+    if (active === "—" || active === "–" || active === "-") return 0;
     let score = temp !== "" ? parseInt(temp) || 0 : parseInt(base) || 0;
     score += parseInt(race) || 0;  // racial adjustment always applies
     score += parseInt(tpl)  || 0;  // template adjustment (Half-Dragon, etc.)
@@ -96,6 +103,27 @@
       }
     }
 
+    // Conditions: penalties from active conditions (Fatigued/Exhausted
+    // hit Str/Dex; Blinded/Cowering/etc. hit AC; Shaken/etc. hit
+    // saves). Other effects (attack penalty, skill penalty, speed
+    // multiplier) surface in the Conditions summary but aren't yet
+    // auto-applied — see TODO Phase 2.
+    if (typeof Conditions !== "undefined" &&
+        typeof Conditions.getActiveBonuses === "function") {
+      const cn = Conditions.getActiveBonuses();
+      for (const [ab, val] of Object.entries(cn.abilities || {})) {
+        bonuses.abilities[ab] = (bonuses.abilities[ab] || 0) + val;
+      }
+      for (const [save, val] of Object.entries(cn.saves || {})) {
+        bonuses.saves[save] = (bonuses.saves[save] || 0) + val;
+      }
+      bonuses.ac += cn.ac || 0;
+      // Carry-through flags for downstream consumers.
+      if (cn.loseDexToAC) bonuses.loseDexToAC = true;
+      if (cn.dexToZero)   bonuses.dexToZero = true;
+      if (cn.strToZero)   bonuses.strToZero = true;
+    }
+
     return bonuses;
   }
 
@@ -110,6 +138,12 @@
     Skills.recalc(getModWithBonuses);
     Spells.recalc(getModWithBonuses);
     Equipment.updatePaperDoll();
+
+    // Re-run the audit after every recalc so the floating widget
+    // reflects current state across all tabs.
+    if (typeof Audit !== "undefined") {
+      document.dispatchEvent(new Event("audit-refresh"));
+    }
 
     // Visual indicator for rage
     const rageSection = $("#rage-section");
@@ -129,6 +163,9 @@
       Feats.collectData(),
       Companion.collectData(),
       ClassFeatures.collectData(),
+      typeof Conditions !== "undefined" ? Conditions.collectData() : {},
+      typeof Audit !== "undefined" ? Audit.collectData() : {},
+      typeof CharacterHistory !== "undefined" ? CharacterHistory.collectData() : {},
       { skills: Skills.collectData(), customSkills: Skills.collectCustomSkills() }
     );
   }
@@ -141,10 +178,65 @@
     Feats.loadData(data);
     Companion.loadData(data);
     ClassFeatures.loadData(data);
+    if (typeof Conditions !== "undefined") Conditions.loadData(data);
+    if (typeof Audit !== "undefined") Audit.loadData(data);
     if (data.skills) Skills.loadData(data.skills, getAbilityMod);
     Skills.loadCustomSkills(data.customSkills || [], getAbilityMod);
+    // CharacterHistory runs LAST so it can reconstruct from current
+    // totals if the saved data has no history field (migration path).
+    // The reconstruction inputs (applied classes, current feat names,
+    // per-class hit dies) are read off the now-populated state.
+    if (typeof CharacterHistory !== "undefined") {
+      const pickedClasses = (typeof ClassPicker !== "undefined" &&
+                  typeof ClassPicker.getState === "function")
+        ? ClassPicker.getState() : [];
+      const opts = {
+        classes: pickedClasses,
+        feats: collectCurrentFeatNames(),
+        options: {
+          pathfinderFeats: false,
+          hitDieByClass: collectHitDiceFromDB(pickedClasses),
+        },
+      };
+      CharacterHistory.loadData(data, opts);
+    }
+    if (typeof BuildTimeline !== "undefined") BuildTimeline.render();
     recalcAll();
     setTimeout(autoExpandAll, 20);
+  }
+
+  // Helper used by CharacterHistory reconstruction. Gathers feat names
+  // from the Feats tab's textareas (first line of each .feat-entry,
+  // stripped of trailing parentheticals) so we can lay them onto the
+  // RAW feat schedule when reconstructing a missing history.
+  // Query the DB for each applied class's hit_die value so reconstruct-
+  // FromTotals can populate the per-level hp_rolled with the right
+  // average (Wizard d4 = 3 HP / level after L1, etc.) instead of
+  // falling back to its generic d8 default.
+  function collectHitDiceFromDB(pickedClasses) {
+    if (typeof DB === "undefined" || !DB.isLoaded()) return {};
+    const out = {};
+    for (const c of pickedClasses) {
+      if (!c.className) continue;
+      const row = DB.queryOne(
+        "SELECT json_extract(data, '$.hit_die') AS hd FROM entry " +
+        "WHERE type IN ('class','prc') AND name = :n COLLATE NOCASE LIMIT 1",
+        { ":n": c.className });
+      if (row && row.hd) out[c.className] = parseInt(row.hd, 10) || 8;
+    }
+    return out;
+  }
+
+  function collectCurrentFeatNames() {
+    const out = [];
+    for (const el of document.querySelectorAll("#feats-container .feat-entry")) {
+      const raw = (el.value || "").trim();
+      if (!raw) continue;
+      const firstLine = raw.split(/\r?\n/)[0].trim();
+      const stripped = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      if (stripped) out.push(stripped);
+    }
+    return out;
   }
 
   // ---- LocalStorage management ----
@@ -242,6 +334,11 @@
     $("#gear-body").innerHTML = "";
     for (let i = 0; i < 5; i++) Equipment.addGearRow();
     $("#magic-items-container").innerHTML = "";
+    // Character.loadData triggers class-picker's persistence hook,
+    // which clears `pickedClasses` and re-renders the chip list.
+    // Without this, classes from the previous character stay
+    // visually applied (reported 2026-05-16).
+    Character.loadData({}, getAbilityMod);
     Spells.loadData({});
     Companion.loadData({});
 
@@ -320,6 +417,7 @@
   $("#armor-worn").addEventListener("change", recalcAll);
   $("#shield-worn").addEventListener("change", recalcAll);
   $("#armor-touch-ac").addEventListener("change", recalcAll);
+  $("#ignore-encumbrance")?.addEventListener("change", recalcAll);
   $("#shield-touch-ac").addEventListener("change", recalcAll);
   $("#rage-active").addEventListener("change", recalcAll);
   ["con","int","wis","cha"].forEach(ab => {
@@ -335,12 +433,18 @@
   // ============================================================
   Skills.build(getAbilityMod);
   Equipment.buildMagicItemSlots();
+  if (typeof Conditions !== "undefined") Conditions.build();
+  if (typeof Audit !== "undefined") Audit.build();
+  if (typeof BuildTimeline !== "undefined") BuildTimeline.init();
 
   Character.addAttack();
   for (let i = 0; i < 5; i++) Equipment.addGearRow();
   Feats.addFeat();
   Feats.addSpecialAbility();
   Companion.loadData({});
+
+  // Conditions-changed event → re-aggregate bonuses + recalc.
+  document.addEventListener("conditions-changed", recalcAll);
 
   updateCharacterSelect();
   recalcAll();

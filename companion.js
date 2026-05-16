@@ -93,6 +93,16 @@ const Companion = (function () {
       </select></div>
       <label class="mi-toggle"><input type="checkbox" class="comp-familiar-toggle"${d.isFamiliar ? " checked" : ""}> Familiar</label>
     </div>
+    <!-- Auto-computed progression panel (see companion.js
+         refreshProgressionPanel). Hidden when no contributing
+         classes are detected. Defaults expanded. -->
+    <details class="comp-progression-panel" open>
+      <summary class="comp-progression-summary">
+        <span class="comp-progression-title">Class-Based Progression</span>
+        <span class="comp-progression-status"></span>
+      </summary>
+      <div class="comp-progression-body"></div>
+    </details>
     <div class="two-column">
       <div class="column">
         <h3>Ability Scores</h3>
@@ -164,7 +174,8 @@ const Companion = (function () {
         <div class="comp-tricks-list"></div>
         <button class="btn-add comp-add-trick">+ Add Trick</button>
         <h3>Special Abilities</h3>
-        <textarea class="comp-special" rows="4">${d.compSpecial || ""}</textarea>
+        <div class="comp-specials-list"></div>
+        <button class="btn-add comp-add-special">+ Add Special Ability</button>
       </div>
     </div>`;
   }
@@ -209,6 +220,19 @@ const Companion = (function () {
     panel.querySelector(".comp-add-trick").addEventListener("click", () => addListRow(tricksContainer, "comp-trick", "Trick name", "Description"));
     (d.compTricks || [""]).forEach((t) => addListRow(tricksContainer, "comp-trick", "Trick name", "Description", t));
 
+    // Dynamic special abilities (was a single textarea before 2026-05-16;
+    // legacy data with `compSpecial` as a string gets migrated by load).
+    const specialsContainer = panel.querySelector(".comp-specials-list");
+    panel.querySelector(".comp-add-special").addEventListener("click",
+      () => addListRow(specialsContainer, "comp-special", "Ability name", "Description"));
+    let specialsSeed = d.compSpecials;
+    if (!specialsSeed && d.compSpecial) {
+      // Legacy single-string fallback — load as one row.
+      specialsSeed = [{ name: "", notes: d.compSpecial }];
+    }
+    (specialsSeed || [""]).forEach((s) =>
+      addListRow(specialsContainer, "comp-special", "Ability name", "Description", s));
+
     recalcCompanion(panel);
   }
 
@@ -250,14 +274,66 @@ const Companion = (function () {
     const d = typeof data === "object" ? data : { name: data };
     const div = document.createElement("div");
     div.className = `${cls}-entry feat-entry`;
+    // Companion feat rows get the same autocomplete and ⓘ rules-toggle
+    // wiring that the main Feats tab has — they share the feat-options
+    // datalist built by feat-picker.js, and the ⓘ button calls
+    // `Feats.renderFeatRules()` (exported from the Feats module).
+    const isFeat = cls === "comp-feat";
+    const listAttr = isFeat ? ` list="feat-options"` : "";
+    const infoBtnHTML = isFeat
+      ? `<button type="button" class="btn-feat-info" title="Show rules text" aria-expanded="false">ⓘ</button>`
+      : "";
     div.innerHTML = `
       <div class="feat-main">
-        <input type="text" class="${cls}-name" placeholder="${placeholder}" value="${d.name || ""}">
+        <input type="text" class="${cls}-name" placeholder="${placeholder}" value="${d.name || ""}"${listAttr} autocomplete="off">
+        ${infoBtnHTML}
         <button class="btn-remove" title="Remove">X</button>
       </div>
       <textarea class="${cls}-notes" rows="1" placeholder="${notePlaceholder}">${d.notes || ""}</textarea>`;
     div.querySelector(".btn-remove").addEventListener("click", () => div.remove());
+    if (isFeat) {
+      const info = div.querySelector(".btn-feat-info");
+      const nameIn = div.querySelector(".comp-feat-name");
+      info.addEventListener("click", () => toggleCompFeatRules(div));
+      // Collapse panel on edit so stale text doesn't sit under a
+      // renamed feat (same UX as the main feats tab).
+      nameIn.addEventListener("input", () => collapseCompFeatRules(div));
+    }
     container.appendChild(div);
+  }
+
+  function toggleCompFeatRules(row) {
+    const existing = row.querySelector(".feat-rules");
+    if (existing) { collapseCompFeatRules(row); return; }
+    const name = (row.querySelector(".comp-feat-name")?.value || "").trim();
+    const btn = row.querySelector(".btn-feat-info");
+    const panel = document.createElement("div");
+    panel.className = "feat-rules";
+    if (!name) {
+      panel.innerHTML = '<i style="opacity:.7">Type a feat name first.</i>';
+    } else if (!(window.DB && DB.isLoaded()) ||
+               typeof Feats?.renderFeatRules !== "function") {
+      panel.innerHTML = '<i style="opacity:.7">Database not loaded — rules text unavailable.</i>';
+    } else {
+      const rendered = Feats.renderFeatRules(name);
+      panel.innerHTML = rendered.html;
+      if (rendered.entryId && window.ErrataBadge) {
+        ErrataBadge.attach(panel, rendered.entryId);
+      }
+    }
+    row.appendChild(panel);
+    btn.setAttribute("aria-expanded", "true");
+    btn.classList.add("active");
+  }
+
+  function collapseCompFeatRules(row) {
+    const panel = row.querySelector(".feat-rules");
+    if (panel) panel.remove();
+    const btn = row.querySelector(".btn-feat-info");
+    if (btn) {
+      btn.setAttribute("aria-expanded", "false");
+      btn.classList.remove("active");
+    }
   }
 
   // ============================================================
@@ -338,6 +414,278 @@ const Companion = (function () {
     const grappleMisc = int(panel.querySelector(".comp-grapple-misc")?.value);
     const grapple = bab + strMod + grappleSize + grappleMisc;
     setEl(".comp-grapple-total", (grapple >= 0 ? "+" : "") + grapple);
+
+    // Refresh the class-based progression panel.
+    refreshProgressionPanel(panel);
+  }
+
+  // ============================================================
+  // Class-based companion progression (Session 2 of #6 plan)
+  // ============================================================
+  //
+  // Walks the character's applied classes (via ClassPicker.getState),
+  // queries each class's class_features for `companion` metadata
+  // populated by _companion_metadata.py, and aggregates contributions
+  // by companion type. Renders into each companion's progression panel.
+
+  // Returns { animal_companion: { effectiveLevel, contributions:[...],
+  //                                negated, modifiers:[...] },
+  //           familiar:         { ... },
+  //           special_mount:    { ... },
+  //           cohort:           { ... }      }
+  // `contributions` is a list of { className, level, role, stacking,
+  // effective } where `effective` is the level units this class
+  // contributes to the type.
+  function computeCompanionLevels() {
+    const out = {
+      animal_companion: { effectiveLevel: 0, contributions: [],
+                          negated: false, modifiers: [], notes: [] },
+      familiar:         { effectiveLevel: 0, contributions: [],
+                          negated: false, modifiers: [], notes: [] },
+      special_mount:    { effectiveLevel: 0, contributions: [],
+                          negated: false, modifiers: [], notes: [] },
+      cohort:           { effectiveLevel: 0, contributions: [],
+                          negated: false, modifiers: [], notes: [] },
+    };
+    if (!window.ClassPicker || typeof ClassPicker.getState !== "function") {
+      return out;
+    }
+    if (!window.DB || !DB.isLoaded()) return out;
+
+    const picked = ClassPicker.getState();
+    for (const p of picked) {
+      const className = p.className;
+      const classLevel = p.level;
+      if (!className || !classLevel) continue;
+      // Pull the class's features and look at each one's `companion`
+      // block. A feature's role determines how this class contributes.
+      const row = DB.queryOne(
+        "SELECT json_extract(data, '$.class_features') AS cf " +
+        "FROM entry WHERE type IN ('class','prc') " +
+        "AND name = :n COLLATE NOCASE LIMIT 1",
+        { ":n": className });
+      if (!row || !row.cf) continue;
+      let features;
+      try { features = JSON.parse(row.cf); } catch { continue; }
+      if (!Array.isArray(features)) continue;
+      for (const f of features) {
+        const c = f && f.companion;
+        if (!c || !c.type || !out[c.type]) continue;
+        // Filter by level — only count the feature if the class
+        // level is at least the feature's level_acquired. Some
+        // features have null/undefined level_acquired (PrCs that
+        // grant the feature at L1); treat those as L1.
+        const requiredLvl = f.level_acquired || 1;
+        if (classLevel < requiredLvl) continue;
+
+        const bucket = out[c.type];
+        if (c.role === "negates") {
+          bucket.negated = true;
+          bucket.notes.push(`${className}: ${c.notes || 'negates ' + c.type}`);
+          continue;
+        }
+        if (c.role === "modifies") {
+          bucket.modifiers.push({
+            className,
+            modifier: c.modifier || c.notes || '(modifier)',
+          });
+          continue;
+        }
+        // role === 'grants' or 'advances' — compute effective levels.
+        let effective = 0;
+        const s = c.stacking;
+        if (s === "full" || s === undefined) {
+          effective = classLevel;
+        } else if (s === "half") {
+          effective = Math.floor(classLevel / 2);
+        } else if (typeof s === "object" && s !== null) {
+          if (typeof s.plus === "number") {
+            effective = classLevel + s.plus;
+          } else if (typeof s.minus === "number") {
+            effective = Math.max(0, classLevel - s.minus);
+          } else if (s.custom) {
+            // Custom progressions can't be summed simply — flag the
+            // class as contributing but mark the stacking as custom
+            // so the UI can hint that the user should consult source.
+            // Special case: 'extra-companions' (Beastmaster) grants
+            // ADDITIONAL companions at reduced effective level — it
+            // doesn't add to the primary companion's progression, so
+            // we record it as a note but don't bump the aggregate.
+            if (s.custom === 'extra-companions') {
+              bucket.notes.push(
+                `${className}: grants ADDITIONAL companions at ` +
+                `reduced levels (L4: ${classLevel - 3}, L7: ${classLevel - 6}, ` +
+                `L10: ${classLevel - 9}) — separate from the primary ` +
+                `companion's advancement.`);
+              continue;
+            }
+            effective = classLevel;
+            bucket.notes.push(
+              `${className}: custom progression (${s.custom}) — ` +
+              `consult source for exact stat advancement.`);
+          }
+        }
+        bucket.contributions.push({
+          className,
+          level: classLevel,
+          role: c.role,
+          stacking: s,
+          effective,
+          featureName: f.name,
+        });
+        bucket.effectiveLevel += effective;
+        if (c.creature)            bucket.notes.push(`${className}: creature → ${c.creature}`);
+        if (c.starting_creatures)  bucket.notes.push(
+          // Semicolon separator — some entries contain commas
+          // ("Horse, Light" / "Snake, Small Viper" etc.).
+          `${className}: starting list → ${c.starting_creatures.join('; ')}`);
+        if (c.creature_template)   bucket.notes.push(
+          `${className}: template → ${c.creature_template}`);
+      }
+    }
+    return out;
+  }
+
+  // Render the per-companion panel showing detected types, effective
+  // levels, contributing classes, and the row from the progression
+  // table at that level.
+  function refreshProgressionPanel(panel) {
+    const body = panel.querySelector(".comp-progression-body");
+    const status = panel.querySelector(".comp-progression-status");
+    const wrap = panel.querySelector(".comp-progression-panel");
+    if (!body || !status || !wrap) return;
+    const lvls = computeCompanionLevels();
+    // Find the companion type most relevant to THIS panel (based on
+    // the comp-type dropdown — Animal Companion / Familiar / Cohort).
+    const typeMap = {
+      'Animal Companion': 'animal_companion',
+      'Familiar':         'familiar',
+      'Cohort':           'cohort',
+      // No direct selector for special_mount today — Paladin special
+      // mounts get used via Familiar/Animal Companion proxies; we
+      // surface mount info under whichever type the player picks.
+    };
+    const selectedType = panel.querySelector(".comp-type")?.value || "";
+    const matchType = typeMap[selectedType] || null;
+
+    const sections = [];
+    let anyContent = false;
+
+    // Show the matched type prominently if any class contributes;
+    // include the other types as a secondary list when they have
+    // contributions too (multi-companion characters like Beastmaster
+    // with multiple animals + a familiar from a multiclass).
+    const TYPE_LABELS = {
+      animal_companion: 'Animal Companion',
+      familiar:         'Familiar',
+      special_mount:    'Special Mount',
+      cohort:           'Cohort',
+    };
+    // Order: matched type first, then any other types with
+    // contributions / negations / modifiers.
+    const allTypes = Object.keys(lvls);
+    const orderedTypes = matchType
+      ? [matchType, ...allTypes.filter(t => t !== matchType)]
+      : allTypes;
+    for (const type of orderedTypes) {
+      const bucket = lvls[type];
+      const hasAny = bucket.effectiveLevel > 0 ||
+                     bucket.negated ||
+                     bucket.modifiers.length > 0;
+      if (!hasAny) continue;
+      anyContent = true;
+      sections.push(renderProgressionSection(type, bucket, TYPE_LABELS[type]));
+    }
+
+    if (!anyContent) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+    body.innerHTML = sections.join('');
+    // Status pill in the summary line.
+    if (matchType && lvls[matchType].effectiveLevel > 0) {
+      const eff = lvls[matchType].effectiveLevel;
+      status.textContent = ` — effective ${TYPE_LABELS[matchType]} ` +
+        `level ${eff}`;
+    } else if (matchType && lvls[matchType].negated) {
+      status.textContent = ` — ${TYPE_LABELS[matchType]} negated`;
+    } else {
+      status.textContent = '';
+    }
+  }
+
+  function renderProgressionSection(type, bucket, label) {
+    const lines = [];
+    lines.push(`<div class="comp-prog-section">` +
+               `<div class="comp-prog-section-head"><b>${escapeHtml(label)}</b>` +
+               (bucket.negated
+                 ? ` <span class="comp-prog-negated">negated</span>`
+                 : bucket.effectiveLevel > 0
+                   ? ` — effective master level <b>${bucket.effectiveLevel}</b>`
+                   : '') + `</div>`);
+    // Contributing classes.
+    if (bucket.contributions.length) {
+      const items = bucket.contributions.map(c => {
+        const stackingLabel = c.stacking === 'full'    ? 'full'
+                            : c.stacking === 'half'    ? 'half'
+                            : c.stacking && c.stacking.plus  != null ? `+${c.stacking.plus}`
+                            : c.stacking && c.stacking.minus != null ? `−${c.stacking.minus}`
+                            : c.stacking && c.stacking.custom        ? `custom: ${c.stacking.custom}`
+                            : '?';
+        return `<li><b>${escapeHtml(c.className)}</b> L${c.level} ` +
+               `(${stackingLabel}) → +${c.effective} effective levels ` +
+               `<span class="comp-prog-feature">[${escapeHtml(c.featureName || '')}]</span></li>`;
+      });
+      lines.push(`<ul class="comp-prog-contributions">${items.join('')}</ul>`);
+    }
+    // Progression-table row at this effective level.
+    // DND35 is a top-level `const` in data.js — bound in script scope
+    // but NOT a `window` property. Use a `typeof` guard for cross-
+    // module access; see the same trap fixed in feats.js / feat-picker
+    // .js (2026-05-16 session notes).
+    if (bucket.effectiveLevel > 0 && typeof DND35 !== 'undefined' &&
+        typeof DND35.getCompanionProgression === 'function') {
+      const row = DND35.getCompanionProgression(type, bucket.effectiveLevel);
+      if (row) {
+        const bits = [];
+        if (row.bonusHD != null)    bits.push(`Bonus HD: +${row.bonusHD}`);
+        if (row.naAdj != null)      bits.push(`NA Adj: +${row.naAdj}`);
+        if (row.abilityAdj != null) bits.push(`Str/Dex Adj: +${row.abilityAdj}`);
+        if (row.strAdj != null)     bits.push(`Str Adj: +${row.strAdj}`);
+        if (row.intMin != null)     bits.push(`Min Int: ${row.intMin}`);
+        if (row.bonusTricks != null) bits.push(`Bonus Tricks: ${row.bonusTricks}`);
+        if (bits.length) {
+          lines.push(`<div class="comp-prog-stats">` +
+                     bits.map(escapeHtml).join(' &nbsp;·&nbsp; ') +
+                     `</div>`);
+        }
+        if (row.specials && row.specials.length) {
+          lines.push(`<div class="comp-prog-specials"><b>Specials at this level:</b> ` +
+                     row.specials.map(escapeHtml).join(', ') + `</div>`);
+        }
+      } else if (type === 'special_mount' && bucket.effectiveLevel < 5) {
+        lines.push(`<div class="comp-prog-stats" style="opacity:.7">` +
+                   `Paladin special mount only manifests at effective ` +
+                   `paladin level 5+ (currently ${bucket.effectiveLevel}).</div>`);
+      }
+    }
+    // Notes + modifiers.
+    for (const n of bucket.notes) {
+      lines.push(`<div class="comp-prog-note">${escapeHtml(n)}</div>`);
+    }
+    for (const m of bucket.modifiers) {
+      lines.push(`<div class="comp-prog-modifier"><b>${escapeHtml(m.className)}</b> ` +
+                 `modifies: ${escapeHtml(m.modifier)}</div>`);
+    }
+    lines.push(`</div>`);
+    return lines.join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   // ============================================================
@@ -373,7 +721,10 @@ const Companion = (function () {
       d.compGrappleMisc = panel.querySelector(".comp-grapple-misc")?.value || "";
       d.compPersonality = panel.querySelector(".comp-personality")?.value || "";
       d.compNotes = panel.querySelector(".comp-notes")?.value || "";
-      d.compSpecial = panel.querySelector(".comp-special")?.value || "";
+      d.compSpecials = Array.from(panel.querySelectorAll(".comp-special-entry")).map((r) => ({
+        name: r.querySelector(".comp-special-name")?.value || "",
+        notes: r.querySelector(".comp-special-notes")?.value || "",
+      }));
       d.compAttacks = Array.from(panel.querySelectorAll(".comp-attack-entry")).map((r) => ({
         weapon: r.querySelector(".comp-atk-weapon")?.value || "",
         bonus: r.querySelector(".comp-atk-bonus")?.value || "",

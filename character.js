@@ -79,11 +79,41 @@ const Character = (function () {
     totalWeight += parseFloat($("#armor-weight").value) || 0;
     totalWeight += parseFloat($("#shield-weight").value) || 0;
     const loadCategory = DND35.getLoadCategory(totalWeight, capacity);
-    const loadPenalties = DND35.carryingLoads[loadCategory];
+    // "Ignore encumbrance" toggle short-circuits load-based penalties
+    // — used for Dwarves (speed unaffected by load), monks at their
+    // class-feature speed (Slow Fall etc. are conditional), and other
+    // niche features. Default off.
+    const ignoreEncumbrance = $("#ignore-encumbrance")?.checked;
+    const effectiveLoadCategory = ignoreEncumbrance ? "light" : loadCategory;
+    const loadPenalties = DND35.carryingLoads[effectiveLoadCategory];
 
     // Use worse of armor or load for max dex and check penalty (don't stack)
     const effectiveMaxDex = Math.min(armorMaxDex, loadPenalties.maxDex);
     const effectiveCheckPenalty = Math.min(armorTotalCheckPen, loadPenalties.checkPenalty);
+
+    // Speed reduction from load (PHB Table 9-2). Light → no change;
+    // medium/heavy → reducedSpeed() drops by ~1/3 (rounded to 5 ft).
+    // Parses leading integer from the base-speed input ("30 ft." → 30)
+    // so the user can keep their preferred annotation format.
+    const baseSpeedRaw = String($("#char-speed")?.value || "");
+    const baseSpeedMatch = baseSpeedRaw.match(/-?\d+/);
+    const baseSpeed = baseSpeedMatch ? parseInt(baseSpeedMatch[0], 10) : 0;
+    const speedReduces = !ignoreEncumbrance &&
+                          (loadCategory === "medium" || loadCategory === "heavy");
+    const currentSpeed = speedReduces ? DND35.reducedSpeed(baseSpeed) : baseSpeed;
+    const speedEl = $("#speed-current");
+    if (speedEl) {
+      if (!baseSpeed) {
+        speedEl.textContent = "--";
+        speedEl.classList.remove("speed-reduced");
+      } else if (speedReduces && currentSpeed < baseSpeed) {
+        speedEl.textContent = `${currentSpeed} ft (from ${baseSpeed})`;
+        speedEl.classList.add("speed-reduced");
+      } else {
+        speedEl.textContent = `${currentSpeed} ft`;
+        speedEl.classList.remove("speed-reduced");
+      }
+    }
 
     // Auto-set armor check penalty (effective = worse of armor or load)
     $("#armor-check-penalty").value = effectiveCheckPenalty;
@@ -99,9 +129,15 @@ const Character = (function () {
       loadDisplayEl.className = `load-indicator load-${loadCategory}`;
     }
 
-    // AC calculation with max dex cap (worse of armor or load)
-    const dexMod = getAbilityMod("DEX");
-    const cappedDexMod = Math.min(dexMod, effectiveMaxDex);
+    // AC calculation with max dex cap (worse of armor or load).
+    // Conditions (Flat-footed / Blinded / Helpless / Paralyzed /
+    // Stunned / Cowering / Pinned) zero out the Dex contribution via
+    // `bonuses.loseDexToAC`; Paralyzed / Helpless additionally drop
+    // the Dex score itself to 0 (modeled as `bonuses.dexToZero`).
+    let dexMod = getAbilityMod("DEX");
+    if (bonuses.dexToZero) dexMod = DND35.abilityModifier(0);  // mod = -5
+    let cappedDexMod = Math.min(dexMod, effectiveMaxDex);
+    if (bonuses.loseDexToAC && cappedDexMod > 0) cappedDexMod = 0;
     const naturalArmor = int($("#ac-natural").value);
     const acMisc = expr($("#ac-misc").value);
     const acSize = sizeData.acMod;
@@ -243,6 +279,31 @@ const Character = (function () {
     $("#max-class-ranks").textContent = level + 3;
     $("#max-crossclass-ranks").textContent = (level + 3) / 2;
 
+    // XP progress (PHB Table 3-2). XP_for(L) = 1000 * L * (L-1) / 2.
+    // The character "is" level N from XP_for(N) through XP_for(N+1)-1.
+    // Display: "N → N+1 (X to go)" or "N+1 reached (excess Y)" once
+    // the player has enough XP for the next tier.
+    const xpEl = $("#char-xp");
+    const xpProgEl = $("#xp-progress");
+    if (xpEl && xpProgEl) {
+      const xp = int(xpEl.value);
+      const charLevel = level;
+      const xpFor = (L) => 1000 * L * (L - 1) / 2;
+      const nextLvl = charLevel + 1;
+      const need = xpFor(nextLvl);
+      if (xp <= 0) {
+        xpProgEl.textContent = `${need.toLocaleString()} for L${nextLvl}`;
+      } else if (xp >= need) {
+        const excess = xp - need;
+        xpProgEl.textContent =
+          `L${nextLvl} reached (+${excess.toLocaleString()} excess)`;
+      } else {
+        const togo = need - xp;
+        xpProgEl.textContent =
+          `${togo.toLocaleString()} to L${nextLvl}`;
+      }
+    }
+
     // Carrying capacity display
     $("#carry-light").textContent = `0-${capacity[0]} lb.`;
     $("#carry-medium").textContent = `${capacity[0] + 1}-${capacity[1]} lb.`;
@@ -322,6 +383,7 @@ const Character = (function () {
       data[`${ab}-to-ac`] = $(`#${ab}-to-ac`)?.checked || false;
       data[`${ab}-to-ac-type`] = $(`#${ab}-to-ac-type`)?.value || "Untyped";
     });
+    data["ignore-encumbrance"] = $("#ignore-encumbrance")?.checked || false;
 
     // Saves
     ["fort", "ref", "will"].forEach((prefix) => {
@@ -390,6 +452,9 @@ const Character = (function () {
       if (data[`${ab}-to-ac`] !== undefined) $(`#${ab}-to-ac`).checked = data[`${ab}-to-ac`];
       if (data[`${ab}-to-ac-type`] !== undefined) $(`#${ab}-to-ac-type`).value = data[`${ab}-to-ac-type`];
     });
+    if (data["ignore-encumbrance"] !== undefined && $("#ignore-encumbrance")) {
+      $("#ignore-encumbrance").checked = !!data["ignore-encumbrance"];
+    }
 
     // Saves
     ["fort", "ref", "will"].forEach((prefix) => {
