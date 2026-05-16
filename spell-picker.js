@@ -122,6 +122,79 @@
     );
   }
 
+  // Look up a spell's level in a specific class's spell list. The
+  // picker's `.sp-level` input is a FILTER for the autocomplete list,
+  // not the routing destination — if the user types a spell name
+  // directly (without first filtering by level), the level input
+  // stays at its default 0 and the spell would route to L0 known /
+  // prepared regardless of its actual level. This helper resolves the
+  // canonical level by joining through `spell_class_level`. Returns
+  // null when the spell isn't on the class's list (e.g. user picked
+  // Cleric class but typed a Sor/Wiz-only spell).
+  function spellLevelForClass(spellName, canonicalClassName) {
+    if (!spellName || !canonicalClassName) return null;
+    const variants = canonical.get(canonicalClassName);
+    if (!variants || !variants.length) return null;
+    const placeholders = variants.map(() => '?').join(',');
+    const r = DB.queryOne(
+      "SELECT scl.level AS lvl FROM entry e " +
+      "JOIN spell_class_level scl ON scl.entry_id = e.id " +
+      "WHERE e.type = 'spell' AND e.name = ? COLLATE NOCASE " +
+      `AND scl.class_name IN (${placeholders}) ` +
+      "ORDER BY scl.level ASC LIMIT 1",
+      [spellName, ...variants]
+    );
+    if (!r || r.lvl === null || r.lvl === undefined) return null;
+    const n = parseInt(r.lvl, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  // Return all class-level mappings for a spell, formatted as
+  // "Sor/Wiz 3, Fire 3, Destruction 4" etc. — same shape commonly
+  // printed in source books. Used by the picker's info panel so the
+  // user can see what level a spell IS for whatever class they care
+  // about, not just the one filter-selected.
+  function allClassLevelsForSpell(spellName) {
+    if (!spellName) return [];
+    const rows = DB.query(
+      "SELECT scl.class_name AS cls, scl.level AS lvl " +
+      "FROM entry e JOIN spell_class_level scl ON scl.entry_id = e.id " +
+      "WHERE e.type = 'spell' AND e.name = ? COLLATE NOCASE " +
+      "ORDER BY scl.level, scl.class_name",
+      [spellName]
+    );
+    if (!rows.length) return [];
+    // Group by level, normalize/dedupe class names within a level.
+    // Collapse Sorcerer + Wizard at the same level → "Sor/Wiz".
+    const byLevel = new Map();
+    for (const r of rows) {
+      const norm = normalizeClass(r.cls) || r.cls;
+      const lvl = parseInt(r.lvl, 10);
+      if (isNaN(lvl)) continue;
+      if (!byLevel.has(lvl)) byLevel.set(lvl, new Set());
+      byLevel.get(lvl).add(norm);
+    }
+    const out = [];
+    for (const [lvl, classSet] of [...byLevel].sort((a, b) => a[0] - b[0])) {
+      // Sor/Wiz combined display when both at the same level.
+      let names = [...classSet];
+      const hasSorc = names.some(n => /^sorcerer$/i.test(n));
+      const hasWiz  = names.some(n => /^wizard$/i.test(n));
+      if (hasSorc && hasWiz) {
+        names = names.filter(n => !/^(sorcerer|wizard)$/i.test(n));
+        names.unshift('Sor/Wiz');
+      }
+      // Sort alphabetically with Sor/Wiz first if present.
+      names.sort((a, b) => {
+        if (a === 'Sor/Wiz') return -1;
+        if (b === 'Sor/Wiz') return 1;
+        return a.localeCompare(b);
+      });
+      for (const n of names) out.push(`${n} ${lvl}`);
+    }
+    return out;
+  }
+
   function spellByName(name) {
     // Case-insensitive match so "Fireball" matches both 3.5 "Fireball"
     // and 3.0 "FIREBALL"; 3.5 wins via the ORDER BY, then newest book.
@@ -291,9 +364,23 @@
       currentSpells = [];
       currentByName = new Map();
       if (!cls || !canonical.has(cls) || isNaN(lvl) || lvl < 0) {
-        spellInput.placeholder = '(pick class + level first)';
+        // No class+level filter set — fall back to the global
+        // #spell-options datalist (built once in
+        // buildGlobalSpellDatalist) so autocomplete still works
+        // when the user types a spell name directly. Matches the
+        // UX of the other pickers (race, feat, item) which always
+        // suggest from the full DB.
+        spellInput.setAttribute('list', 'spell-options');
+        const globalDl = document.getElementById('spell-options');
+        const total = globalDl ? globalDl.children.length : 0;
+        spellInput.placeholder = total
+          ? `(${total} spells — set class + level to narrow)`
+          : '(pick class + level first)';
+        updateInfoPanel();
         return;
       }
+      // Filter is set — use the per-instance filtered datalist.
+      spellInput.setAttribute('list', dlId);
       currentSpells = spellsFor(cls, lvl);
       // Dedupe by case-insensitive name; prefer 3.5 over 3.0 since the
       // ORDER BY in spellsFor puts 3.5 rows first, so the FIRST entry
@@ -330,6 +417,13 @@
       const bits = [];
       bits.push(`<b>${escapeHtml(full.name)}</b>` +
         ` <span style="opacity:.7">(${escapeHtml(full.version || '?')})</span>`);
+      // Show every class/level mapping (e.g. "Sor/Wiz 3, Fire 3").
+      // The picker's class+level filter is just one slice; the
+      // info panel should give the player the full picture.
+      const classLevels = allClassLevelsForSpell(full.name);
+      if (classLevels.length) {
+        bits.push(`<b>Level:</b> ${escapeHtml(classLevels.join(', '))}`);
+      }
       if (full.school) {
         const subAndDesc = [full.subschool, full.descriptor].filter(Boolean).join(', ');
         bits.push(`<b>School:</b> ${escapeHtml(full.school)}` +
@@ -341,7 +435,13 @@
       if (full.duration)      bits.push(`<b>Duration:</b> ${escapeHtml(full.duration)}`);
       if (full.saving_throw)  bits.push(`<b>Save:</b> ${escapeHtml(full.saving_throw)}`);
       if (full.spell_resistance) bits.push(`<b>SR:</b> ${escapeHtml(full.spell_resistance)}`);
-      info.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+      // Description (rules text) on its own line below the meta strip.
+      let html = bits.join(' &nbsp;·&nbsp; ');
+      if (full.description) {
+        html += `<div class="sp-info-desc" style="margin-top:0.4rem;` +
+                `line-height:1.4">${escapeHtml(full.description)}</div>`;
+      }
+      info.innerHTML = html;
       if (window.ErrataBadge) ErrataBadge.attach(info, full.spell_id);
       info.style.display = 'block';
     }
@@ -352,6 +452,45 @@
     tagSelect.addEventListener('change', refreshSpellList);
     spellInput.addEventListener('input', updateInfoPanel);
     spellInput.addEventListener('change', updateInfoPanel);
+
+    // ---- Class auto-detect from caster notes -----------------------
+    // The class-picker prefills each spellcasting panel's
+    // `.caster-notes` with the class name (e.g. "Sorcerer", "Wizard",
+    // "Druid") when "Apply to Sheet" is clicked. Surface that as the
+    // picker's default Class filter so the user doesn't have to
+    // re-type it. Only fills classInput when it's currently empty —
+    // never overrides a manual choice. Re-runs on notes changes.
+    function autoDetectClassFromNotes() {
+      if (classInput.value.trim()) return;  // user already chose
+      const notesEl = panel.querySelector('.caster-notes');
+      const raw = (notesEl?.value || '').trim();
+      if (!raw) return;
+      // Try the first line / first canonical match. Notes may have
+      // extra text appended ("Sha'ir — retrieves any Sor/Wiz spell…"),
+      // so we walk canonical names and pick the longest one that
+      // appears in the notes (longest wins so "Battle Sorcerer" beats
+      // "Sorcerer" when both are present).
+      const lower = raw.toLowerCase();
+      let bestMatch = null;
+      for (const name of classNamesSorted) {
+        if (lower.includes(name.toLowerCase())) {
+          if (!bestMatch || name.length > bestMatch.length) bestMatch = name;
+        }
+      }
+      if (bestMatch) {
+        classInput.value = bestMatch;
+        classInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    // Initial sniff: the panel's notes may already be set from
+    // class-picker apply or save load.
+    autoDetectClassFromNotes();
+    // Future sniff: re-detect when notes change (user types in the
+    // notes field, or class-picker re-applies).
+    const notesEl = panel.querySelector('.caster-notes');
+    if (notesEl) {
+      notesEl.addEventListener('input', autoDetectClassFromNotes);
+    }
 
     // --- Metamagic row -------------------------------------------------
     // Read the character's metamagic feats from the Feats tab, filter
@@ -495,8 +634,17 @@
     // Compute the spell's effective level (base + sum of fixed
     // adjustments) plus the Heighten target if active. Returns
     // { effectiveLevel, parts: [{name, delta}], suffixes: [string] }.
-    function effectiveMetamagic() {
-      const base = parseInt(levelInput.value, 10);
+    // `baseOverride`, when provided, takes priority over the picker's
+    // level input. This is how the +Known / +Prepared buttons feed in
+    // the spell's ACTUAL level (resolved via spellLevelForClass)
+    // rather than the level-filter input, which may not have been
+    // touched. The level filter remains authoritative when no override
+    // is supplied — e.g. for the live "Effective level: N" display
+    // before the user picks a specific spell.
+    function effectiveMetamagic(baseOverride) {
+      const base = (typeof baseOverride === 'number' && !isNaN(baseOverride))
+        ? baseOverride
+        : parseInt(levelInput.value, 10);
       const baseValid = !isNaN(base) && base >= 0;
       const parts = [];
       const suffixes = [];
@@ -571,18 +719,6 @@
     // Initial render.
     refreshMetamagicRow();
 
-    function findTarget(kind) {
-      const lvl = parseInt(levelInput.value, 10);
-      if (isNaN(lvl)) return null;
-      if (kind === 'known') {
-        // Structured list in the left column — see spells.js
-        // appendSpellListDiv. Returns the .sc-known-list[data-lvl=N]
-        // container so we can append a row.
-        return panel.querySelector(`.sc-known-list[data-lvl="${lvl}"]`);
-      }
-      return panel.querySelector(`.sc-spell-prepared[data-lvl="${lvl}"]`);
-    }
-
     function flash(msg, color) {
       const note = document.createElement('div');
       note.style.cssText = `margin-top:0.3rem;color:${color};font-style:italic`;
@@ -595,25 +731,43 @@
     function add(kind) {
       const name = spellInput.value.trim();
       if (!name) { flash('Pick a spell first.', '#a66'); return; }
+
+      // Resolve the spell's ACTUAL level for the selected class via
+      // spell_class_level. The picker's `.sp-level` input is just a
+      // filter on the autocomplete list — if the user typed a spell
+      // name directly without first setting the level, the input
+      // would still be at its default 0 and the spell would route to
+      // L0. Fall back to the input value only when the spell isn't
+      // on the chosen class's list (homebrew / cross-class typo).
+      const className = normalizeClass(classInput.value);
+      let baseLvl = spellLevelForClass(name, className);
+      const inputLvl = parseInt(levelInput.value, 10);
+      if (baseLvl === null && !isNaN(inputLvl)) {
+        baseLvl = inputLvl;
+      }
+      if (baseLvl === null || isNaN(baseLvl)) {
+        flash('Could not determine spell level. Pick a class first.', '#a66');
+        return;
+      }
+
       // Metamagic ignored for Known — you learn / scribe the base
-      // spell. Apply at cast/prep time. Same goes for invalid base
-      // level on Prepared (can't compute effective level).
+      // spell. Apply at cast/prep time.
       if (kind === 'known') {
-        const target = findTarget('known');
+        const target = panel.querySelector(`.sc-known-list[data-lvl="${baseLvl}"]`);
         if (!target) {
-          flash(`No level ${levelInput.value} list — try Add Spell Level first.`, '#a66');
+          flash(`No level ${baseLvl} list — try Add Spell Level first.`, '#a66');
           return;
         }
         // Skip duplicates — match case-insensitively on existing rows.
         const existing = Array.from(target.querySelectorAll('.sc-known-name'))
           .map(el => (el.value || '').trim().toLowerCase());
         if (existing.includes(name.toLowerCase())) {
-          flash(`"${name}" already in Known.`, '#aa8');
+          flash(`"${name}" already in L${baseLvl} Known.`, '#aa8');
           return;
         }
         if (typeof Spells !== 'undefined' &&
             typeof Spells.addKnownSpell === 'function') {
-          Spells.addKnownSpell(target, parseInt(levelInput.value, 10), name);
+          Spells.addKnownSpell(target, baseLvl, name);
         } else {
           const row = document.createElement('div');
           row.className = 'sc-known-row';
@@ -621,19 +775,13 @@
             `<input type="text" class="sc-known-name" value="${name}">`;
           target.appendChild(row);
         }
-        flash(`Added "${name}" to Known.`, '#7a9');
+        flash(`Added "${name}" to L${baseLvl} Known.`, '#7a9');
         return;
       }
       // Prepared path — apply any active metamagic. Route to the
       // effective-level Prepared textarea with a bracketed suffix.
-      const r = effectiveMetamagic();
-      const lvl = r.baseValid && r.parts.length > 0
-        ? r.effectiveLevel
-        : parseInt(levelInput.value, 10);
-      if (isNaN(lvl)) {
-        flash('Invalid spell level.', '#a66');
-        return;
-      }
+      const r = effectiveMetamagic(baseLvl);
+      const lvl = r.parts.length > 0 ? r.effectiveLevel : baseLvl;
       const target = panel.querySelector(`.sc-spell-prepared[data-lvl="${lvl}"]`);
       if (!target) {
         flash(`No level ${lvl} Prepared list — try Add Spell Level first.`, '#a66');
