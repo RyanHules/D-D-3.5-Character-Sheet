@@ -249,6 +249,10 @@
     'Psion': 'psionic', 'Wilder': 'psionic',
     'Psychic Warrior': 'psionic', 'Ardent': 'psionic',
     'Erudite': 'psionic',
+    // CPsi classes — added 2026-05-16 after normalize_cpsi_classes.py
+    // converted their data to canonical shape; the audit test then
+    // surfaced them as "looks like spellcaster but not in fallback".
+    'Divine Mind': 'psionic', 'Lurk': 'psionic',
   };
 
   // Casting style per class. Primary source is the DB

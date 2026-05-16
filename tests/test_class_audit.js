@@ -100,18 +100,12 @@ function execAll(db, sql, params) {
 // pure documentation).
 
 const KNOWN_NOTES = {
-  // PrCs missing advancement metadata. The "ADVANCER_BACKLOG" below
-  // is the bulk version; this section is for one-off context.
-  'Eldritch Knight': 'Missing advancement metadata + not in HARDCODED_ADVANCERS — see DB project TODO',
-  'Sublime Chord':   'CArc PrC — needs verification whether native caster or advancer',
-  // Complete Psionic schema-divergence: these four classes use
-  // `levels` / `features` instead of class_table / class_features.
-  // Whole-DB normalization pass tracked in sibling project TODO.
-  'Ardent':          'CPsi schema divergence: uses `levels` / `features` instead of class_table / class_features',
-  'Divine Mind':     'CPsi schema divergence',
-  'Erudite':         'CPsi schema divergence',
-  'Lurk':            'CPsi schema divergence',
-  // Dual-list caster — schema doesn't yet support both abilities.
+  // Currently the only one-off note. Cleared 2026-05-16:
+  //   Eldritch Knight (now wired via ADVANCEMENT_METADATA).
+  //   Sublime Chord (now has native-caster SPELLCASTING_METADATA).
+  //   Ardent / Divine Mind / Erudite / Lurk (CPsi schema normalized
+  //   via normalize_cpsi_classes.py — `levels` → `class_table`,
+  //   `features` → `class_features`).
   'Savant':          'Dual-list caster (INT arcane, WIS divine) — descriptive key_ability, schema needs dual support',
 };
 
