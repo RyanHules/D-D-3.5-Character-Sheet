@@ -382,6 +382,57 @@ const CHECKS = {
     }
     return null;
   },
+
+  // Fidelity check #1: detect `[ERRATA (...)]` markers that appear
+  // more than once in a single class_feature's description. This was
+  // the 2026-05-16 build-pipeline bug (apply_errata.py's class_features
+  // branch wasn't idempotent — re-running the script appended the same
+  // marker again). Fixed at the extraction layer; this check guards
+  // against regression.
+  'errata-marker-not-duplicated': (ctx) => {
+    const features = ctx.data.class_features || [];
+    const dup = [];
+    for (const f of features) {
+      const desc = String(f.description || '');
+      const counts = {};
+      for (const m of desc.match(/\[ERRATA[^\]]*\]/g) || []) {
+        counts[m] = (counts[m] || 0) + 1;
+      }
+      for (const [marker, n] of Object.entries(counts)) {
+        if (n >= 2) {
+          dup.push(`${f.name || '?'}: "${marker.slice(0, 40)}…" ×${n}`);
+        }
+      }
+    }
+    if (!dup.length) return null;
+    return `class_features description has duplicated errata marker(s): ${dup.join('; ')}`;
+  },
+
+  // Fidelity check #2: heuristic for class_features whose description
+  // is so short it's likely a heavy summary rather than a faithful
+  // extraction. Triggers only on the "Spells" feature (the highest-
+  // stakes prose for sheet correctness — used to determine ability
+  // keys, DC formulas, casting prerequisites). Threshold of 200 chars
+  // is a heuristic: a faithful Spells-feature transcription is
+  // typically 400-1000+ characters (look at Hexblade / Beguiler for
+  // examples). Reported as a warning since false positives are
+  // possible (rare classes with genuinely terse rules).
+  'spells-feature-not-suspiciously-summarized': (ctx) => {
+    const sc = ctx.data.spellcasting;
+    if (!sc) return null;  // non-caster — no Spells feature expected
+    const features = ctx.data.class_features || [];
+    const spells = features.find(f => /^spells?$/i.test((f.name || '').trim()));
+    if (!spells) {
+      // Some entries genuinely have no Spells feature (e.g. PrCs that
+      // only advance another caster's spells). Don't flag.
+      return null;
+    }
+    const desc = String(spells.description || '');
+    if (desc.length >= 200) return null;
+    return `Spells feature description is only ${desc.length} chars — likely heavy summary. ` +
+           `Hand-verify against source book to confirm key_ability / DC formula / ` +
+           `bonus-spell ability / casting prereq match RAW.`;
+  },
 };
 
 // Severity of each check. 'error' = test fails; 'warn' = reported but
@@ -398,6 +449,8 @@ const SEVERITY = {
   'prc-advancer-wired': 'error',
   'companion-grant-metadata': 'warn',
   'min-level-set-for-prc': 'warn',
+  'errata-marker-not-duplicated': 'error',
+  'spells-feature-not-suspiciously-summarized': 'warn',
 };
 
 // ---- Runner ---------------------------------------------------------------

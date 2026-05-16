@@ -1,4 +1,4 @@
-// database.js — load dnd35.db (SQLite) and expose query helpers.
+﻿// database.js — load dnd35.db (SQLite) and expose query helpers.
 //
 // This module is purely additive: existing manual-entry fields keep
 // working. When the database loads, we populate dropdown options and
@@ -20,7 +20,7 @@
   // Cache-bust the DB blob — Chrome/Firefox aggressively cache the
   // 14 MB file otherwise, so a rebuilt DB on disk doesn't reach the
   // page until a hard refresh. Bump this when dnd35.db changes.
-  const DB_VERSION = '20260516w';
+  const DB_VERSION = '20260516x';
   const DB_PATH = BASE + 'data/dnd35.db?v=' + DB_VERSION;
   const SQLJS_WASM_PATH = BASE + 'vendor/sql-wasm.wasm';
 
