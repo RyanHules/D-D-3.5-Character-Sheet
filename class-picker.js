@@ -489,6 +489,28 @@
     'Warlock',
   ]);
 
+  // Mystery-advancement metadata (ToM shadowcaster pillar). Parallels
+  // the spell / maneuver / invocation pillars. Two PrCs use it today:
+  //
+  //   * Master of Shadow (ToM) — advances mysteries L2-L10 (skips L1).
+  //     Source phrasing is "casting class to which you belonged"
+  //     (generic — could also mean an arcane caster); we route to
+  //     the mystery pillar because Shadowcaster is the canonical
+  //     build per source material.
+  //   * Noctumancer (ToM) — DUAL-pillar PrC. Advances both mystery
+  //     AND arcane casting at every level. Has BOTH `mystery_-
+  //     advancement` and the spell-pillar `advancement` set.
+  const _FALLBACK_MYSTERY_ADVANCERS = {
+    'Master of Shadow': { advancingLevels: [2, 3, 4, 5, 6, 7, 8, 9, 10] },
+    'Noctumancer':      { advancingLevels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+  };
+
+  // Base mystery-using classes — the targets of mystery-advancement
+  // PrCs. Today just Shadowcaster; expand if future books add more.
+  const MYSTERY_USING_CLASSES = new Set([
+    'Shadowcaster',
+  ]);
+
   const _FALLBACK_MANEUVER_ADVANCERS = {
     'Ruby Knight Vindicator': {
       advancingLevels: [2, 4, 6, 8, 10],
@@ -549,7 +571,8 @@
       "json_extract(data, '$.class_skills')                       AS class_skills, " +
       "json_extract(data, '$.advancement')                        AS advancement, " +
       "json_extract(data, '$.maneuver_advancement')               AS maneuver_advancement, " +
-      "json_extract(data, '$.invocation_advancement')             AS invocation_advancement " +
+      "json_extract(data, '$.invocation_advancement')             AS invocation_advancement, " +
+      "json_extract(data, '$.mystery_advancement')                AS mystery_advancement " +
       "FROM entry WHERE type IN ('class','prc')"
     );
     for (const r of rows) {
@@ -598,12 +621,20 @@
           iadv = { advancingLevels: iadv.advancing_levels || [] };
         }
       }
+      let mystadv = null;
+      if (r.mystery_advancement) {
+        try { mystadv = JSON.parse(r.mystery_advancement); } catch (e) { mystadv = null; }
+        if (mystadv) {
+          mystadv = { advancingLevels: mystadv.advancing_levels || [] };
+        }
+      }
       _dbMetaCache.set(r.name, {
         classType: ct,
         style: r.style,
         advancement: adv,
         maneuverAdvancement: madv,
         invocationAdvancement: iadv,
+        mysteryAdvancement: mystadv,
         keyAbility: _normalizeAbility(r.key_ability),
         // Optional override — only set for Favored Soul / Spirit
         // Shaman style classes. Null when bonus spells use the same
@@ -644,6 +675,12 @@
     const m = _dbMetaCache.get(className);
     if (m && m.invocationAdvancement) return m.invocationAdvancement;
     return _FALLBACK_INVOCATION_ADVANCERS[className] ?? null;
+  }
+  function getMysteryAdvancementSpec(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.mysteryAdvancement) return m.mysteryAdvancement;
+    return _FALLBACK_MYSTERY_ADVANCERS[className] ?? null;
   }
   function getKeyAbility(className) {
     loadDbMetadata();
@@ -1284,6 +1321,11 @@
           e.invocationAdvancesTarget.toLowerCase() === removedKey) {
         e.invocationAdvancesTarget = null;
       }
+      // Mystery pillar — same pattern.
+      if (e.mysteryAdvancesTarget &&
+          e.mysteryAdvancesTarget.toLowerCase() === removedKey) {
+        e.mysteryAdvancesTarget = null;
+      }
     }
 
     // Strip class-granted freebie spells (Sand Shaper's Desert
@@ -1384,6 +1426,11 @@
           invocationAdvancesLevels:  e.invocationAdvancesLevels,
           invocationAdvancesTarget:  e.invocationAdvancesTarget,
           invocationAdvancingLevels: e.invocationAdvancingLevels,
+          // Mystery-advancement pillar (MoS / Noctumancer). Noctumancer
+          // is dual-pillar: populates this AND the spell pillar.
+          mysteryAdvancesLevels:  e.mysteryAdvancesLevels,
+          mysteryAdvancesTarget:  e.mysteryAdvancesTarget,
+          mysteryAdvancingLevels: e.mysteryAdvancingLevels,
         }));
       }
       if (useFractional) out._fractionalBaseBonus = true;
@@ -1436,6 +1483,10 @@
             invocationAdvancesLevels:  stub.invocationAdvancesLevels  || undefined,
             invocationAdvancesTarget:  stub.invocationAdvancesTarget  || undefined,
             invocationAdvancingLevels: stub.invocationAdvancingLevels || undefined,
+            // Mystery pillar.
+            mysteryAdvancesLevels:  stub.mysteryAdvancesLevels  || undefined,
+            mysteryAdvancesTarget:  stub.mysteryAdvancesTarget  || undefined,
+            mysteryAdvancingLevels: stub.mysteryAdvancingLevels || undefined,
           });
         }
       }
@@ -1917,6 +1968,7 @@
     for (const e of pickedClasses) refreshAdvanceTargets(e);
     for (const e of pickedClasses) refreshManeuverAdvanceTarget(e);
     for (const e of pickedClasses) refreshInvocationAdvanceTarget(e);
+    for (const e of pickedClasses) refreshMysteryAdvanceTarget(e);
     // After targets settle, resolve auto-lower slots (UM L1/4/7) using
     // the current state. This must come AFTER refreshAdvanceTargets
     // because slot targets are recomputed there for per-level entries.
@@ -2013,6 +2065,64 @@
         stillExists(entry.invocationAdvancesTarget)) return;
     const tgt = pickInvocationAdvanceTarget(entry);
     entry.invocationAdvancesTarget = tgt || null;
+  }
+
+  // ============================================================
+  // Mystery-advancement pillar (Tome of Magic shadowcaster pillar)
+  //
+  // Parallel to the spell + maneuver + invocation pillars. Tracks
+  // the mystery-pillar progression of a base mystery-using class
+  // (Shadowcaster today). Two PrCs use this pillar:
+  //
+  //   * Master of Shadow (ToM) — advances mysteries L2-L10
+  //   * Noctumancer      (ToM) — DUAL-pillar PrC. Advances mystery
+  //                              AND arcane casting every level. Has
+  //                              BOTH `entry.advancesLevels` (arcane
+  //                              spell side) AND `entry.mystery-
+  //                              AdvancesLevels` populated.
+  // ============================================================
+
+  function detectMysteryAdvancement(className, classId, level) {
+    const spec = getMysteryAdvancementSpec(className);
+    if (!spec || !Array.isArray(spec.advancingLevels)) return null;
+    const passed = spec.advancingLevels.filter(lv => lv <= level);
+    if (!passed.length) return null;
+    return {
+      levels: passed.length,
+      advancingLevels: passed.slice(),
+    };
+  }
+
+  function pickMysteryAdvanceTarget(advancerEntry) {
+    for (const e of pickedClasses) {
+      if (e === advancerEntry) continue;
+      if (MYSTERY_USING_CLASSES.has(e.className)) return e.className;
+    }
+    return null;
+  }
+
+  function effectiveMysteryLevel(target) {
+    let bonus = 0;
+    for (const e of pickedClasses) {
+      if (e === target) continue;
+      if (!e.mysteryAdvancesLevels) continue;
+      const tgt = e.mysteryAdvancesTarget;
+      if (!tgt) continue;
+      if (tgt.toLowerCase() === target.className.toLowerCase()) {
+        bonus += e.mysteryAdvancesLevels;
+      }
+    }
+    return Math.min(20, target.level + bonus);
+  }
+
+  function refreshMysteryAdvanceTarget(entry) {
+    if (!entry.mysteryAdvancesLevels) return;
+    const stillExists = (name) =>
+      pickedClasses.some(e => e.className.toLowerCase() === name.toLowerCase());
+    if (entry.mysteryAdvancesTarget &&
+        stillExists(entry.mysteryAdvancesTarget)) return;
+    const tgt = pickMysteryAdvanceTarget(entry);
+    entry.mysteryAdvancesTarget = tgt || null;
   }
 
   function refreshAllManeuverTabs() {
@@ -2256,6 +2366,15 @@
       entry.invocationAdvancesLevels = iadv.levels;
       entry.invocationAdvancingLevels = iadv.advancingLevels;
     }
+    // Detect mystery-advancement (parallel pillar — Master of Shadow,
+    // Noctumancer). Independent of the other pillars; Noctumancer
+    // populates BOTH spell (arcane) and mystery pillars on the same
+    // schedule.
+    const mystadv = detectMysteryAdvancement(cls.class, cls.class_id, level);
+    if (mystadv) {
+      entry.mysteryAdvancesLevels = mystadv.levels;
+      entry.mysteryAdvancingLevels = mystadv.advancingLevels;
+    }
     if (existingIdx >= 0) {
       // Preserve user-pinned target overrides on re-apply (advancesTargets
       // / advancementSlots may have been manually selected by the user
@@ -2279,6 +2398,9 @@
       // than one invocation-using base class).
       if (prev.invocationAdvancesTarget) {
         entry.invocationAdvancesTarget = prev.invocationAdvancesTarget;
+      }
+      if (prev.mysteryAdvancesTarget) {
+        entry.mysteryAdvancesTarget = prev.mysteryAdvancesTarget;
       }
       pickedClasses[existingIdx] = entry;
     } else {
@@ -2359,6 +2481,11 @@
       advParts.push(`${entry.invocationAdvancesTarget} invocations`);
     } else if (entry.invocationAdvancesLevels) {
       advParts.push(`invocations — no invoker base found`);
+    }
+    if (entry.mysteryAdvancesTarget) {
+      advParts.push(`${entry.mysteryAdvancesTarget} mysteries`);
+    } else if (entry.mysteryAdvancesLevels) {
+      advParts.push(`mysteries — no mystery base found`);
     }
     const advNote = advParts.length ? ` (advances ${advParts.join(', ')})` : '';
     const summary = pickedClasses

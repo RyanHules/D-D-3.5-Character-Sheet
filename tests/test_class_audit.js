@@ -186,19 +186,12 @@ const COMPANION_KEYWORD_INCIDENTAL = /leadership\s+score|feat\s+from:?\b[^.]*lea
 // support. Until that infrastructure lands, these PrCs' advancement
 // stays dropped on the floor at apply-time.
 const ADVANCER_BACKLOG = new Set([
-  // 2026-05-16: Eldritch Disciple cleared via invocation-advancement
-  // pillar (new `data.invocation_advancement` field; new
-  // INVOCATION_ADVANCEMENT_METADATA dict in _class_metadata.py;
-  // new pillar wiring in class-picker.js).
-  //
-  // Master of Shadow (ToM): advances "a casting class" — could be
-  // a mystery-using class (Shadowcaster) OR an arcane spellcasting
-  // class. Needs mystery-pillar handling + per-character class-choice.
-  'Master of Shadow',
-  // Noctumancer (ToM): advances BOTH the mystery-using class AND an
-  // arcane spellcasting class at every PrC level. Dual-pillar
-  // advancement not yet expressible.
-  'Noctumancer',
+  // 2026-05-16: all three remaining triage entries cleared.
+  //   * Eldritch Disciple → invocation-advancement pillar
+  //   * Master of Shadow  → mystery-advancement pillar
+  //   * Noctumancer       → dual-pillar (arcane via ADVANCEMENT_METADATA
+  //                         + mystery via MYSTERY_ADVANCEMENT_METADATA)
+  // Set kept empty for future regressions to land in.
 ]);
 
 // ---- Helpers --------------------------------------------------------------
@@ -359,10 +352,12 @@ const CHECKS = {
       'spells per day|caster level|spells known|spellcasting class' +
       '|spellcasting ability|manifester level|powers known|power points' +
       // Warlock-pillar nouns so invocation-only advancers (Demonbinder)
-      // get caught — was a documented gap pre-2026-05-16. Mystery-pillar
-      // nouns ("mysteries known", "shadowcaster class") will follow when
-      // the mystery-advancement pillar lands.
-      '|invocations? known|invocation-using class',
+      // get caught.
+      '|invocations? known|invocation-using class' +
+      // ToM shadowcaster-pillar nouns. Master of Shadow's phrasing is
+      // "new mysteries or spells per day" / "casting class to which you
+      // belonged"; Noctumancer adds "mystery-using class".
+      '|mysteries known|mystery-using class|casting class',
       'i'
     );
     if (!ADVANCE_VERB.test(text) || !SPELL_NOUN.test(text)) return null;
@@ -388,6 +383,7 @@ const CHECKS = {
     if (ctx.data.advancement) return null;
     if (ctx.data.maneuver_advancement) return null;
     if (ctx.data.invocation_advancement) return null;
+    if (ctx.data.mystery_advancement) return null;
 
     return 'class_features describes pillar-advancement but no metadata / canonical marker / HARDCODED_ADVANCERS entry';
   },
