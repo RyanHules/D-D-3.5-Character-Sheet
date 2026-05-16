@@ -140,23 +140,32 @@ const SPELLCASTING_BLOCK_INCOMPLETE = new Set([
 ]);
 
 // PrCs whose class_features text matches the broad advancer regex but
-// aren't yet wired into HARDCODED_ADVANCERS. Documented finding from
-// the 2026-05-16 audit pass — represents a triage list of PrCs the
-// sheet may currently mishandle. The strict-regex check below
-// surfaces them as xfail so the test stays green until they're
-// triaged + wired class-by-class.
+// aren't yet wired into ADVANCEMENT_METADATA / HARDCODED_ADVANCERS.
+// This set just adds the bulk-context note to the audit output — it
+// does NOT suppress failures. Originally 38 entries (2026-05-16
+// audit); shrunk as ADVANCEMENT_METADATA was populated.
+//
+// Removed entries: 36 PrCs wired into _class_metadata.py's
+// ADVANCEMENT_METADATA on 2026-05-16. EK and Sublime Chord also
+// removed (EK now has advancement; Sublime Chord now has a native
+// caster spellcasting block).
+//
+// Still listed below (3 entries): PrCs whose advancement pillar
+// (invocations / mysteries / dual-pillar) the sheet doesn't yet
+// support. Until that infrastructure lands, these PrCs' advancement
+// stays dropped on the floor at apply-time.
 const ADVANCER_BACKLOG = new Set([
-  'Abjurant Champion', 'Anarchic Initiate', 'Bladesinger',
-  'Brimstone Speaker', 'Cerebrex', 'Cloaked Dancer', 'Drow Paragon',
-  'Eldritch Disciple', 'Eldritch Theurge', 'Elf Paragon', 'Fiendbinder',
-  'Fleet Runner of Ehlonna', 'Flux Adept', 'Force Missile Mage',
-  "Fortune's Friend", 'Gnome Paragon', 'Gray Guard', 'Half-Elf Paragon',
-  'Holt Warden', 'Holy Scourge', 'Human Paragon', 'Lyric Thaumaturge',
-  'Magical Trickster', 'Malconvoker', 'Master of Masks',
-  'Master of Shadow', "Nature's Warrior", 'Nightmare Spinner',
-  'Noctumancer', 'Osteomancer', 'Prestige Bard', 'Prestige Paladin',
-  'Spellwarp Sniper', 'Tainted Sorcerer', 'Tenebrous Apostate',
-  'The Shaper of Form', 'Unseen Seer', 'Wild Soul',
+  // Eldritch Disciple (CMage): advances INVOCATIONS, not spells.
+  // Needs an invocation-advancement pillar mirroring the spell pillar.
+  'Eldritch Disciple',
+  // Master of Shadow (ToM): advances "a casting class" — could be
+  // a mystery-using class (Shadowcaster) OR an arcane spellcasting
+  // class. Needs mystery-pillar handling + per-character class-choice.
+  'Master of Shadow',
+  // Noctumancer (ToM): advances BOTH the mystery-using class AND an
+  // arcane spellcasting class at every PrC level. Dual-pillar
+  // advancement not yet expressible.
+  'Noctumancer',
 ]);
 
 // ---- Helpers --------------------------------------------------------------
