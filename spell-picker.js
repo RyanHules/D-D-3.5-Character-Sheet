@@ -81,9 +81,32 @@
     if (!k) return null;
     if (CLASS_ALIASES[k]) return CLASS_ALIASES[k];
     // Title-case the squashed form so "wizard" / "WIZARD" / "Wizard"
-    // collapse to one bucket even without an explicit alias.
-    return k.replace(/\b\w/g, c => c.toUpperCase());
+    // collapse to one bucket even without an explicit alias. Only
+    // uppercase letters that follow whitespace or are at the very
+    // start — NOT `\b\w`, which also matches after apostrophes and
+    // would turn "sha'ir" into "Sha'Ir" (breaking the canonical
+    // lookup for Sha'ir, M'jhal, etc.).
+    return k.replace(/(^|\s)(\w)/g, (m, sep, c) => sep + c.toUpperCase());
   }
+
+  // Composite spell lists — casters whose "list" is a union of other
+  // classes' lists rather than their own tagged entries in
+  // spell_class_level. The picker resolves these by querying all
+  // listed source classes at the given level.
+  //
+  // Sha'ir (Dragon Compendium): Sor/Wiz list + 9 elemental/conceptual
+  // domain lists (Air, Chaos, Earth, Fire, Knowledge, Law, Luck,
+  // Sun, Water). The class itself has no entries in spell_class_level.
+  //
+  // Add more composite casters here as they come up. The values are
+  // raw class_name strings as they appear in spell_class_level.
+  const COMPOSITE_LISTS = {
+    "Sha'ir": [
+      'Sorcerer', 'Wizard',
+      'Air', 'Chaos', 'Earth', 'Fire',
+      'Knowledge', 'Law', 'Luck', 'Sun', 'Water',
+    ],
+  };
 
   function buildCanonicalMap() {
     const rows = DB.query("SELECT DISTINCT class_name FROM spell_class_level");
@@ -95,9 +118,16 @@
       if (!canonical.has(norm)) canonical.set(norm, []);
       canonical.get(norm).push(r.class_name);
     }
+    // Layer in composite-list casters whose spell list is the union
+    // of other classes' lists. We map each composite name to ALL the
+    // source class names so spellsFor() picks them up.
+    for (const [compositeName, sources] of Object.entries(COMPOSITE_LISTS)) {
+      canonical.set(compositeName, sources.slice());
+    }
     classNamesSorted = [...canonical.keys()].sort((a, b) => a.localeCompare(b));
     console.log(`[spell-picker] indexed ${rows.length} raw class entries → ` +
-      `${classNamesSorted.length} canonical classes`);
+      `${classNamesSorted.length} canonical classes ` +
+      `(incl. ${Object.keys(COMPOSITE_LISTS).length} composite)`);
   }
 
   function spellsFor(canonicalName, level) {

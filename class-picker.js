@@ -1985,11 +1985,18 @@
     const row = levelData(classId, classLevel);
     if (!row) return null;
     const spd = parseJsonArray(row.spells_per_day_json);
-    if (!spd || !spd.length) return null;
+    // spells_per_day can be a STRING for advancer PrCs (Durthan
+    // stores "+1 level of existing spellcasting class" verbatim).
+    // Calling `.some()` on a string throws — the same gotcha that
+    // bit updatePreview earlier (see comment at the preview-panel
+    // code site). For advancer rows, the class has no native
+    // spellcasting data of its own; return null so the picker
+    // doesn't try to create a panel for it.
+    if (!spd || !Array.isArray(spd) || !spd.length) return null;
     const hasAny = spd.some(n => n !== null && n !== undefined);
     if (!hasAny) return null;
     const sk = parseJsonArray(row.spells_known_json);
-    return { spd, sk };
+    return { spd, sk: Array.isArray(sk) ? sk : null };
   }
 
   // Find an existing caster panel whose notes start with the class name
