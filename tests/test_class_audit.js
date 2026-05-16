@@ -186,9 +186,11 @@ const COMPANION_KEYWORD_INCIDENTAL = /leadership\s+score|feat\s+from:?\b[^.]*lea
 // support. Until that infrastructure lands, these PrCs' advancement
 // stays dropped on the floor at apply-time.
 const ADVANCER_BACKLOG = new Set([
-  // Eldritch Disciple (CMage): advances INVOCATIONS, not spells.
-  // Needs an invocation-advancement pillar mirroring the spell pillar.
-  'Eldritch Disciple',
+  // 2026-05-16: Eldritch Disciple cleared via invocation-advancement
+  // pillar (new `data.invocation_advancement` field; new
+  // INVOCATION_ADVANCEMENT_METADATA dict in _class_metadata.py;
+  // new pillar wiring in class-picker.js).
+  //
   // Master of Shadow (ToM): advances "a casting class" — could be
   // a mystery-using class (Shadowcaster) OR an arcane spellcasting
   // class. Needs mystery-pillar handling + per-character class-choice.
@@ -355,7 +357,12 @@ const CHECKS = {
     );
     const SPELL_NOUN = new RegExp(
       'spells per day|caster level|spells known|spellcasting class' +
-      '|spellcasting ability|manifester level|powers known|power points',
+      '|spellcasting ability|manifester level|powers known|power points' +
+      // Warlock-pillar nouns so invocation-only advancers (Demonbinder)
+      // get caught — was a documented gap pre-2026-05-16. Mystery-pillar
+      // nouns ("mysteries known", "shadowcaster class") will follow when
+      // the mystery-advancement pillar lands.
+      '|invocations? known|invocation-using class',
       'i'
     );
     if (!ADVANCE_VERB.test(text) || !SPELL_NOUN.test(text)) return null;
@@ -374,10 +381,15 @@ const CHECKS = {
     // Source B — HARDCODED_ADVANCERS fallback.
     if (HARDCODED_ADVANCERS.has(ctx.row.name)) return null;
 
-    // Source 0 — DB advancement metadata (preferred long-term).
+    // Source 0 — DB advancement metadata (preferred long-term). Any of
+    // the three pillar fields counts as a valid wiring; a PrC can have
+    // multiple set (Eldritch Theurge has both `advancement` for arcane
+    // spells AND `invocation_advancement`).
     if (ctx.data.advancement) return null;
+    if (ctx.data.maneuver_advancement) return null;
+    if (ctx.data.invocation_advancement) return null;
 
-    return 'class_features describes spell-advancement but no metadata / canonical marker / HARDCODED_ADVANCERS entry';
+    return 'class_features describes pillar-advancement but no metadata / canonical marker / HARDCODED_ADVANCERS entry';
   },
 
   // Companion-grant metadata. Class features mentioning these

@@ -456,6 +456,39 @@
   //   disciplines: [str, …]      — optional discipline whitelist.
   //       Recorded for future maneuver-picker integration, not consumed
   //       by the IL advancement walk.
+  // Invocation-advancement metadata (Warlock-style pillar). Parallels
+  // `_FALLBACK_HARDCODED_ADVANCERS` / `_FALLBACK_MANEUVER_ADVANCERS`
+  // but tracks invocations-known / grade-access advancement of a
+  // base invocation-using class (Warlock today; Dragonfire Adept once
+  // extracted). Three PrCs use this pillar:
+  //
+  //   * Eldritch Disciple  (CMage) — advances invocations at every PrC level
+  //   * Eldritch Theurge   (CMage) — advances invocations AT every PrC level
+  //                                  (also advances arcane casting via the
+  //                                  separate spell pillar — dual-pillar PrC)
+  //   * Demonbinder        (DotU)  — advances invocations at L2-L10 (skips L1)
+  //
+  // No "advancing-types" axis because there's only one invocation-track
+  // base class in the current DB (Warlock). When DFA gets extracted,
+  // advancement still resolves to "the picked base invocation-user".
+  const _FALLBACK_INVOCATION_ADVANCERS = {
+    'Eldritch Disciple': {
+      advancingLevels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    },
+    'Eldritch Theurge': {
+      advancingLevels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    },
+    'Demonbinder': {
+      advancingLevels: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    },
+  };
+
+  // Base invocation-using classes — the targets of invocation-advancement
+  // PrCs. Today just Warlock; expand as DFA / Hellfire Warlock / etc. land.
+  const INVOCATION_USING_CLASSES = new Set([
+    'Warlock',
+  ]);
+
   const _FALLBACK_MANEUVER_ADVANCERS = {
     'Ruby Knight Vindicator': {
       advancingLevels: [2, 4, 6, 8, 10],
@@ -515,7 +548,8 @@
       "json_extract(data, '$.spellcasting.bonus_spell_ability')   AS bonus_spell_ability, " +
       "json_extract(data, '$.class_skills')                       AS class_skills, " +
       "json_extract(data, '$.advancement')                        AS advancement, " +
-      "json_extract(data, '$.maneuver_advancement')               AS maneuver_advancement " +
+      "json_extract(data, '$.maneuver_advancement')               AS maneuver_advancement, " +
+      "json_extract(data, '$.invocation_advancement')             AS invocation_advancement " +
       "FROM entry WHERE type IN ('class','prc')"
     );
     for (const r of rows) {
@@ -557,11 +591,19 @@
           };
         }
       }
+      let iadv = null;
+      if (r.invocation_advancement) {
+        try { iadv = JSON.parse(r.invocation_advancement); } catch (e) { iadv = null; }
+        if (iadv) {
+          iadv = { advancingLevels: iadv.advancing_levels || [] };
+        }
+      }
       _dbMetaCache.set(r.name, {
         classType: ct,
         style: r.style,
         advancement: adv,
         maneuverAdvancement: madv,
+        invocationAdvancement: iadv,
         keyAbility: _normalizeAbility(r.key_ability),
         // Optional override — only set for Favored Soul / Spirit
         // Shaman style classes. Null when bonus spells use the same
@@ -596,6 +638,12 @@
     const m = _dbMetaCache.get(className);
     if (m && m.maneuverAdvancement) return m.maneuverAdvancement;
     return _FALLBACK_MANEUVER_ADVANCERS[className] ?? null;
+  }
+  function getInvocationAdvancementSpec(className) {
+    loadDbMetadata();
+    const m = _dbMetaCache.get(className);
+    if (m && m.invocationAdvancement) return m.invocationAdvancement;
+    return _FALLBACK_INVOCATION_ADVANCERS[className] ?? null;
   }
   function getKeyAbility(className) {
     loadDbMetadata();
@@ -1231,6 +1279,11 @@
           e.maneuverAdvancesTarget.toLowerCase() === removedKey) {
         e.maneuverAdvancesTarget = null;
       }
+      // Invocation pillar — same pattern.
+      if (e.invocationAdvancesTarget &&
+          e.invocationAdvancesTarget.toLowerCase() === removedKey) {
+        e.invocationAdvancesTarget = null;
+      }
     }
 
     // Strip class-granted freebie spells (Sand Shaper's Desert
@@ -1325,6 +1378,12 @@
           maneuverAdvancesTarget:  e.maneuverAdvancesTarget,
           maneuverAdvancingLevels: e.maneuverAdvancingLevels,
           maneuverDisciplines:     e.maneuverDisciplines,
+          // Invocation-advancement pillar (ED / ET / Demonbinder).
+          // Same dual-pillar pattern: ET populates this AND the spell
+          // pillar above.
+          invocationAdvancesLevels:  e.invocationAdvancesLevels,
+          invocationAdvancesTarget:  e.invocationAdvancesTarget,
+          invocationAdvancingLevels: e.invocationAdvancingLevels,
         }));
       }
       if (useFractional) out._fractionalBaseBonus = true;
@@ -1373,6 +1432,10 @@
             maneuverAdvancesTarget:  stub.maneuverAdvancesTarget  || undefined,
             maneuverAdvancingLevels: stub.maneuverAdvancingLevels || undefined,
             maneuverDisciplines:     stub.maneuverDisciplines     || undefined,
+            // Invocation pillar.
+            invocationAdvancesLevels:  stub.invocationAdvancesLevels  || undefined,
+            invocationAdvancesTarget:  stub.invocationAdvancesTarget  || undefined,
+            invocationAdvancingLevels: stub.invocationAdvancingLevels || undefined,
           });
         }
       }
@@ -1853,6 +1916,7 @@
   function refreshAllSpellTabs() {
     for (const e of pickedClasses) refreshAdvanceTargets(e);
     for (const e of pickedClasses) refreshManeuverAdvanceTarget(e);
+    for (const e of pickedClasses) refreshInvocationAdvanceTarget(e);
     // After targets settle, resolve auto-lower slots (UM L1/4/7) using
     // the current state. This must come AFTER refreshAdvanceTargets
     // because slot targets are recomputed there for per-level entries.
@@ -1884,6 +1948,71 @@
         stillExists(entry.maneuverAdvancesTarget)) return;
     const tgt = pickManeuverAdvanceTarget(entry);
     entry.maneuverAdvancesTarget = tgt || null;
+  }
+
+  // ============================================================
+  // Invocation-advancement pillar (Warlock-style)
+  //
+  // Parallel to the spell + maneuver pillars but tracks the
+  // invocation-pillar progression of a base invocation-using class
+  // (Warlock today; Dragonfire Adept once extracted). Eldritch
+  // Disciple / Eldritch Theurge / Demonbinder all advance this pillar.
+  //
+  // Eldritch Theurge is a DUAL-pillar PrC — it advances both arcane
+  // spellcasting AND invocations at every PrC level. The two pillars
+  // are tracked on the entry independently (entry.advancesLevels for
+  // the spell side, entry.invocationAdvancesLevels for the invocation
+  // side) so that future UI / lookup-modal / chip-display consumers
+  // can surface both.
+  //
+  // No effective-level panel-update is wired today — the sheet
+  // doesn't yet have a per-Warlock invocations panel showing caster
+  // level / invocations-known counts. The chip-list display surfaces
+  // "(advances invocations)" via the same advNote builder that
+  // handles the spell pillar.
+  // ============================================================
+
+  function detectInvocationAdvancement(className, classId, level) {
+    const spec = getInvocationAdvancementSpec(className);
+    if (!spec || !Array.isArray(spec.advancingLevels)) return null;
+    const passed = spec.advancingLevels.filter(lv => lv <= level);
+    if (!passed.length) return null;
+    return {
+      levels: passed.length,
+      advancingLevels: passed.slice(),
+    };
+  }
+
+  function pickInvocationAdvanceTarget(advancerEntry) {
+    for (const e of pickedClasses) {
+      if (e === advancerEntry) continue;
+      if (INVOCATION_USING_CLASSES.has(e.className)) return e.className;
+    }
+    return null;
+  }
+
+  function effectiveInvocationLevel(target) {
+    let bonus = 0;
+    for (const e of pickedClasses) {
+      if (e === target) continue;
+      if (!e.invocationAdvancesLevels) continue;
+      const tgt = e.invocationAdvancesTarget;
+      if (!tgt) continue;
+      if (tgt.toLowerCase() === target.className.toLowerCase()) {
+        bonus += e.invocationAdvancesLevels;
+      }
+    }
+    return Math.min(20, target.level + bonus);
+  }
+
+  function refreshInvocationAdvanceTarget(entry) {
+    if (!entry.invocationAdvancesLevels) return;
+    const stillExists = (name) =>
+      pickedClasses.some(e => e.className.toLowerCase() === name.toLowerCase());
+    if (entry.invocationAdvancesTarget &&
+        stillExists(entry.invocationAdvancesTarget)) return;
+    const tgt = pickInvocationAdvanceTarget(entry);
+    entry.invocationAdvancesTarget = tgt || null;
   }
 
   function refreshAllManeuverTabs() {
@@ -2119,6 +2248,14 @@
       entry.maneuverAdvancingLevels = madv.advancingLevels;
       entry.maneuverDisciplines = madv.disciplines;
     }
+    // Detect invocation-advancement (parallel pillar — Eldritch
+    // Disciple, Eldritch Theurge, Demonbinder). Independent of the
+    // other pillars; ET populates BOTH spell and invocation.
+    const iadv = detectInvocationAdvancement(cls.class, cls.class_id, level);
+    if (iadv) {
+      entry.invocationAdvancesLevels = iadv.levels;
+      entry.invocationAdvancingLevels = iadv.advancingLevels;
+    }
     if (existingIdx >= 0) {
       // Preserve user-pinned target overrides on re-apply (advancesTargets
       // / advancementSlots may have been manually selected by the user
@@ -2137,6 +2274,11 @@
       // Warblade over Crusader when both are present).
       if (prev.maneuverAdvancesTarget) {
         entry.maneuverAdvancesTarget = prev.maneuverAdvancesTarget;
+      }
+      // Same for the invocation pillar (matters once we extract more
+      // than one invocation-using base class).
+      if (prev.invocationAdvancesTarget) {
+        entry.invocationAdvancesTarget = prev.invocationAdvancesTarget;
       }
       pickedClasses[existingIdx] = entry;
     } else {
@@ -2202,11 +2344,23 @@
     } catch (e) { /* non-fatal */ }
 
     const tabNote = casterPanel ? ' + Spells tab' : '';
-    const advNote = entry.advancesTargets && entry.advancesTargets.some(t => t)
-      ? ` (advances ${entry.advancesTargets.filter(Boolean).join(' + ')})`
-      : (entry.advancesTypes && entry.advancesTypes.length
-          ? ` (advances ${entry.advancesTypes.join('+')} caster — no target found)`
-          : '');
+    const advParts = [];
+    if (entry.advancesTargets && entry.advancesTargets.some(t => t)) {
+      advParts.push(entry.advancesTargets.filter(Boolean).join(' + '));
+    } else if (entry.advancesTypes && entry.advancesTypes.length) {
+      advParts.push(`${entry.advancesTypes.join('+')} caster — no target found`);
+    }
+    if (entry.maneuverAdvancesTarget) {
+      advParts.push(`${entry.maneuverAdvancesTarget} IL`);
+    } else if (entry.maneuverAdvancesLevels) {
+      advParts.push(`maneuvers — no ToB base found`);
+    }
+    if (entry.invocationAdvancesTarget) {
+      advParts.push(`${entry.invocationAdvancesTarget} invocations`);
+    } else if (entry.invocationAdvancesLevels) {
+      advParts.push(`invocations — no invoker base found`);
+    }
+    const advNote = advParts.length ? ` (advances ${advParts.join(', ')})` : '';
     const summary = pickedClasses
       .map(e => `${e.className} ${e.level}`).join(' / ');
     flashPanel(panel,
