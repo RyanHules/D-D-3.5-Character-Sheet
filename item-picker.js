@@ -70,7 +70,7 @@
     // newest publication date (so the most recent printing wins for
     // duplicate-named items).
     const rows = DB.query(
-      "SELECT e.id AS item_id, e.name, e.version, " +
+      "SELECT e.id AS item_id, e.name, e.version, e.source, " +
       "       e.item_type AS type " +
       "FROM entry e " +
       "LEFT JOIN book b ON b.name = e.source " +
@@ -83,6 +83,7 @@
     typeIndex = new Map();
     for (const r of rows) {
       if (!r.name) continue;
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = r.name.toLowerCase();
       if (!itemIndex.has(key)) {
         itemIndex.set(key, {
@@ -259,6 +260,11 @@
     applyFilters();
     typeSel.addEventListener('change', applyFilters);
     tagSel.addEventListener('change', applyFilters);
+
+    document.addEventListener('book-filter-changed', () => {
+      buildIndex();
+      applyFilters();
+    });
 
     // Detect whether `item_type` is an armor- or shield-affix. The DB
     // uses several near-synonyms ("Armor Special Ability", "Magic

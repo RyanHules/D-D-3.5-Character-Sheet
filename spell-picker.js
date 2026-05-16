@@ -415,9 +415,10 @@
       // Dedupe by case-insensitive name; prefer 3.5 over 3.0 since the
       // ORDER BY in spellsFor puts 3.5 rows first, so the FIRST entry
       // for each name is the canonical (3.5) form. Also apply the
-      // tag filter if set.
+      // tag filter and book-filter if set.
       for (const s of currentSpells) {
         if (tagSet && !tagSet.has(s.spell_id)) continue;
+        if (window.BookFilter && !window.BookFilter.allowsSource(s.source)) continue;
         const k = s.name.toLowerCase();
         if (currentByName.has(k)) continue;
         currentByName.set(k, s);
@@ -871,11 +872,13 @@
   // of going through the picker bar. Built once at DB.ready; tiny
   // (~2,800 <option> elements ≈ <100 KB).
   function buildGlobalSpellDatalist() {
-    if (document.getElementById('spell-options')) return;
+    // Remove any prior datalist so we can rebuild after a filter change.
+    const prior = document.getElementById('spell-options');
+    if (prior) prior.remove();
     // 3.5-first dedup by case-insensitive name so we don't emit two
     // "Fireball" options when both 3.0 and 3.5 versions are indexed.
     const rows = DB.query(
-      "SELECT e.name AS name FROM entry e " +
+      "SELECT e.name AS name, e.source FROM entry e " +
       "LEFT JOIN book b ON b.name = e.source " +
       "WHERE e.type = 'spell' AND e.name IS NOT NULL " +
       "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
@@ -886,6 +889,7 @@
     const dl = document.createElement('datalist');
     dl.id = 'spell-options';
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = String(r.name || '').toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
@@ -906,5 +910,10 @@
     buildGlobalSpellDatalist();
     injectIntoExistingPanels();
     watchForNewPanels();
+    // On book-filter change, rebuild the global datalist; per-panel
+    // pickers are re-evaluated lazily next time the user touches a
+    // class/level filter input, so no further refresh is needed.
+    document.addEventListener('book-filter-changed',
+      () => buildGlobalSpellDatalist());
   });
 })();

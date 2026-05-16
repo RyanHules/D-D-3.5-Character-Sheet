@@ -78,7 +78,7 @@
     // Query the unified `entry` table. Ties between same-named feats
     // resolve to 3.5 first, then newest publication date.
     const rows = DB.query(
-      "SELECT e.id AS feat_id, e.name, e.version, e.types_csv " +
+      "SELECT e.id AS feat_id, e.name, e.version, e.types_csv, e.source " +
       "FROM entry e " +
       "LEFT JOIN book b ON b.name = e.source " +
       "WHERE e.type IN ('feat', 'acf', 'skill_trick') " +
@@ -90,6 +90,7 @@
     typeIndex = new Map();
     for (const r of rows) {
       if (!r.name) continue;
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = r.name.toLowerCase();
       const display = titleCase(r.name);
       if (!featIndex.has(key)) {
@@ -252,6 +253,13 @@
 
     typeSelect.addEventListener('change', applyFilters);
     tagSelect.addEventListener('change', applyFilters);
+
+    // Rebuild the index when the active book set changes so the
+    // datalist reflects only in-scope sources.
+    document.addEventListener('book-filter-changed', () => {
+      buildIndex();
+      applyFilters();
+    });
 
     function updateInfo() {
       const typed = featInput.value.trim();

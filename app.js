@@ -166,6 +166,7 @@
       typeof Conditions !== "undefined" ? Conditions.collectData() : {},
       typeof Audit !== "undefined" ? Audit.collectData() : {},
       typeof CharacterHistory !== "undefined" ? CharacterHistory.collectData() : {},
+      typeof BookFilter !== "undefined" ? BookFilter.collectData() : {},
       { skills: Skills.collectData(), customSkills: Skills.collectCustomSkills() }
     );
   }
@@ -180,6 +181,7 @@
     ClassFeatures.loadData(data);
     if (typeof Conditions !== "undefined") Conditions.loadData(data);
     if (typeof Audit !== "undefined") Audit.loadData(data);
+    if (typeof BookFilter !== "undefined") BookFilter.loadData(data);
     if (data.skills) Skills.loadData(data.skills, getAbilityMod);
     Skills.loadCustomSkills(data.customSkills || [], getAbilityMod);
     // CharacterHistory runs LAST so it can reconstruct from current

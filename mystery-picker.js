@@ -30,7 +30,7 @@
     'Master':      'mast',
   };
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS mystery_id, name, source, version, "
       + "json_extract(data, '$.path')                 AS path, "
@@ -50,8 +50,10 @@
       + "ORDER BY name COLLATE NOCASE, "
       + "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
     );
+    mysteryIndex.clear();
     const pathSet = new Set();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (mysteryIndex.has(key)) continue;
       mysteryIndex.set(key, r);
@@ -60,11 +62,28 @@
     paths = [...pathSet].sort();
     console.log(`[mystery-picker] indexed ${mysteryIndex.size} mysteries ` +
       `across ${paths.length} paths`);
+  }
+
+  function init() {
+    rebuildIndex();
 
     buildSharedDatalist();
     syncTextareaAttributes();
     wireTextareaDelegation();
     observePanels();
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      const dl = document.getElementById('mystery-picker-all');
+      if (dl) {
+        dl.innerHTML = '';
+        for (const m of mysteryIndex.values()) {
+          const opt = document.createElement('option');
+          opt.value = m.name;
+          dl.appendChild(opt);
+        }
+      }
+    });
   }
 
   // ---------- Per-textarea autocomplete (uses sh-myst-name) ----------------

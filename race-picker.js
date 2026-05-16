@@ -60,25 +60,33 @@
     // For duplicate names (e.g. Aasimar in Planar Handbook + FRCS),
     // sort newest source first so the most recent printing wins.
     // 3.5 wins over 3.0 first; then publication_date DESC.
-    const races = DB.query(
-      "SELECT e.id AS race_id, e.name, e.version, e.source, "
-      + "       b.publication_date "
-      + "FROM entry e "
-      + "LEFT JOIN book b ON b.name = e.source "
-      + "WHERE e.type = 'race' "
-      + "ORDER BY e.name, "
-      + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
-      + "         b.publication_date DESC"
-    );
-    raceIndex = new Map();
-    for (const r of races) {
-      const opt = document.createElement('option');
-      // Show version in the dropdown for disambiguation
-      opt.value = r.version === '3.5' ? r.name : `${r.name} (${r.version})`;
-      datalist.appendChild(opt);
-      raceIndex.set(r.name.toLowerCase(), r.race_id);
+    function populate() {
+      const races = DB.query(
+        "SELECT e.id AS race_id, e.name, e.version, e.source, "
+        + "       b.publication_date "
+        + "FROM entry e "
+        + "LEFT JOIN book b ON b.name = e.source "
+        + "WHERE e.type = 'race' "
+        + "ORDER BY e.name, "
+        + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+        + "         b.publication_date DESC"
+      );
+      raceIndex = new Map();
+      datalist.innerHTML = '';
+      let kept = 0;
+      for (const r of races) {
+        if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
+        const opt = document.createElement('option');
+        // Show version in the dropdown for disambiguation
+        opt.value = r.version === '3.5' ? r.name : `${r.name} (${r.version})`;
+        datalist.appendChild(opt);
+        raceIndex.set(r.name.toLowerCase(), r.race_id);
+        kept++;
+      }
+      console.log(`[race-picker] ${kept}/${races.length} races available`);
     }
-    console.log(`[race-picker] ${races.length} races available`);
+    populate();
+    document.addEventListener('book-filter-changed', populate);
 
     // 4. On input change: try to look up the typed name and auto-fill.
     raceInput.addEventListener('change', () => onRaceChosen(raceInput.value));

@@ -1625,6 +1625,160 @@ test('save: app.js#collectData wires every UI module', () => {
   }
 });
 
+// ---- tests: book filter --------------------------------------------------
+//
+// The book filter is a global picker scope. These tests assert the
+// infrastructure exists (state + persistence + wiring) and verify that
+// each picker's row loop consults BookFilter so a filter actually
+// reaches the autocomplete suggestions.
+
+test('book-filter: module exposes the expected public API', () => {
+  const src = readSource('book-filter.js');
+  for (const sym of ['getActiveAbbrevs', 'setActiveAbbrevs',
+                     'allowsSource', 'allowsAbbrev', 'collectData',
+                     'loadData', 'isActive', 'getBooks']) {
+    assert(new RegExp(`\\b${sym}\\b`).test(src),
+      `book-filter.js does not export ${sym}`);
+  }
+  // window.BookFilter is the global handle used by every picker.
+  assert(/window\.BookFilter\s*=/.test(src),
+    'book-filter.js does not assign window.BookFilter');
+});
+
+test('book-filter: app.js wires collectData + loadData', () => {
+  const src = readSource('app.js');
+  const collectBody = extractFunctionBody(src, 'collectData');
+  const loadBody = extractFunctionBody(src, 'loadData');
+  assert(/BookFilter\.collectData\s*\(/.test(collectBody),
+    'app.js#collectData does not call BookFilter.collectData — saved ' +
+    'sheets will silently drop the campaign book filter.');
+  assert(/BookFilter\.loadData\s*\(/.test(loadBody),
+    'app.js#loadData does not call BookFilter.loadData — imports will ' +
+    'silently drop the campaign book filter.');
+});
+
+test('book-filter: every picker consults BookFilter.allowsSource in its row loop', () => {
+  // The picker-integration contract: each picker queries `entry` with
+  // `e.source` (or just `source`) in the SELECT and skips rows that
+  // the BookFilter rejects. Catches the common regression of adding a
+  // new picker without wiring the global filter.
+  const pickers = [
+    'feat-picker.js', 'item-picker.js', 'spell-picker.js',
+    'race-picker.js', 'template-picker.js', 'class-picker.js',
+    'domain-picker.js', 'maneuver-picker.js', 'power-picker.js',
+    'mystery-picker.js', 'soulmeld-picker.js', 'vestige-picker.js',
+    'invocation-picker.js',
+  ];
+  const missing = [];
+  for (const p of pickers) {
+    const src = readSource(p);
+    if (!/BookFilter\.allowsSource\s*\(/.test(src)) missing.push(p);
+  }
+  assert(missing.length === 0,
+    `${missing.length} pickers do not consult BookFilter:\n  ` +
+    missing.join('\n  '));
+});
+
+test('book-filter: every picker re-runs on book-filter-changed', () => {
+  // Without the event listener, changing the filter would only take
+  // effect on next page reload.
+  const pickers = [
+    'feat-picker.js', 'item-picker.js', 'spell-picker.js',
+    'race-picker.js', 'template-picker.js', 'class-picker.js',
+    'domain-picker.js', 'maneuver-picker.js', 'power-picker.js',
+    'mystery-picker.js', 'soulmeld-picker.js', 'vestige-picker.js',
+    'invocation-picker.js',
+  ];
+  const missing = [];
+  for (const p of pickers) {
+    const src = readSource(p);
+    if (!/['"]book-filter-changed['"]/.test(src)) missing.push(p);
+  }
+  assert(missing.length === 0,
+    `${missing.length} pickers do not listen for book-filter-changed:\n  ` +
+    missing.join('\n  '));
+});
+
+test('book-filter: lookup modal also consults BookFilter', () => {
+  const src = readSource('lookup.js');
+  assert(/BookFilter\.allowsSource\s*\(/.test(src),
+    'lookup.js does not consult BookFilter — the universal search ' +
+    'returns out-of-scope entries.');
+  assert(/['"]book-filter-changed['"]/.test(src),
+    'lookup.js does not listen for book-filter-changed — type chip ' +
+    'counts go stale after a filter change.');
+});
+
+test('book-filter: state round-trips through collectData/loadData', () => {
+  // Eval book-filter.js in a sandbox (it has no DOM dependencies for
+  // the persistence path — DB.ready resolves to null and getBooks
+  // returns []).
+  const src = readSource('book-filter.js');
+  const sandbox = {
+    DB: { ready: Promise.resolve(null), isLoaded: () => false },
+    document: {
+      dispatchEvent: () => {},
+      addEventListener: () => {},
+      readyState: 'complete',
+    },
+    console: { log: () => {}, warn: () => {} },
+  };
+  // Provide a window stand-in shared with sandbox.
+  sandbox.window = sandbox;
+  const fn = new Function('window', 'document', 'console', 'DB',
+    src + '\nreturn window.BookFilter;');
+  const BF = fn(sandbox, sandbox.document, sandbox.console, sandbox.DB);
+
+  // Default: no filter, isActive false, collectData stores null.
+  assert(!BF.isActive(), 'default filter should be inactive');
+  assert(BF.collectData()._book_filter === null,
+    `default collectData should be null, got ${JSON.stringify(BF.collectData())}`);
+  assert(BF.allowsSource('Player\'s Handbook') === true,
+    'with no filter, all sources are allowed');
+
+  // Set a filter, verify allowsSource (sourceToAbbrev is empty since
+  // there's no DB — unknown sources always allowed per design).
+  BF.setActiveAbbrevs(new Set(['PHB', 'DMG']));
+  assert(BF.isActive(), 'should be active after set');
+  const saved = BF.collectData();
+  assert(Array.isArray(saved._book_filter)
+    && saved._book_filter.length === 2
+    && saved._book_filter.includes('PHB')
+    && saved._book_filter.includes('DMG'),
+    `expected ['PHB','DMG'] in collected data, got ${JSON.stringify(saved)}`);
+  // Unknown sources are always allowed (homebrew / future additions).
+  assert(BF.allowsSource('Player\'s Handbook') === true,
+    'unknown source (no abbrev map) must still be allowed');
+  // allowsAbbrev consults the active set directly.
+  assert(BF.allowsAbbrev('PHB') === true, 'PHB should be allowed');
+  assert(BF.allowsAbbrev('FRCS') === false, 'FRCS should be filtered out');
+
+  // loadData with empty filter clears the active set.
+  BF.loadData({ _book_filter: [] });
+  assert(!BF.isActive(), 'empty filter should clear the active set');
+
+  // loadData with absent field is a no-op (old saves keep current state).
+  BF.setActiveAbbrevs(new Set(['MIC']));
+  BF.loadData({});  // no _book_filter key — should leave MIC intact
+  assert(BF.getActiveAbbrevs().has('MIC'),
+    'loadData on an object without _book_filter must not wipe state');
+});
+
+test('book-filter: SQL query against entry table is filter-shape compatible', (db) => {
+  // Smoke test: the kind of SQL each picker now runs (`SELECT ... e.source
+  // FROM entry e WHERE type = ...`) still returns rows of the right
+  // shape, with source values that match the book table.
+  const rows = execAll(db,
+    "SELECT e.id, e.name, e.source FROM entry e "
+    + "LEFT JOIN book b ON b.name = e.source "
+    + "WHERE e.type = 'race' LIMIT 5");
+  assertNotEmpty(rows);
+  for (const r of rows) {
+    assert(typeof r.source === 'string' && r.source.length > 0,
+      `race row ${r.id} has empty source`);
+  }
+});
+
 // ---- runner ---------------------------------------------------------------
 
 (async function main() {

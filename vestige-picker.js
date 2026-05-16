@@ -28,7 +28,7 @@
   const vestigeIndex = new Map();
   let datalistCounter = 0;
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS vestige_id, name, source, version, "
       + "json_extract(data, '$.vestige_level')         AS vestige_level, "
@@ -44,7 +44,9 @@
       + "ORDER BY CAST(json_extract(data, '$.vestige_level') AS INTEGER), "
       + "         name COLLATE NOCASE"
     );
+    vestigeIndex.clear();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (vestigeIndex.has(key)) continue;
       let abilities = [];
@@ -69,11 +71,28 @@
       });
     }
     console.log(`[vestige-picker] indexed ${vestigeIndex.size} vestiges`);
+  }
+
+  function init() {
+    rebuildIndex();
 
     buildSharedDatalist();
     syncInputAttributes();
     wireDelegation();
     observePanels();
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      const dl = document.getElementById('vestige-picker-all');
+      if (dl) {
+        dl.innerHTML = '';
+        for (const v of vestigeIndex.values()) {
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          dl.appendChild(opt);
+        }
+      }
+    });
   }
 
   // ---------- Shared datalist on .vestige-name inputs ----------------------

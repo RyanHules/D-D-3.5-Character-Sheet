@@ -21,7 +21,7 @@
   let grades = [];
   let subcategories = [];
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS invocation_id, name, source, version, "
       + "json_extract(data, '$.kind')                    AS kind, "
@@ -34,9 +34,11 @@
       + "ORDER BY name COLLATE NOCASE, "
       + "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
     );
+    invocationIndex.clear();
     const gradeSet = new Set();
     const subSet = new Set();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (invocationIndex.has(key)) continue;
       invocationIndex.set(key, r);
@@ -56,12 +58,25 @@
     console.log(`[invocation-picker] indexed ${invocationIndex.size} ` +
       `invocations across ${grades.length} grades, ` +
       `${subcategories.length} subcategories`);
+  }
+
+  function init() {
+    rebuildIndex();
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', injectUI);
     } else {
       injectUI();
     }
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      // The filter dropdown's refresh() reads invocationIndex live,
+      // so just dispatch a synthetic change to repopulate the datalist
+      // with the current grade/subcategory selection.
+      const gradeSel = document.getElementById('invo-lookup-grade');
+      if (gradeSel) gradeSel.dispatchEvent(new Event('change'));
+    });
   }
 
   function injectUI() {

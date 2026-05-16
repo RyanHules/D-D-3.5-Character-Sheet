@@ -41,29 +41,45 @@
 
     // Index templates (3.5 preferred over 3.0 if collisions exist;
     // ties broken by newest publication date).
-    const rows = DB.query(
-      "SELECT e.id AS template_id, e.name, e.source, e.version, "
-      + "json_extract(e.data, '$.template_type')      AS template_type, "
-      + "json_extract(e.data, '$.level_adjustment')   AS level_adjustment, "
-      + "COALESCE(json_extract(e.data, '$.new_creature_type'), "
-      + "         json_extract(e.data, '$.type_change')) AS new_creature_type, "
-      + "json_extract(e.data, '$.description')        AS description "
-      + "FROM entry e "
-      + "LEFT JOIN book b ON b.name = e.source "
-      + "WHERE e.type = 'template' "
-      + "ORDER BY e.name COLLATE NOCASE, "
-      + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
-      + "         b.publication_date DESC"
-    );
-    templateIndex = new Map();
-    for (const r of rows) {
-      const key = (r.name || '').toLowerCase();
-      if (!templateIndex.has(key)) templateIndex.set(key, r);
+    function rebuildIndex() {
+      const rows = DB.query(
+        "SELECT e.id AS template_id, e.name, e.source, e.version, "
+        + "json_extract(e.data, '$.template_type')      AS template_type, "
+        + "json_extract(e.data, '$.level_adjustment')   AS level_adjustment, "
+        + "COALESCE(json_extract(e.data, '$.new_creature_type'), "
+        + "         json_extract(e.data, '$.type_change')) AS new_creature_type, "
+        + "json_extract(e.data, '$.description')        AS description "
+        + "FROM entry e "
+        + "LEFT JOIN book b ON b.name = e.source "
+        + "WHERE e.type = 'template' "
+        + "ORDER BY e.name COLLATE NOCASE, "
+        + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+        + "         b.publication_date DESC"
+      );
+      templateIndex = new Map();
+      for (const r of rows) {
+        if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
+        const key = (r.name || '').toLowerCase();
+        if (!templateIndex.has(key)) templateIndex.set(key, r);
+      }
     }
+    rebuildIndex();
 
     buildUI(raceInput);
     installPersistenceHooks();
     renderAppliedList();
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      const dl = document.getElementById('template-options');
+      if (!dl) return;
+      dl.innerHTML = '';
+      for (const [, r] of templateIndex) {
+        const opt = document.createElement('option');
+        opt.value = r.name;
+        dl.appendChild(opt);
+      }
+    });
   }
 
   function buildUI(raceInput) {

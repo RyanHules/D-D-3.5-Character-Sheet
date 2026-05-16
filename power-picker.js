@@ -23,7 +23,7 @@
   let classNames = [];
   let datalistCounter = 0;
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS power_id, name, source, version, discipline, "
       + "json_extract(data, '$.level')              AS level_json, "
@@ -41,7 +41,10 @@
       + "ORDER BY name COLLATE NOCASE, "
       + "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
     );
+    powerIndex.clear();
+    byClass.clear();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (powerIndex.has(key)) continue;
       let levelMap = null;
@@ -76,8 +79,15 @@
     classNames = [...byClass.keys()].sort();
     console.log(`[power-picker] indexed ${powerIndex.size} powers ` +
       `across ${classNames.length} class lists`);
+  }
 
+  function init() {
+    rebuildIndex();
     observePanels();
+    // Per-panel pickers read from byClass at refresh time, so simply
+    // rebuilding the index here is enough — next time the user touches
+    // a class/level filter the new options will materialize.
+    document.addEventListener('book-filter-changed', rebuildIndex);
   }
 
   function observePanels() {

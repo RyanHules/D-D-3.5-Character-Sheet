@@ -19,7 +19,7 @@
   let disciplines = [];
   let datalistCounter = 0;
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS maneuver_id, name, source, version, discipline, "
       + "json_extract(data, '$.type')              AS type, "
@@ -39,6 +39,7 @@
     maneuverIndex = new Map();
     byDiscipline = new Map();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (maneuverIndex.has(key)) continue;
       let classes = null;
@@ -69,6 +70,10 @@
     disciplines = [...byDiscipline.keys()].sort();
     console.log(`[maneuver-picker] indexed ${maneuverIndex.size} maneuvers ` +
       `across ${disciplines.length} disciplines`);
+  }
+
+  function init() {
+    rebuildIndex();
 
     buildSharedDatalist();
     syncReadiedAttributes();
@@ -77,6 +82,19 @@
     // "+ Maneuvers" on the Spells tab. Watch the DOM for newly-built
     // panels and inject the per-level picker into each.
     observePanels();
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      const dl = document.getElementById('maneuver-picker-all');
+      if (dl) {
+        dl.innerHTML = '';
+        for (const v of maneuverIndex.values()) {
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          dl.appendChild(opt);
+        }
+      }
+    });
   }
 
   // ---------- All-maneuver datalist for the readied-row inputs --------------

@@ -772,34 +772,40 @@
     // 2. Populate options. Prefer 3.5 versions; ties broken by newest
     // publication date so e.g. Player's Handbook II Bard wins over
     // 3.0 reprints when both exist under the same display name.
-    const rows = DB.query(
-      "SELECT e.id AS class_id, e.name AS class, e.version, e.source, "
-      + "json_extract(e.data, '$.bab_progression')  AS bab_progression, "
-      + "json_extract(e.data, '$.fort_progression') AS fort_progression, "
-      + "json_extract(e.data, '$.ref_progression')  AS ref_progression, "
-      + "json_extract(e.data, '$.will_progression') AS will_progression, "
-      + "json_extract(e.data, '$.table_caption')    AS table_caption "
-      + "FROM entry e "
-      + "LEFT JOIN book b ON b.name = e.source "
-      + "WHERE e.type IN ('class', 'prc') "
-      + "ORDER BY e.name, "
-      + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
-      + "         b.publication_date DESC"
-    );
-    classIndex = new Map();
-    for (const r of rows) {
-      const key = (r.class || '').toLowerCase();
-      if (!classIndex.has(key)) classIndex.set(key, []);
-      classIndex.get(key).push(r);
+    function rebuildClassIndex() {
+      const rows = DB.query(
+        "SELECT e.id AS class_id, e.name AS class, e.version, e.source, "
+        + "json_extract(e.data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(e.data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(e.data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(e.data, '$.will_progression') AS will_progression, "
+        + "json_extract(e.data, '$.table_caption')    AS table_caption "
+        + "FROM entry e "
+        + "LEFT JOIN book b ON b.name = e.source "
+        + "WHERE e.type IN ('class', 'prc') "
+        + "ORDER BY e.name, "
+        + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+        + "         b.publication_date DESC"
+      );
+      classIndex = new Map();
+      for (const r of rows) {
+        if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
+        const key = (r.class || '').toLowerCase();
+        if (!classIndex.has(key)) classIndex.set(key, []);
+        classIndex.get(key).push(r);
+      }
+      datalist.innerHTML = '';
+      // Build datalist (deduped by class name; only show 3.5 entry if present).
+      for (const [key, list] of classIndex) {
+        const r = list[0];
+        const opt = document.createElement('option');
+        opt.value = r.class;
+        datalist.appendChild(opt);
+      }
+      console.log(`[class-picker] ${classIndex.size} classes available`);
     }
-    // Build datalist (deduped by class name; only show 3.5 entry if present).
-    for (const [key, list] of classIndex) {
-      const r = list[0];
-      const opt = document.createElement('option');
-      opt.value = r.class;
-      datalist.appendChild(opt);
-    }
-    console.log(`[class-picker] ${classIndex.size} classes available`);
+    rebuildClassIndex();
+    document.addEventListener('book-filter-changed', rebuildClassIndex);
 
     // 3. Live preview as user types/changes inputs.
     const refresh = () => updatePreview(infoPanel, classInput.value, levelInput.value);

@@ -23,7 +23,7 @@
   let domainIndex = new Map();
   let datalistEl = null;
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS domain_id, name, source, version, "
       + "json_extract(data, '$.granted_power') AS granted_power, "
@@ -35,6 +35,7 @@
     );
     domainIndex = new Map();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (domainIndex.has(key)) continue;  // first hit wins (3.5 preferred)
       let spells = null, deities = null;
@@ -53,6 +54,10 @@
       });
     }
     console.log(`[domain-picker] indexed ${domainIndex.size} domains`);
+  }
+
+  function init() {
+    rebuildIndex();
 
     buildDatalist();
     wireDelegation();
@@ -68,6 +73,20 @@
     // Spells.loadData fired before this init resolved, the change
     // events it dispatched found no handler; sweep the DOM now.
     rehydrateExistingInputs();
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      // Repopulate the global datalist; the <list> attribute on each
+      // input already points at it, so we just need fresh options.
+      if (datalistEl) {
+        datalistEl.innerHTML = '';
+        for (const v of domainIndex.values()) {
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          datalistEl.appendChild(opt);
+        }
+      }
+    });
   }
 
   function rehydrateExistingInputs() {

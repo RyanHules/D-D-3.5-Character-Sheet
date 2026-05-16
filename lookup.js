@@ -1209,9 +1209,12 @@
       return;
     }
 
-    // Score + sort.
+    // Score + sort. Skip entries whose source is filtered out by the
+    // global BookFilter (errata indicators are still surfaced inline
+    // on rows that pass; see ErrataBadge wiring below).
     const scored = [];
     for (const e of entries) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(e.source)) continue;
       const s = score(e, parsed);
       if (s > 0) scored.push({ entry: e, score: s });
     }
@@ -1300,6 +1303,20 @@
     // Pre-create the modal so it's ready to open instantly. (Skips
     // first-open jank.)
     ensureModal();
+    // When the book filter changes, recompute the per-type counts off
+    // the cached index (without re-querying the DB) and refresh the
+    // chip strip + currently-rendered results.
+    document.addEventListener('book-filter-changed', () => {
+      typeCounts.clear();
+      for (const e of entries) {
+        if (window.BookFilter && !window.BookFilter.allowsSource(e.source)) continue;
+        typeCounts.set(e.type, (typeCounts.get(e.type) || 0) + 1);
+      }
+      renderChips();
+      if (modalEl && modalEl.style.display !== 'none' && inputEl) {
+        render(inputEl.value.trim());
+      }
+    });
   }
 
   function escapeHtml(s) {

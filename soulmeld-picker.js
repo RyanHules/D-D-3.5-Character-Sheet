@@ -44,7 +44,7 @@
     totem:     ['Totem'],
   };
 
-  function init() {
+  function rebuildIndex() {
     const rows = DB.query(
       "SELECT id AS soulmeld_id, name, source, version, "
       + "json_extract(data, '$.chakra')       AS chakra, "
@@ -55,7 +55,9 @@
       + "FROM entry WHERE type = 'soulmeld' "
       + "ORDER BY name COLLATE NOCASE"
     );
+    soulmeldIndex.clear();
     for (const r of rows) {
+      if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
       if (soulmeldIndex.has(key)) continue;
       const parsed = parseDescription(r.description || '');
@@ -74,11 +76,21 @@
       });
     }
     console.log(`[soulmeld-picker] indexed ${soulmeldIndex.size} soulmelds`);
+  }
+
+  function init() {
+    rebuildIndex();
 
     buildPerSlotDatalists();
     syncInputs();
     wireDelegation();
     observeNew();
+
+    document.addEventListener('book-filter-changed', () => {
+      rebuildIndex();
+      // Rebuild every per-slot datalist + the fallback `-all`.
+      buildPerSlotDatalists();
+    });
   }
 
   // Parse a soulmeld description of the form
