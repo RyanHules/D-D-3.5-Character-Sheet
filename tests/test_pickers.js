@@ -1974,6 +1974,35 @@ test('companion HD scaling: parseCreatureFeats marks bonus feats', () => {
   assert(c.length === 3 && c.every(f => !f.bonus));
 });
 
+test('companion HD scaling: cumulativeSizeDelta sums per-step MM Table 4-2', () => {
+  const D = loadData();
+  // Same size → all zeros.
+  const same = D.cumulativeSizeDelta('Medium', 'Medium');
+  assert(same.str === 0 && same.dex === 0 && same.con === 0 && same.na === 0,
+    'same size returns zero deltas');
+  // M → L: single step, MM row "Medium → Large".
+  //   Str +8, Dex -2, Con +4, NA +2
+  const ml = D.cumulativeSizeDelta('Medium', 'Large');
+  assert(ml.str === 8 && ml.dex === -2 && ml.con === 4 && ml.na === 2,
+    `M→L expected +8/-2/+4/+2 got ${JSON.stringify(ml)}`);
+  // M → H: two steps (M→L + L→H).
+  //   Str +8+8 = +16, Dex -2+0 = -2, Con +4+4 = +8, NA +2+3 = +5
+  const mh = D.cumulativeSizeDelta('Medium', 'Huge');
+  assert(mh.str === 16 && mh.dex === -2 && mh.con === 8 && mh.na === 5,
+    `M→H expected +16/-2/+8/+5 got ${JSON.stringify(mh)}`);
+  // S → H: three steps.
+  //   Str +4+8+8 = +20, Dex -2-2+0 = -4, Con +2+4+4 = +10, NA 0+2+3 = +5
+  const sh = D.cumulativeSizeDelta('Small', 'Huge');
+  assert(sh.str === 20 && sh.dex === -4 && sh.con === 10 && sh.na === 5,
+    `S→H expected +20/-4/+10/+5 got ${JSON.stringify(sh)}`);
+  // Shrinking: L → M is the negation of M → L.
+  const lm = D.cumulativeSizeDelta('Large', 'Medium');
+  assert(lm.str === -8 && lm.dex === 2 && lm.con === -4 && lm.na === -2,
+    `L→M expected -8/+2/-4/-2 got ${JSON.stringify(lm)}`);
+  // Unknown size returns null.
+  assert(D.cumulativeSizeDelta('Bogus', 'Medium') === null);
+});
+
 test('companion HD scaling: parseCreatureAdvancement reads HD bands', () => {
   const D = loadData();
   // Multi-band semicolon-separated.

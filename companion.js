@@ -864,6 +864,27 @@ const Companion = (function () {
     const naMatch = acText.match(/([+\-]?\d+)\s*natural/i);
     const baseNA = naMatch ? parseInt(naMatch[1], 10) : 0;
 
+    // Size escalation MUST be determined BEFORE we write ability
+    // scores / natural armor, because crossing a size band applies
+    // MM Table 4-2 deltas to Str / Dex / Con / NA on top of the
+    // companion-progression adjustments. computeEscalatedSize
+    // returns null when there's no escalation (size stays at base);
+    // we then apply the cumulative size delta into `stats` + naAdj
+    // before any DOM writes.
+    const baseSize = creature.size || 'Medium';
+    const escalatedSize = computeEscalatedSize(creature, prog) || baseSize;
+    if (typeof DND35.cumulativeSizeDelta === 'function' &&
+        escalatedSize !== baseSize) {
+      const delta = DND35.cumulativeSizeDelta(baseSize, escalatedSize);
+      if (delta) {
+        stats.STR += delta.str;
+        stats.DEX += delta.dex;
+        stats.CON += delta.con;
+        // Bumped NA folded into the writeable value below.
+        stats._sizeNaDelta = delta.na;
+      }
+    }
+
     // Apply to the panel's fields. Each is marked data-from-auto so
     // applyAutoFillState can grey them out in AUTO mode.
     const setAuto = (sel, val) => {
@@ -879,7 +900,10 @@ const Companion = (function () {
     if (creature.speed) {
       setAuto('.comp-speed', String(creature.speed));
     }
-    setAuto('.comp-ac-natural', baseNA + naAdj);
+    setAuto('.comp-ac-natural', baseNA + naAdj + (stats._sizeNaDelta || 0));
+    // Write the chosen size + mark from-auto (separate helper because
+    // it's just a select.value set, no delta math here).
+    writeEscalatedSize(panel, escalatedSize);
 
     // HD-derived BAB / saves / skill points / feat count. Bonus HD
     // from the progression table stack onto the creature's base HD;
@@ -891,14 +915,26 @@ const Companion = (function () {
     // rows before adding new ones so re-running AUTO doesn't stack.
     autoFillSkillRows(panel, creature);
     autoFillFeatRows(panel, creature);
-    // Size escalation: parse the advancement bands and use the total
-    // HD (base + bonus) to pick the size category. Falls back to the
-    // creature's base size when no band matches.
-    autoFillSize(panel, creature, matchType, prog);
 
     // Re-apply disabled state (since setAuto cleared / set values
     // but the toggle handler runs only on radio change).
     applyAutoFillState(panel, 'auto');
+  }
+
+  // Pure-computation companion to autoFillSize — figures out which
+  // size band the creature lands in at total HD without touching the
+  // DOM. Returns null if the creature has no parseable advancement
+  // (size stays at base).
+  function computeEscalatedSize(creature, prog) {
+    if (typeof DND35 === 'undefined' ||
+        typeof DND35.parseCreatureAdvancement !== 'function') return null;
+    const baseHD = DND35.parseHitDieCount(creature.hit_dice) || 0;
+    const bonusHD = (prog && prog.bonusHD) || 0;
+    const totalHD = baseHD + bonusHD;
+    if (totalHD <= 0) return null;
+    const bands = DND35.parseCreatureAdvancement(creature.advancement);
+    if (!bands) return null;
+    return DND35.advancementSizeAtHD(bands, totalHD);
   }
 
   // Compute total HD = base HD + bonus HD, then derive BAB / saves /
@@ -1062,36 +1098,18 @@ const Companion = (function () {
     }
   }
 
-  // Pick the right size for the companion at its current total HD.
-  // Uses DND35.parseCreatureAdvancement to read the bands, picks the
-  // size matching total HD, and falls back to the creature's base
-  // size if no band matches (or the advancement is "By character
-  // class"). Writes to the .comp-size select (marked from-auto).
-  function autoFillSize(panel, creature, matchType, prog) {
-    if (typeof DND35 === 'undefined' ||
-        typeof DND35.parseCreatureAdvancement !== 'function') return;
+  // Write the computed size into the .comp-size select. The size is
+  // determined up front by computeEscalatedSize() because crossing a
+  // band also affects ability scores + natural armor (MM Table 4-2
+  // deltas applied inline in autoFillFromBaseCreature).
+  function writeEscalatedSize(panel, chosen) {
     const sizeSel = panel.querySelector('.comp-size');
-    if (!sizeSel) return;
-    const baseSize = creature.size || 'Medium';
-    let chosen = baseSize;
-    const baseHD = DND35.parseHitDieCount(creature.hit_dice) || 0;
-    const bonusHD = (prog && prog.bonusHD) || 0;
-    const totalHD = baseHD + bonusHD;
-    if (totalHD > 0) {
-      const bands = DND35.parseCreatureAdvancement(creature.advancement);
-      if (bands) {
-        const matched = DND35.advancementSizeAtHD(bands, totalHD);
-        if (matched) chosen = matched;
-      }
-    }
+    if (!sizeSel || !chosen) return;
     if (sizeSel.value !== chosen) {
       sizeSel.value = chosen;
-      sizeSel.dataset.fromAuto = '1';
       sizeSel.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      // Still mark as from-auto so the disable-on-AUTO toggle covers it.
-      sizeSel.dataset.fromAuto = '1';
     }
+    sizeSel.dataset.fromAuto = '1';
   }
 
   // Auto-populate the companion's feat list from the creature's

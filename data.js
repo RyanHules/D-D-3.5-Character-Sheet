@@ -372,6 +372,59 @@ const DND35 = {
     return bands.length ? bands : null;
   },
 
+  // MM Table 4-2: Changes to Statistics by Size, applied per "step"
+  // when a creature advances up the size scale. Each row is the
+  // delta going FROM the smaller size TO the next larger size; sum
+  // step deltas across a multi-size jump (e.g. Medium → Huge =
+  // Medium→Large + Large→Huge).
+  //
+  // The AC/Attack and Grapple/Hide modifiers from size already live
+  // in `sizes[].acMod` / `grappleMod` / `hideMod` and are looked up
+  // by current size — no need to apply step deltas for those.
+  //
+  // Format: stepUp[smallerSize] = {str, dex, con, na}
+  sizeOrder: ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium',
+              'Large', 'Huge', 'Gargantuan', 'Colossal'],
+  sizeStepUp: {
+    // From → next-larger size deltas (MM p.291 / SRD)
+    'Fine':       { str: +2, dex: -2, con:  0, na: 0 },   // F → D
+    'Diminutive': { str: +4, dex: -2, con:  0, na: 0 },   // D → T
+    'Tiny':       { str: +4, dex: -2, con:  0, na: 0 },   // T → S
+    'Small':      { str: +4, dex: -2, con: +2, na: 0 },   // S → M
+    'Medium':     { str: +8, dex: -2, con: +4, na: 2 },   // M → L
+    'Large':      { str: +8, dex:  0, con: +4, na: 3 },   // L → H
+    'Huge':       { str: +8, dex:  0, con: +4, na: 4 },   // H → G
+    'Gargantuan': { str: +8, dex:  0, con: +4, na: 5 },   // G → C
+  },
+
+  // Sum per-step deltas from `fromSize` up to `toSize`. Returns
+  // {str, dex, con, na} all 0 when sizes are equal. When toSize is
+  // SMALLER than fromSize (rare — shrinking via magic etc.) returns
+  // the negated cumulative delta. Unknown sizes return null.
+  cumulativeSizeDelta(fromSize, toSize) {
+    const order = this.sizeOrder;
+    const fromIdx = order.indexOf(fromSize);
+    const toIdx = order.indexOf(toSize);
+    if (fromIdx < 0 || toIdx < 0) return null;
+    if (fromIdx === toIdx) return { str: 0, dex: 0, con: 0, na: 0 };
+    const out = { str: 0, dex: 0, con: 0, na: 0 };
+    const dir = fromIdx < toIdx ? 1 : -1;
+    let i = fromIdx;
+    while (i !== toIdx) {
+      // When going UP: read stepUp at `order[i]` (delta from i to i+1).
+      // When going DOWN: read stepUp at `order[i-1]` and negate.
+      const stepSize = dir > 0 ? order[i] : order[i - 1];
+      const step = this.sizeStepUp[stepSize];
+      if (!step) break;
+      out.str += dir * step.str;
+      out.dex += dir * step.dex;
+      out.con += dir * step.con;
+      out.na  += dir * step.na;
+      i += dir;
+    }
+    return out;
+  },
+
   // Given parsed advancement bands and a total HD, find the band the
   // creature falls into. Returns the band's size string or null if no
   // band matches (under the lowest band — creature is at base size).
