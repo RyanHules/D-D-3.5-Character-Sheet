@@ -2096,6 +2096,55 @@ test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () =
     'boost values — user allocations would be lost on save/load.');
 });
 
+// ---- tests: deity-picker --------------------------------------------------
+
+test('deity-picker: list query (init)', (db) => {
+  // Same source-recency ORDER BY as the other pickers. 121 deities
+  // in the DB today, all from FRCS.
+  const rows = execAll(db,
+    "SELECT e.id AS deity_id, e.name, e.version, e.source "
+    + "FROM entry e "
+    + "LEFT JOIN book b ON b.name = e.source "
+    + "WHERE e.type = 'deity' "
+    + "ORDER BY e.name COLLATE NOCASE, "
+    + "         CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+    + "         b.publication_date DESC");
+  assertGE(rows.length, 100);
+  assert(rows[0].name && rows[0].deity_id != null);
+});
+
+test('deity-picker: detail query returns full record with domains', (db) => {
+  // Pick any deity and verify the JSON shape has the fields the
+  // info panel consumes.
+  const list = execAll(db,
+    "SELECT id AS deity_id FROM entry WHERE type='deity' LIMIT 1");
+  const detail = execOne(db,
+    "SELECT name, source, version, data FROM entry WHERE id = ?",
+    [list[0].deity_id]);
+  assert(detail && detail.data);
+  const d = JSON.parse(detail.data);
+  // Required fields the info panel renders.
+  assert(d.name, 'deity has name');
+  assert(d.alignment, 'deity has alignment');
+  assert(Array.isArray(d.domains), 'deity domains is an array');
+  assert(d.favored_weapon, 'deity has favored_weapon');
+});
+
+test('deity-picker: book-filter + alignment-auto-fill wiring present', () => {
+  // Structural guards for the picker. Tested via static grep because
+  // the runtime behavior depends on the Character tab DOM + DB.
+  const src = readSource('deity-picker.js');
+  assert(/BookFilter\.allowsSource/.test(src),
+    'deity-picker.js: not BookFilter-aware.');
+  assert(/['"]book-filter-changed['"]/.test(src),
+    'deity-picker.js: does not listen for book-filter-changed.');
+  assert(/ALIGNMENT_BY_CODE/.test(src),
+    'deity-picker.js: alignment-code → dropdown-value map missing.');
+  assert(/data-from-deity|fromDeity/.test(src),
+    'deity-picker.js: no data-from-deity marker on auto-filled ' +
+    'alignment — user edits could be overwritten on re-render.');
+});
+
 // ---- tests: monster-class extensions (SS) -----------------------------
 
 test('monster-class: SS monster classes have the extended class_table fields', (db) => {
