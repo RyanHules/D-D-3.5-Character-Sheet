@@ -1812,6 +1812,72 @@ test('save: class-picker persists data-from-class markers', () => {
     'onto the matching elements after class-state rehydration.');
 });
 
+test('rebuild-killer: money weight counted in character.js load calc', () => {
+  // Pre-2026-05-17 character.js summed gear + armor + shield but
+  // skipped money. equipment.js wrote the (money-inclusive) total to
+  // #total-weight, then character.js overwrote it with a money-less
+  // number — and the load category itself was money-less. Guard the
+  // coinCount addition so the load penalty actually reflects coins.
+  // (Static grep rather than function-body extract — the recalc
+  // signature has a default param object literal that confuses the
+  // brace-matching helper.)
+  const src = readSource('character.js');
+  assert(/money-cp/.test(src),
+    'character.js: no reference to #money-cp / coin fields — ' +
+    'coin weight is not folded into the load-category calculation.');
+  assert(/coinCount\s*\/\s*50/.test(src),
+    'character.js: coin-to-weight conversion (coinCount / 50) ' +
+    'missing — PHB says 50 coins of any type weigh 1 lb.');
+});
+
+test('rebuild-killer: spellcasting panel has Extra Slots column', () => {
+  // Editable per-level column for slots granted by feats / items /
+  // irregular PrCs. Distinct from `bonus` (auto-filled from ability
+  // mod). Must be in the slot-table SELECT, the dynamic-add row,
+  // collectData, and recalc's totalSlots sum.
+  const src = readSource('spells.js');
+  assert(/<th[^>]*>Extra<\/th>/.test(src),
+    'spells.js: slot table is missing the Extra column header.');
+  assert(/class="sc-extra"/.test(src),
+    'spells.js: per-level row is missing the .sc-extra input.');
+  assert(/extra-\$\{i\}/.test(src),
+    'spells.js: collectData / loadData does not key the extra slot ' +
+    'value by `extra-${i}` — value would not survive save/load.');
+  assert(/\+\s*extra\b/.test(src) || /\+\s*specialist\s*\+\s*extra\b/.test(src),
+    'spells.js: recalc does not add `extra` into totalSlots.');
+});
+
+test('rebuild-killer: class-picker auto-fills XP on apply', () => {
+  // After applying a class for total level N, char-xp should hold
+  // the minimum XP for level N (PHB Table 3-2: L*(L-1)/2 * 1000).
+  // Only when XP is currently blank — never overwrite an explicit
+  // entry. Guard the formula + the empty-check.
+  const src = readSource('class-picker.js');
+  const body = extractFunctionBody(src, 'applyAggregatesToSheet');
+  assert(body, "Couldn't extract applyAggregatesToSheet body");
+  assert(/char-xp/.test(body),
+    'class-picker.js: applyAggregatesToSheet does not touch #char-xp.');
+  assert(/lvl\s*\*\s*\(\s*totals\.lvl\s*-\s*1\s*\)|totals\.lvl\s*\*\s*\(\s*totals\.lvl\s*-\s*1\s*\)/.test(body),
+    'class-picker.js: XP fill formula does not match L*(L-1)/2 * 1000.');
+});
+
+test('rebuild-killer: textarea auto-expand has details/visibility fallback', () => {
+  // The pre-2026-05-17 autoExpand wrote scrollHeight unconditionally;
+  // textareas in closed <details> or inactive tabs report 0 → showed
+  // as a single line on load. Guard:
+  //   1. autoExpand has a requestAnimationFrame retry when h <= 0
+  //   2. document listens for `toggle` events to re-expand textareas
+  //      inside the opened <details>
+  const src = readSource('app.js');
+  assert(/requestAnimationFrame/.test(src),
+    'app.js: autoExpand has no requestAnimationFrame fallback — ' +
+    'textareas in hidden tabs / closed <details> would collapse to ' +
+    '1 line on load.');
+  assert(/['"]toggle['"]/.test(src),
+    'app.js: no toggle listener — textareas in <details> stay ' +
+    'collapsed when the user opens the section.');
+});
+
 test('save: app.js#collectData wires every UI module', () => {
   // Catch the case where collectData/loadData is added to a module but
   // not plumbed through app.js.

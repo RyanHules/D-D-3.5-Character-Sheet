@@ -964,6 +964,18 @@
       }
       tl.dataset.mcComputed = String(totals.lvl);
     }
+    // XP auto-fill: when the XP field is blank, populate with the
+    // minimum XP required for the current total level (PHB Table 3-2:
+    // L(L-1)/2 × 1000). Avoids the rebuild-killer where the user
+    // forgets to backfill XP after every class apply and the "to next
+    // level" display shows nonsense. Respects any explicit user value
+    // (even 0) — we only fill the empty case.
+    const xp = document.getElementById('char-xp');
+    if (xp && !xp.value.trim() && totals.lvl >= 1) {
+      const minXp = totals.lvl * (totals.lvl - 1) / 2 * 1000;
+      xp.value = String(minXp);
+      xp.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     return totals;
   }
 

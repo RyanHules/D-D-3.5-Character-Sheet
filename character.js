@@ -78,6 +78,14 @@ const Character = (function () {
     });
     totalWeight += parseFloat($("#armor-weight").value) || 0;
     totalWeight += parseFloat($("#shield-weight").value) || 0;
+    // Coin weight — per PHB, 50 coins of any type weigh 1 lb. Without
+    // this the load category ignored money entirely (gear summary
+    // showed it, but the displayed total + encumbrance penalty used a
+    // money-less number — easy to overload a character without
+    // realizing). Mirrors equipment.js#recalcWeight's same line.
+    const coinCount = ["money-cp", "money-sp", "money-gp", "money-pp"]
+      .reduce((sum, id) => sum + (parseInt($(`#${id}`)?.value) || 0), 0);
+    totalWeight += coinCount / 50;
     const loadCategory = DND35.getLoadCategory(totalWeight, capacity);
     // "Ignore encumbrance" toggle short-circuits load-based penalties
     // — used for Dwarves (speed unaffected by load), monks at their

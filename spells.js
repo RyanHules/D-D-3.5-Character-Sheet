@@ -183,6 +183,8 @@ const Spells = (function () {
         <td><input type="number" class="sc-bonus" data-lvl="${i}" min="0" value="${data[`bonus-${i}`] || ""}"></td>
         <td class="sc-domain-col" style="${domainVis}">${hasBonusSlot ? `<input type="number" class="sc-domain-slots" data-lvl="${i}" min="0" value="${data[`domain-${i}`] || ""}">` : ""}</td>
         <td class="sc-specialist-col" style="${specVis}">${hasBonusSlot ? `<input type="number" class="sc-specialist-slots" data-lvl="${i}" min="0" value="${data[`specialist-${i}`] || ""}">` : ""}</td>
+        <td><input type="number" class="sc-extra" data-lvl="${i}" min="0" value="${data[`extra-${i}`] || ""}"
+                   title="Extra slots from feats, items, irregular PrCs, etc. Survives class re-apply; not auto-overwritten."></td>
         <td><input type="number" class="sc-used" data-lvl="${i}" min="0" value="${data[`used-${i}`] || "0"}"></td>
         <td><span class="sc-remain calc-field" data-lvl="${i}">--</span></td>
       </tr>`);
@@ -287,6 +289,7 @@ const Spells = (function () {
                 <th>Lvl</th><th>Known</th><th>DC</th><th>/Day</th><th>Bonus</th>
                 <th class="sc-domain-col" style="${domainVis}">Dom</th>
                 <th class="sc-specialist-col" style="${specVis}">Spec</th>
+                <th title="Extra slots from feats / items / irregular PrCs">Extra</th>
                 <th>Used</th><th>Left</th>
               </tr></thead>
               <tbody>${rows.join("")}</tbody>
@@ -573,6 +576,8 @@ const Spells = (function () {
       <td><input type="number" class="sc-bonus" data-lvl="${i}" min="0"></td>
       <td class="sc-domain-col" style="${domainVis}"><input type="number" class="sc-domain-slots" data-lvl="${i}" min="0"></td>
       <td class="sc-specialist-col" style="${specVis}"><input type="number" class="sc-specialist-slots" data-lvl="${i}" min="0"></td>
+      <td><input type="number" class="sc-extra" data-lvl="${i}" min="0"
+                 title="Extra slots from feats / items / irregular PrCs"></td>
       <td><input type="number" class="sc-used" data-lvl="${i}" min="0" value="0"></td>
       <td><span class="sc-remain calc-field" data-lvl="${i}">--</span></td>`;
     table.querySelector("tbody").appendChild(tr);
@@ -1162,6 +1167,14 @@ const Spells = (function () {
         const bonus = int(panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value);
         const domain = int(panel.querySelector(`.sc-domain-slots[data-lvl="${i}"]`)?.value);
         const specialist = int(panel.querySelector(`.sc-specialist-slots[data-lvl="${i}"]`)?.value);
+        // Extra slots from feats / irregular PrCs / items. Unlike
+        // `bonus` (auto-filled from ability mod and gated on base
+        // castability), `extra` is purely user-controlled and never
+        // overwritten — the rebuild-killer use case is "I have +1
+        // L3 slot from Bracers of Wizardry that I want to track."
+        // Counted toward the total even when base perDay is 0 (some
+        // sources grant access to levels you can't normally cast).
+        const extra = int(panel.querySelector(`.sc-extra[data-lvl="${i}"]`)?.value);
         const used = int(panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value);
         // PHB Bonus Spells sidebar: "You can only receive bonus spells
         // of a level you can already cast." If base `perDay` is 0 and
@@ -1172,7 +1185,7 @@ const Spells = (function () {
         // Wizard L4 access starts at class level 7.
         const baseCastable = (perDay + domain + specialist) > 0;
         const effectiveBonus = baseCastable ? bonus : 0;
-        const totalSlots = perDay + effectiveBonus + domain + specialist;
+        const totalSlots = perDay + effectiveBonus + domain + specialist + extra;
         const remaining = totalSlots - used;
         const el = panel.querySelector(`.sc-remain[data-lvl="${i}"]`);
         if (el) {
@@ -1383,6 +1396,7 @@ const Spells = (function () {
           caster[`known-${i}`] = panel.querySelector(`.sc-known[data-lvl="${i}"]`)?.value || "";
           caster[`perDay-${i}`] = panel.querySelector(`.sc-per-day[data-lvl="${i}"]`)?.value || "";
           caster[`bonus-${i}`] = panel.querySelector(`.sc-bonus[data-lvl="${i}"]`)?.value || "";
+          caster[`extra-${i}`] = panel.querySelector(`.sc-extra[data-lvl="${i}"]`)?.value || "";
           caster[`used-${i}`] = panel.querySelector(`.sc-used[data-lvl="${i}"]`)?.value || "0";
           // Spells Known is now a structured list (per spell name).
           // Save as an array; legacy `text-${i}` is preserved on load

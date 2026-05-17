@@ -12,13 +12,39 @@
   // Auto-expanding textareas
   // ============================================================
   function autoExpand(el) {
+    if (!el) return;
     el.style.height = "auto";
-    el.style.height = el.scrollHeight + "px";
+    const h = el.scrollHeight;
+    if (h > 0) {
+      el.style.height = h + "px";
+      return;
+    }
+    // scrollHeight is 0 when the element is inside a hidden tab,
+    // closed <details>, or otherwise not laid out yet. Retry after
+    // the next paint — by then layout has settled. This is the
+    // root-cause fix for the "multi-line textarea shows as 1 line
+    // after load until I click it" bug: load happens before the
+    // freshly-activated tab has laid out its contents.
+    requestAnimationFrame(() => {
+      const h2 = el.scrollHeight;
+      if (h2 > 0) el.style.height = h2 + "px";
+    });
   }
 
   document.addEventListener("input", (e) => {
     if (e.target.tagName === "TEXTAREA") autoExpand(e.target);
   });
+
+  // <details> elements (Class Lookup, Build Timeline, etc.) lay out
+  // their contents only when open — any textarea inside reports
+  // scrollHeight=0 while closed. Re-expand on every open so notes
+  // restored from a save don't show as single-line until clicked.
+  document.addEventListener("toggle", (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLElement) || t.tagName !== "DETAILS") return;
+    if (!t.open) return;
+    t.querySelectorAll("textarea").forEach(autoExpand);
+  }, true);  // capture, since `toggle` doesn't bubble
 
   function autoExpandAll() {
     $$("textarea").forEach((ta) => autoExpand(ta));
