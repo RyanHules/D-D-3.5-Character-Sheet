@@ -1705,6 +1705,30 @@ textarea {
   border-radius: 3px;
 }
 
+/* Clickable domain chips inside the deity info panel — one per
+   deity domain. Click inserts into the first empty .sc-domain-name
+   slot on the Spells tab (or creates a new row). */
+.deity-domain-chip {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  margin: 0.1rem 0.15rem;
+  background: rgba(200, 161, 74, 0.18);
+  color: #c8a14a;
+  border: 1px solid rgba(200, 161, 74, 0.4);
+  border-radius: 10px;
+  font-size: 0.85em;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.deity-domain-chip:hover {
+  background: rgba(200, 161, 74, 0.3);
+  border-color: #c8a14a;
+}
+.deity-domain-chip:active {
+  transform: translateY(1px);
+}
+
 /* ==================== Class Variants (ACFs + Sub Levels) ==================== */
 /* Appended to the class-picker info panel by class-variants.js. Two
    collapsible sections (ACFs / Sub Levels), each containing a list of

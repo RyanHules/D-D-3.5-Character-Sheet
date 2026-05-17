@@ -2145,6 +2145,24 @@ test('deity-picker: book-filter + alignment-auto-fill wiring present', () => {
     'alignment — user edits could be overwritten on re-render.');
 });
 
+test('deity-picker: domain chips wire into Spells-tab .sc-domain-name', () => {
+  // The clickable-chip flow: chip click → find an empty
+  // .sc-domain-name in a Domain-Access panel → fill via dispatch
+  // (or click +Add Domain when no empty slot). Static grep:
+  const src = readSource('deity-picker.js');
+  assert(/deity-domain-chip/.test(src),
+    'deity-picker.js: domain chips not rendered as ' +
+    '.deity-domain-chip elements.');
+  assert(/insertDomainIntoSpellsTab/.test(src),
+    'deity-picker.js: missing insertDomainIntoSpellsTab handler.');
+  assert(/sc-domain-toggle/.test(src),
+    'deity-picker.js: chip handler does not filter to panels with ' +
+    'Domain Access enabled (would no-op on Wizard-only sheets).');
+  assert(/sc-add-domain/.test(src),
+    'deity-picker.js: chip handler has no fallback to create a row ' +
+    'via the panel\'s "+ Add Domain" button when all slots are full.');
+});
+
 // ---- tests: monster-class extensions (SS) -----------------------------
 
 test('monster-class: SS monster classes have the extended class_table fields', (db) => {

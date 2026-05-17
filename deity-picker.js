@@ -122,6 +122,96 @@
     // Rehydrate on init: if a saved character already has a deity
     // typed, populate the info panel + alignment immediately.
     if (deityInput.value.trim()) onChange();
+
+    // Click handler for domain chips inside the info panel. Single
+    // delegated listener — chips are re-rendered on every renderInfo
+    // call, so we can't bind per-chip cleanly.
+    infoPanel.addEventListener('click', (ev) => {
+      const chip = ev.target.closest('.deity-domain-chip');
+      if (!chip) return;
+      ev.preventDefault();
+      insertDomainIntoSpellsTab(chip.dataset.domain);
+    });
+  }
+
+  // Find an appropriate `.sc-domain-name` input across all
+  // spellcasting panels and stuff `domainName` into it. Priority:
+  //   1. First empty `.sc-domain-name` inside a panel with Domain
+  //      Access toggled ON.
+  //   2. If no empty slot but at least one Domain-Access panel
+  //      exists, click that panel's "+ Add Domain" to create a row
+  //      and fill the new one.
+  //   3. If no Domain-Access panel exists, flash a hint.
+  function insertDomainIntoSpellsTab(domainName) {
+    if (!domainName) return;
+    const panels = document.querySelectorAll(
+      '#spells-content [data-caster-type="spellcasting"]');
+    let firstDomainAccessPanel = null;
+    for (const panel of panels) {
+      const toggle = panel.querySelector('.sc-domain-toggle');
+      if (!toggle || !toggle.checked) continue;
+      if (!firstDomainAccessPanel) firstDomainAccessPanel = panel;
+      // Reject empty if it already has the same name (case-insensitive
+      // de-dupe — clicking the same chip twice shouldn't double-fill).
+      const inputs = panel.querySelectorAll('.sc-domain-name');
+      for (const inp of inputs) {
+        if (String(inp.value).trim().toLowerCase() === domainName.toLowerCase()) {
+          flashChipNote(`${domainName} already in this panel.`);
+          return;
+        }
+      }
+      for (const inp of inputs) {
+        if (!inp.value.trim()) {
+          fillDomainInput(inp, domainName);
+          flashChipNote(`Added ${domainName}.`);
+          return;
+        }
+      }
+    }
+    // No empty slot found — create one in the first Domain-Access panel.
+    if (firstDomainAccessPanel) {
+      const addBtn = firstDomainAccessPanel.querySelector('.sc-add-domain');
+      if (addBtn) {
+        addBtn.click();
+        // Fill the newly-appended row.
+        const inputs = firstDomainAccessPanel.querySelectorAll('.sc-domain-name');
+        const newInput = inputs[inputs.length - 1];
+        if (newInput) {
+          fillDomainInput(newInput, domainName);
+          flashChipNote(`Added ${domainName} (new row).`);
+          return;
+        }
+      }
+    }
+    // No spellcasting panel has Domain Access on — guide the user.
+    flashChipNote(
+      'No spellcasting panel with Domain Access enabled. ' +
+      'Toggle it on in the Spells tab first.',
+      true);
+  }
+
+  function fillDomainInput(input, domainName) {
+    input.value = domainName;
+    // Dispatch input + change so domain-picker's delegation picks it
+    // up and fills sibling power / info via fillFromDomain.
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Append a brief feedback line under the info panel. Auto-removes
+  // after ~3 seconds. `warn` = true colors it amber.
+  function flashChipNote(msg, warn) {
+    if (!infoPanel) return;
+    const existing = infoPanel.querySelector('.deity-chip-note');
+    if (existing) existing.remove();
+    const note = document.createElement('div');
+    note.className = 'deity-chip-note';
+    note.style.cssText =
+      'margin-top:0.3rem;font-style:italic;color:' +
+      (warn ? '#c8a14a' : '#7a9') + ';';
+    note.textContent = msg;
+    infoPanel.appendChild(note);
+    setTimeout(() => note.remove(), 3500);
   }
 
   function onDeityChosen(typedName) {
@@ -179,7 +269,17 @@
     if (meta.length) bits.push(meta.join(' &nbsp;·&nbsp; '));
     if (d.portfolio) bits.push(`<b>Portfolio:</b> ${escapeHtml(d.portfolio)}`);
     if (Array.isArray(d.domains) && d.domains.length) {
-      bits.push(`<b>Domains:</b> ${d.domains.map(escapeHtml).join(', ')}`);
+      // Render each domain as a clickable chip so the player can
+      // insert it directly into the Spells tab's domain list
+      // without tab-hopping + retyping. Wired via event delegation
+      // on the info panel itself.
+      const chips = d.domains.map(name =>
+        `<button type="button" class="deity-domain-chip" ` +
+        `data-domain="${escapeHtml(name)}" ` +
+        `title="Insert ${escapeHtml(name)} into a Spells-tab domain slot">` +
+        escapeHtml(name) + `</button>`
+      ).join(' ');
+      bits.push(`<b>Domains:</b> ${chips}`);
     }
     if (d.favored_weapon) {
       bits.push(`<b>Favored weapon:</b> ${escapeHtml(d.favored_weapon)}`);
