@@ -1249,6 +1249,22 @@ textarea {
   cursor: not-allowed;
 }
 
+/* HD-derived summary line — rendered by companion.js's AUTO mode
+   below the mode bar. Shows total HD breakdown + computed BAB +
+   skill-point budget + bonus-feat count so the player knows how
+   many skill / feat rows to fill. */
+.comp-hd-summary {
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.6rem;
+  background: rgba(106, 138, 170, 0.10);
+  border-left: 3px solid #6a8aaa;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: #ccd;
+  line-height: 1.5;
+}
+.comp-hd-summary b { color: #c8a14a; }
+
 /* === Companion class-based progression panel === */
 .comp-progression-panel {
   margin-bottom: 0.6rem;

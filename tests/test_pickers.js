@@ -1861,6 +1861,103 @@ test('rebuild-killer: class-picker auto-fills XP on apply', () => {
     'class-picker.js: XP fill formula does not match L*(L-1)/2 * 1000.');
 });
 
+// ---- tests: companion HD scaling (Session B) ------------------------------
+
+function loadData() {
+  // data.js declares `const DND35 = {...}` at top level — eval and
+  // return the binding.
+  const src = fs.readFileSync(path.join(ROOT, 'data.js'), 'utf8');
+  return (new Function(src + '\nreturn DND35;'))();
+}
+
+test('companion HD scaling: creatureBABAtHD matches SRD progressions', () => {
+  const D = loadData();
+  // Animal (3/4 BAB): Wolf at 2 HD → +1; at 4 HD → +3; at 8 HD → +6
+  assert(D.creatureBABAtHD('Animal', 2) === 1, 'Animal 2HD = +1');
+  assert(D.creatureBABAtHD('Animal', 4) === 3, 'Animal 4HD = +3');
+  assert(D.creatureBABAtHD('Animal', 8) === 6, 'Animal 8HD = +6');
+  // Magical Beast (full BAB): 4 HD → +4
+  assert(D.creatureBABAtHD('Magical Beast', 4) === 4, 'Magical Beast 4HD = +4');
+  // Undead (1/2 BAB): 6 HD → +3
+  assert(D.creatureBABAtHD('Undead', 6) === 3, 'Undead 6HD = +3');
+  // Dragon (full BAB): 10 HD → +10
+  assert(D.creatureBABAtHD('Dragon', 10) === 10, 'Dragon 10HD = +10');
+});
+
+test('companion HD scaling: creatureSaveAtHD applies good/poor formulas', () => {
+  const D = loadData();
+  // Animal has good Fort + Ref, poor Will. At 4 HD:
+  //   good = floor(4/2)+2 = 4; poor = floor(4/3) = 1
+  assert(D.creatureSaveAtHD('Animal', 4, 'Fort') === 4, 'Animal 4HD Fort = +4 (good)');
+  assert(D.creatureSaveAtHD('Animal', 4, 'Ref') === 4, 'Animal 4HD Ref = +4 (good)');
+  assert(D.creatureSaveAtHD('Animal', 4, 'Will') === 1, 'Animal 4HD Will = +1 (poor)');
+  // Dragon — all three good. 10 HD: floor(10/2)+2 = 7
+  assert(D.creatureSaveAtHD('Dragon', 10, 'Fort') === 7);
+  assert(D.creatureSaveAtHD('Dragon', 10, 'Ref') === 7);
+  assert(D.creatureSaveAtHD('Dragon', 10, 'Will') === 7);
+  // Construct — no good saves. 6 HD: all = floor(6/3) = 2
+  assert(D.creatureSaveAtHD('Construct', 6, 'Fort') === 2);
+});
+
+test('companion HD scaling: skill points + feat count match MM advancement', () => {
+  const D = loadData();
+  // Animal (skillBase 2), Wolf base INT 2 → mod -4 → max(1, 2 + -4) = 1
+  // perHd. 1 HD: 1*4 = 4. 4 HD: 4 (first) + 3*1 = 7.
+  assert(D.creatureSkillPoints('Animal', 1, -4) === 4, 'Wolf 1HD skill pts = 4');
+  assert(D.creatureSkillPoints('Animal', 4, -4) === 7, 'Wolf+2bonus skill pts = 7');
+  // Outsider (skillBase 8) at INT 12 mod +1: perHd = 9. 4 HD: 9*4 + 9*3 = 63.
+  assert(D.creatureSkillPoints('Outsider', 4, 1) === 63, 'Outsider 4HD INT 12');
+  // Feat count: HD 1 → 1; HD 3 → 2; HD 6 → 3; HD 8 → 3; HD 9 → 4
+  assert(D.creatureFeatCount(1) === 1);
+  assert(D.creatureFeatCount(3) === 2);
+  assert(D.creatureFeatCount(6) === 3);
+  assert(D.creatureFeatCount(8) === 3);
+  assert(D.creatureFeatCount(9) === 4);
+});
+
+test('companion HD scaling: parseCreatureType normalizes subtype parentheticals', () => {
+  const D = loadData();
+  assert(D.parseCreatureType('Animal') === 'Animal');
+  assert(D.parseCreatureType('Animal (Aquatic)') === 'Animal',
+    'subtype list stripped');
+  assert(D.parseCreatureType('Magical Beast (Shapechanger)') === 'Magical Beast');
+  // Unrecognized → null (e.g. weird MM3 compound types)
+  assert(D.parseCreatureType('unique celestial paragon') === null);
+  assert(D.parseCreatureType(null) === null);
+  assert(D.parseCreatureType('') === null);
+});
+
+test('companion HD scaling: parseHitDieCount handles common shapes', () => {
+  const D = loadData();
+  assert(D.parseHitDieCount('2d8+4 (13 hp)') === 2);
+  assert(D.parseHitDieCount('1d10') === 1);
+  assert(D.parseHitDieCount('1/2 d8') === 1, 'half-HD clamped to 1');
+  assert(D.parseHitDieCount('12d12+24') === 12);
+  assert(D.parseHitDieCount('') === null);
+  assert(D.parseHitDieCount(null) === null);
+  assert(D.parseHitDieCount('garbage') === null);
+});
+
+test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () => {
+  // Guard the wiring so the companion AUTO path actually invokes the
+  // new HD-derived calculation. Without this hook the BAB/save fields
+  // stay blank even after a base creature is picked.
+  const src = readSource('companion.js');
+  assert(/autoFillHDDerivedStats\s*\(/.test(src),
+    'companion.js: autoFillFromBaseCreature does not call ' +
+    'autoFillHDDerivedStats — bonus HD never becomes BAB/saves.');
+  assert(/DND35\.creatureBABAtHD/.test(src),
+    'companion.js: no reference to DND35.creatureBABAtHD — ' +
+    'BAB recomputation is not wired.');
+  assert(/comp-hd-summary/.test(src),
+    'companion.js: HD summary line is not rendered — players have ' +
+    'no visibility into the computed skill / feat budget.');
+  // Familiar special-case (inherits from master) should explicitly
+  // be carved out so we don't write wrong numbers to it.
+  assert(/matchType\s*===\s*['"]familiar['"]/.test(src),
+    'companion.js: familiar case is not carved out of HD recompute.');
+});
+
 test('rebuild-killer: textarea auto-expand has details/visibility fallback', () => {
   // The pre-2026-05-17 autoExpand wrote scrollHeight unconditionally;
   // textareas in closed <details> or inactive tabs report 0 → showed

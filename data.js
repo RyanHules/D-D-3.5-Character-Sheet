@@ -172,6 +172,109 @@ const DND35 = {
     return null;
   },
 
+  // ============================================================
+  // Creature type → BAB / save / hit-die / skill table
+  // ============================================================
+  //
+  // Per the SRD's "Creature Types" section: each type has a fixed BAB
+  // progression (full / 3/4 / 1/2), a set of good saves (those without
+  // are "poor"), a hit die size, and a per-HD skill point base. Used
+  // by companion.js's AUTO mode to recompute BAB / saves / skills
+  // when bonus HD are stacked onto a base creature (animal companion
+  // / paladin mount).
+  //
+  // The `parseCreatureType` helper strips parenthesized subtype lists
+  // ("Animal (Aquatic)" → "Animal") so the table only needs one row
+  // per primary type.
+
+  creatureTypes: {
+    // Format: [babPerHd, [goodSaves], hitDieSize, skillBase]
+    // babPerHd: 1 (full), 0.75 (3/4), 0.5 (1/2)
+    // skillBase: per-HD addition; the FIRST HD also gets ×4 multiplier
+    //   per MM ("a creature with racial hit dice gains skill points as
+    //   if it were a 1st-level character...").
+    Aberration:         { bab: 0.75, goodSaves: ['Will'],        hd: 8,  skillBase: 2 },
+    Animal:             { bab: 0.75, goodSaves: ['Fort', 'Ref'], hd: 8,  skillBase: 2 },
+    Construct:          { bab: 0.75, goodSaves: [],              hd: 10, skillBase: 2 },
+    Deathless:          { bab: 0.5,  goodSaves: ['Will'],        hd: 12, skillBase: 4 },
+    Dragon:             { bab: 1,    goodSaves: ['Fort','Ref','Will'], hd: 12, skillBase: 6 },
+    Elemental:          { bab: 0.75, goodSaves: ['Fort'],        hd: 8,  skillBase: 2 },
+    Fey:                { bab: 0.5,  goodSaves: ['Ref', 'Will'], hd: 6,  skillBase: 6 },
+    Giant:              { bab: 0.75, goodSaves: ['Fort'],        hd: 8,  skillBase: 2 },
+    Humanoid:           { bab: 0.75, goodSaves: ['Ref'],         hd: 8,  skillBase: 2 },
+    'Magical Beast':    { bab: 1,    goodSaves: ['Fort', 'Ref'], hd: 10, skillBase: 2 },
+    'Monstrous Humanoid': { bab: 1,  goodSaves: ['Ref', 'Will'], hd: 8,  skillBase: 2 },
+    Ooze:               { bab: 0.75, goodSaves: [],              hd: 10, skillBase: 2 },
+    Outsider:           { bab: 1,    goodSaves: ['Fort','Ref','Will'], hd: 8,  skillBase: 8 },
+    Plant:              { bab: 0.75, goodSaves: ['Fort'],        hd: 8,  skillBase: 2 },
+    Shapechanger:       { bab: 0.75, goodSaves: ['Fort', 'Ref'], hd: 8,  skillBase: 2 },
+    Undead:             { bab: 0.5,  goodSaves: ['Will'],        hd: 12, skillBase: 4 },
+    Vermin:             { bab: 0.75, goodSaves: ['Fort'],        hd: 8,  skillBase: 2 },
+  },
+
+  // Strip parenthesized subtype list ("Animal (Aquatic)" → "Animal"),
+  // titlecase the result, and return the primary type. Returns null
+  // for unrecognized types (e.g. the one Outsider variant typed as
+  // "Construct, Outsider (Lawful)" — caller falls back to no recomputation).
+  parseCreatureType(raw) {
+    if (!raw) return null;
+    const primary = String(raw).split(/[,(]/)[0].trim();
+    return this.creatureTypes[primary] ? primary : null;
+  },
+
+  // BAB at the given total HD for the type's progression. Floor as
+  // per SRD (a 3/4-BAB creature with 4 HD has BAB +3, not +3.5).
+  creatureBABAtHD(type, hd) {
+    const info = this.creatureTypes[type];
+    if (!info || !hd) return 0;
+    return Math.floor(info.bab * hd);
+  },
+
+  // Base save at the given HD for the type. Good save = floor(HD/2)+2;
+  // poor save = floor(HD/3). Per SRD Table 3-1 ("Base Save and Base
+  // Attack Bonus" — applies to all creature racial HD as well as
+  // class levels).
+  creatureSaveAtHD(type, hd, which /* 'Fort' | 'Ref' | 'Will' */) {
+    const info = this.creatureTypes[type];
+    if (!info || !hd) return 0;
+    const isGood = info.goodSaves.includes(which);
+    return isGood ? Math.floor(hd / 2) + 2 : Math.floor(hd / 3);
+  },
+
+  // Skill points per the MM advancement rules:
+  //   ×4 multiplier on the FIRST HD, plain on subsequent HD.
+  //   Per HD = max(1, skillBase + INT mod) (min 1 from the SRD rule
+  //   "characters always get at least 1 skill point per HD").
+  creatureSkillPoints(type, hd, intMod) {
+    const info = this.creatureTypes[type];
+    if (!info || !hd || hd <= 0) return 0;
+    const perHd = Math.max(1, info.skillBase + (intMod || 0));
+    if (hd === 1) return perHd * 4;
+    return perHd * 4 + perHd * (hd - 1);
+  },
+
+  // Bonus feat count from racial HD per PHB Table 3-2: 1 feat at HD 1
+  // and +1 at every HD divisible by 3 (L3 / 6 / 9 / 12 / ...).
+  // Formula: 1 + floor(HD / 3).
+  creatureFeatCount(hd) {
+    if (!hd || hd < 1) return 0;
+    return 1 + Math.floor(hd / 3);
+  },
+
+  // Parse hit-die count from a creature's `hit_dice` string
+  //   "2d8+4 (13 hp)"  → 2
+  //   "1d10"           → 1
+  //   "1/2 d8"         → 1 (the half-HD edge case clamps to 1 since
+  //                         BAB/skill formulas assume hd >= 1)
+  // Returns null if the string doesn't match the expected pattern.
+  parseHitDieCount(raw) {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    if (/^1\/2\s*d/i.test(s)) return 1;
+    const m = s.match(/^(\d+)\s*d/i);
+    return m ? parseInt(m[1], 10) : null;
+  },
+
   // Speed reduction table from PHB p.162 (also used for medium/heavy
   // armor speed reductions, which follow the same numeric pattern):
   // a 1/3 reduction rounded to the nearest 5 ft increment.

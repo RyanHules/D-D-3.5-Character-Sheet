@@ -876,9 +876,117 @@ const Companion = (function () {
     }
     setAuto('.comp-ac-natural', baseNA + naAdj);
 
+    // HD-derived BAB / saves / skill points / feat count. Bonus HD
+    // from the progression table stack onto the creature's base HD;
+    // the creature type's BAB and good-saves rules recompute against
+    // the new total. Skill points + feat count are surfaced as a
+    // read-only summary line so the player knows their budget when
+    // adding skill / feat rows manually (auto-populating individual
+    // rows is a stretch goal — feat names like "Track(B)" are free
+    // text in the DB description, not structured).
+    autoFillHDDerivedStats(panel, creature, matchType, prog, stats.INT);
+
     // Re-apply disabled state (since setAuto cleared / set values
     // but the toggle handler runs only on radio change).
     applyAutoFillState(panel, 'auto');
+  }
+
+  // Compute total HD = base HD + bonus HD, then derive BAB / saves /
+  // skill-point budget / feat-count from the creature type. Familiars
+  // skip the BAB/save recompute because RAW has them inherit the
+  // master's BAB and use the better of (their own, master's) for
+  // saves — needs the master's character stats to compute meaningfully,
+  // so deferred until a future pass.
+  function autoFillHDDerivedStats(panel, creature, matchType, prog, intTotal) {
+    // DND35 is a top-level const, not a window property — must use
+    // typeof guard rather than property access (which would always
+    // be undefined and skip the function silently). See
+    // tests/test_pickers.js audit guard for the rationale.
+    if (typeof DND35 === 'undefined' ||
+        typeof DND35.parseCreatureType !== 'function') return;
+    const type = DND35.parseCreatureType(creature.creature_type || creature.type);
+    if (!type) {
+      // Unknown / unrecognized creature type — skip silently and let
+      // the player fill BAB/saves manually. Most unrecognized types
+      // are exotic (e.g. "unique celestial paragon"). Leaving them
+      // unfilled is safer than computing wrong numbers.
+      clearHDSummary(panel);
+      return;
+    }
+    const baseHD = DND35.parseHitDieCount(creature.hit_dice) || 0;
+    const bonusHD = (prog && prog.bonusHD) || 0;
+    const totalHD = baseHD + bonusHD;
+    if (totalHD < 1) { clearHDSummary(panel); return; }
+
+    const setAuto = (sel, val) => {
+      const el = panel.querySelector(sel);
+      if (!el) return;
+      el.value = String(val);
+      el.dataset.fromAuto = '1';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    // Familiars: skip the recompute; per RAW they inherit master's
+    // BAB and use better-of-saves. Surface that as a note instead
+    // of silently writing wrong numbers.
+    if (matchType === 'familiar') {
+      renderHDSummary(panel, {
+        type, baseHD, bonusHD, totalHD,
+        familiarNote: true,
+      });
+      return;
+    }
+
+    // Animal companion / special mount / generic creature: recompute
+    // from total HD using the type's progression.
+    const bab = DND35.creatureBABAtHD(type, totalHD);
+    setAuto('.comp-bab', bab);
+    for (const which of ['Fort', 'Ref', 'Will']) {
+      const save = DND35.creatureSaveAtHD(type, totalHD, which);
+      setAuto(`.comp-save-base[data-save="${which}"]`, save);
+    }
+
+    const intMod = Math.floor((intTotal - 10) / 2);
+    const skillPts = DND35.creatureSkillPoints(type, totalHD, intMod);
+    const featCount = DND35.creatureFeatCount(totalHD);
+    renderHDSummary(panel, {
+      type, baseHD, bonusHD, totalHD, bab, intMod, skillPts, featCount,
+    });
+  }
+
+  // Render (or clear) the HD-derived summary line above the Skills /
+  // Feats columns. Gives the player a one-line breakdown of the
+  // computed total HD + skill-point budget + bonus-feat count so they
+  // know how many rows to fill in.
+  function renderHDSummary(panel, info) {
+    let el = panel.querySelector('.comp-hd-summary');
+    if (!el) {
+      // Inject above the AUTO mode bar so it sits with the other
+      // computed info.
+      const modeBar = panel.querySelector('.comp-mode-bar');
+      if (!modeBar) return;
+      el = document.createElement('div');
+      el.className = 'comp-hd-summary';
+      modeBar.parentElement.insertBefore(el, modeBar.nextSibling);
+    }
+    const bits = [];
+    bits.push(`<b>HD:</b> ${info.totalHD} ` +
+      `<span style="opacity:.7">(${info.baseHD} base${info.bonusHD ? ` + ${info.bonusHD} bonus` : ''})</span>`);
+    if (info.familiarNote) {
+      bits.push(`<i style="color:#aaa">Familiar: BAB &amp; saves inherit from master (RAW uses better-of-saves; recompute deferred)</i>`);
+    } else {
+      bits.push(`<b>Type:</b> ${info.type}`);
+      if (info.bab != null) bits.push(`<b>BAB:</b> +${info.bab}`);
+      if (info.skillPts != null) bits.push(`<b>Skill points:</b> ${info.skillPts} (INT mod ${info.intMod >= 0 ? '+' : ''}${info.intMod})`);
+      if (info.featCount != null) bits.push(`<b>Feats:</b> ${info.featCount}`);
+    }
+    el.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    el.style.display = '';
+  }
+
+  function clearHDSummary(panel) {
+    const el = panel.querySelector('.comp-hd-summary');
+    if (el) { el.innerHTML = ''; el.style.display = 'none'; }
   }
 
   // When AUTO mode is on, the stat fields populated by autoFillFromBase
@@ -888,7 +996,8 @@ const Companion = (function () {
   function applyAutoFillState(panel, mode) {
     const auto = mode === 'auto';
     const fields = panel.querySelectorAll(
-      '.comp-score, .comp-speed, .comp-ac-natural');
+      '.comp-score, .comp-speed, .comp-ac-natural, ' +
+      '.comp-bab, .comp-save-base');
     for (const el of fields) {
       el.disabled = auto;
       el.classList.toggle('comp-auto-locked', auto);
