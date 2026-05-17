@@ -437,29 +437,22 @@ const Audit = (function () {
     }
   }
 
-  // For each feat taken in history, check that any feat-prereqs
-  // were already in the character's feat list at that point. This
-  // is the canonical "took Cleave before Power Attack" check.
+  // For each feat taken in history, replay the prereq check against
+  // the character's state AT the moment the feat was acquired (Phase
+  // B). Covers every atom kind — feat / BAB / ability / class level /
+  // caster level / skill / alignment — not just the "took Cleave
+  // before Power Attack" case.
+  //
+  // Same-level feat prereqs are still handled specially: RAW lets you
+  // list multiple feats acquired at one level (class bonus + standard
+  // slot) in any order, so we downgrade those to info rather than
+  // error.
   function checkFeatPrereqOrder(history, issues) {
     if (typeof FeatPrereqs === 'undefined' ||
-        typeof FeatPrereqs.parse !== 'function') return;
+        typeof FeatPrereqs.evaluateAtLevel !== 'function') return;
     if (typeof DB === 'undefined' || !DB.isLoaded()) return;
-    // Build cumulative-feats-by-level once.
-    const featsAtOrBefore = new Map();  // level → Set<lowercase feat name>
-    let running = new Set();
-    for (const e of history) {
-      const cur = new Set(running);
-      for (const fn of (e.feats_taken || [])) {
-        cur.add(String(fn || '').trim().toLowerCase());
-      }
-      featsAtOrBefore.set(e.level, cur);
-      running = cur;
-    }
     // Walk each acquired feat.
     for (const e of history) {
-      const priorFeats = e.level > 1
-        ? (featsAtOrBefore.get(e.level - 1) || new Set())
-        : new Set();
       for (const featName of (e.feats_taken || [])) {
         const name = String(featName || '').trim();
         if (!name) continue;
@@ -468,35 +461,67 @@ const Audit = (function () {
           "FROM entry WHERE type='feat' AND name = :n COLLATE NOCASE LIMIT 1",
           { ':n': name });
         if (!row || !row.p) continue;  // homebrew / unknown
-        const atoms = FeatPrereqs.parse(row.p);
-        for (const a of atoms) {
-          if (a.kind !== 'feat') continue;
-          const need = a.name.toLowerCase();
-          if (priorFeats.has(need)) continue;
-          // The prereq feat wasn't taken in a PRIOR level. It might
-          // be taken at the SAME level — check, and downgrade to a
-          // warning since RAW lets you list feats in any order on a
-          // single level (multiple feats can be acquired at one
-          // level via class bonus + standard slot).
-          const sameLevel = (e.feats_taken || []).map(s => String(s).trim().toLowerCase());
-          if (sameLevel.includes(need)) {
+        // History-aware evaluation: snapshot rewound to the moment
+        // BEFORE level e.level's feats are picked.
+        const result = FeatPrereqs.evaluateAtLevel(row.p, e.level,
+          { history });
+        const sameLevelFeats = (e.feats_taken || [])
+          .map(s => String(s).trim().toLowerCase());
+        for (const a of result.atoms) {
+          if (a.status === 'satisfied') continue;
+          if (a.status === 'unknown') continue;  // warn-only; skip
+          // Special case: same-level feat prereq.
+          if (a.kind === 'feat') {
+            const need = a.name.toLowerCase();
+            if (sameLevelFeats.includes(need)) {
+              issues.push({
+                id: `history:prereq-same-level:${e.level}:${name}:${a.name}`,
+                severity: 'info',
+                message: `L${e.level}: ${name} requires ${a.name}, which ` +
+                         `was taken on the SAME level. Order on the same ` +
+                         `level is irrelevant by RAW, but worth confirming ` +
+                         `your DM accepts it.`,
+              });
+              continue;
+            }
             issues.push({
-              id: `history:prereq-same-level:${e.level}:${name}:${a.name}`,
-              severity: 'info',
-              message: `L${e.level}: ${name} requires ${a.name}, which ` +
-                       `was taken on the SAME level. Order on the same ` +
-                       `level is irrelevant by RAW, but worth confirming ` +
-                       `your DM accepts it.`,
+              id: `history:prereq-not-taken:${e.level}:${name}:${a.name}`,
+              severity: 'error',
+              message: `L${e.level}: ${name} requires ${a.name} as a feat ` +
+                       `prereq, but ${a.name} was not taken in any prior ` +
+                       `level. Re-order via the Build Timeline, or dismiss ` +
+                       `if a DM ruling allows it.`,
             });
             continue;
           }
+          // Non-feat unmet prereq — emit a descriptive issue based
+          // on the atom kind. severity = error, since at the time
+          // the feat was taken, the character didn't meet RAW.
+          const detail = a.detail || '';
+          let summary = a.raw;
+          if (a.kind === 'ability') {
+            summary = `${a.ability} ${a.value}`;
+          } else if (a.kind === 'bab') {
+            summary = `BAB +${a.value}`;
+          } else if (a.kind === 'skill') {
+            summary = `${a.skill} ${a.ranks} ranks`;
+          } else if (a.kind === 'classLevel') {
+            summary = `${a.className} level ${a.level}`;
+          } else if (a.kind === 'casterLevel') {
+            summary = `${a.flavor === 'any' ? '' : a.flavor + ' '}caster level ${a.level}`;
+          } else if (a.kind === 'castSpells') {
+            summary = `able to cast L${a.level} ${a.flavor === 'any' ? '' : a.flavor + ' '}spells`;
+          } else if (a.kind === 'alignment') {
+            summary = `${a.parts.join(' ')} alignment`;
+          }
           issues.push({
-            id: `history:prereq-not-taken:${e.level}:${name}:${a.name}`,
+            id: `history:prereq-unmet:${e.level}:${name}:${a.kind}:${summary}`,
             severity: 'error',
-            message: `L${e.level}: ${name} requires ${a.name} as a feat ` +
-                     `prereq, but ${a.name} was not taken in any prior ` +
-                     `level. Re-order via the Build Timeline, or dismiss ` +
-                     `if a DM ruling allows it.`,
+            message: `L${e.level}: ${name} requires ${summary}` +
+                     (detail ? ` (${detail})` : '') +
+                     `, but the character didn't meet that at the time. ` +
+                     `Re-order via the Build Timeline, or dismiss if a DM ` +
+                     `ruling allows it.`,
           });
         }
       }

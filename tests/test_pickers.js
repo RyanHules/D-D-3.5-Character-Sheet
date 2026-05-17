@@ -1662,6 +1662,266 @@ test('CharacterHistory: explicit history wins over reconstruction', () => {
   assert(!CH.isReconstructed(), 'reconstructed flag stays false');
 });
 
+// ---- tests: FeatPrereqs Phase B (history-aware) --------------------------
+//
+// Phase A checked feat prereqs against the current sheet state (post-
+// build totals). Phase B rewinds to the state AT the level the feat
+// was acquired, using CharacterHistory data, so the audit can flag
+// "took Cleave before Power Attack" style ordering violations on
+// *every* atom kind (BAB, ability, skill, classLevel, casterLevel,
+// alignment, feat) — not just feat→feat.
+//
+// We load feat-prereqs.js in a Node sandbox with the bare-minimum
+// DOM stubs so the IIFE evaluates cleanly; the helpers we exercise
+// here (parse, snapshotAtLevel, evaluateAtLevel) don't touch the DOM
+// when given an explicit `history` opt.
+
+function loadFeatPrereqs(opts) {
+  opts = opts || {};
+  const src = fs.readFileSync(path.join(ROOT, 'feat-prereqs.js'), 'utf8');
+  // The module references `window`, `document`, `DB`. We stub all of
+  // them. `getClassMetadata` is the only DB-touching helper used by
+  // snapshotAtLevel, and we let tests supply a fake meta map.
+  const fakeWindow = { DB: opts.DB || null };
+  const fakeDocument = {
+    getElementById: () => null,
+    querySelectorAll: () => [],
+    querySelector: () => null,
+  };
+  const fn = new Function('window', 'document', 'DB',
+    src + '\nreturn FeatPrereqs;');
+  return fn(fakeWindow, fakeDocument, opts.DB || undefined);
+}
+
+test('FeatPrereqs: parse extracts canonical atom kinds', () => {
+  const FP = loadFeatPrereqs();
+  const atoms = FP.parse('Str 13, BAB +1, Wizard level 5, Concentration 4 ranks, Chaotic alignment, Power Attack');
+  const kinds = atoms.map(a => a.kind);
+  assert(kinds.includes('ability'),     `missing ability atom: ${kinds.join(',')}`);
+  assert(kinds.includes('bab'),         `missing bab atom: ${kinds.join(',')}`);
+  assert(kinds.includes('classLevel'),  `missing classLevel atom: ${kinds.join(',')}`);
+  assert(kinds.includes('skill'),       `missing skill atom: ${kinds.join(',')}`);
+  assert(kinds.includes('alignment'),   `missing alignment atom: ${kinds.join(',')}`);
+  assert(kinds.includes('feat'),        `missing feat atom: ${kinds.join(',')}`);
+});
+
+test('FeatPrereqs: snapshotAtLevel falls back to live snapshot when history is empty', () => {
+  // Phase B contract: if no history is supplied (or it's empty),
+  // snapshotAtLevel returns the present-tense snapshot — so existing
+  // callers without history still work in legacy / unreconstructed
+  // characters.
+  const FP = loadFeatPrereqs();
+  const s = FP.snapshotAtLevel(5, { history: [] });
+  // Live snapshot uses our stub document → everything defaults to 0/empty.
+  assert(s && typeof s === 'object', 'snapshotAtLevel returned an object');
+  assert(s.abilities && typeof s.abilities === 'object',
+    'has abilities map');
+  assert(s.classes && Array.isArray(s.classes), 'has classes array');
+  assert(s.featNames instanceof Set, 'has featNames Set');
+  assert(s.skillRanks instanceof Map, 'has skillRanks Map');
+  // No DOM = no caster panels = no caster levels.
+  assert(s.casterLevels.any === 0, 'casterLevels.any is 0 (no DOM)');
+});
+
+test('FeatPrereqs: snapshotAtLevel cumulates classes through the target level (inclusive)', () => {
+  const FP = loadFeatPrereqs();
+  const history = [
+    { level: 1, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 2, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 3, class_taken: 'Wizard',  feats_taken: [], skills_purchased: {} },
+    { level: 4, class_taken: 'Wizard',  feats_taken: [], skills_purchased: {} },
+  ];
+  // At L3 the character has Fighter 2 + Wizard 1 — the Wizard taken
+  // AT this level COUNTS, because class is locked in before feats.
+  const s3 = FP.snapshotAtLevel(3, { history, currentAbilities: {
+    STR:10,DEX:10,CON:10,INT:10,WIS:10,CHA:10 } });
+  const fighter3 = s3.classes.find(c => c.name === 'Fighter');
+  const wizard3  = s3.classes.find(c => c.name === 'Wizard');
+  assert(fighter3 && fighter3.level === 2, `Fighter L2 expected, got ${fighter3 && fighter3.level}`);
+  assert(wizard3 && wizard3.level === 1,   `Wizard L1 expected, got ${wizard3 && wizard3.level}`);
+});
+
+test('FeatPrereqs: snapshotAtLevel excludes feats taken AT or AFTER the target level', () => {
+  // The whole point: a level-3 feat must not be able to satisfy its
+  // own prereq, and we must miss future feats too.
+  const FP = loadFeatPrereqs();
+  const history = [
+    { level: 1, class_taken: 'Fighter', feats_taken: ['Power Attack'],
+      skills_purchased: {} },
+    { level: 3, class_taken: 'Fighter', feats_taken: ['Cleave', 'Improved Bull Rush'],
+      skills_purchased: {} },
+    { level: 6, class_taken: 'Fighter', feats_taken: ['Great Cleave'],
+      skills_purchased: {} },
+  ];
+  const s3 = FP.snapshotAtLevel(3, { history, currentAbilities: {
+    STR:14,DEX:10,CON:10,INT:10,WIS:10,CHA:10 } });
+  assert(s3.featNames.has('power attack'),
+    'L1 Power Attack should be visible at L3');
+  assert(!s3.featNames.has('cleave'),
+    'L3 Cleave must NOT be visible at L3 (we check BEFORE this-level feats)');
+  assert(!s3.featNames.has('improved bull rush'),
+    'L3 Improved Bull Rush must NOT be visible at L3');
+  assert(!s3.featNames.has('great cleave'),
+    'L6 Great Cleave must NOT be visible at L3');
+});
+
+test('FeatPrereqs: snapshotAtLevel cumulates skills from prior levels only', () => {
+  const FP = loadFeatPrereqs();
+  const history = [
+    { level: 1, class_taken: 'Rogue', feats_taken: [],
+      skills_purchased: { Tumble: 4, Hide: 4 } },
+    { level: 2, class_taken: 'Rogue', feats_taken: [],
+      skills_purchased: { Tumble: 1, Hide: 1 } },
+    { level: 3, class_taken: 'Rogue', feats_taken: ['Combat Reflexes'],
+      skills_purchased: { Tumble: 1 } },
+  ];
+  const s3 = FP.snapshotAtLevel(3, { history, currentAbilities: {
+    STR:10,DEX:14,CON:10,INT:10,WIS:10,CHA:10 } });
+  // At L3 we see L1+L2 ranks (5 in Tumble, 5 in Hide). The L3 rank
+  // (purchased AFTER feats) doesn't count.
+  assert(s3.skillRanks.get('tumble') === 5,
+    `Tumble should be 5 (L1=4 + L2=1), got ${s3.skillRanks.get('tumble')}`);
+  assert(s3.skillRanks.get('hide') === 5,
+    `Hide should be 5, got ${s3.skillRanks.get('hide')}`);
+});
+
+test('FeatPrereqs: snapshotAtLevel subtracts ability boosts at level >= N', () => {
+  const FP = loadFeatPrereqs();
+  // Build: STR boost at L4 + L8. Current totals reflect both.
+  const history = [
+    { level: 1, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 4, class_taken: 'Fighter', feats_taken: [], skills_purchased: {},
+      ability_boost: 'STR' },
+    { level: 8, class_taken: 'Fighter', feats_taken: [], skills_purchased: {},
+      ability_boost: 'STR' },
+  ];
+  const current = { STR: 16, DEX: 10, CON: 12, INT: 10, WIS: 10, CHA: 10 };
+  // At L4 (the boost-feat-? whatever — feat is picked BEFORE boost on
+  // the same level), STR should be 16 - 2 (both boosts subtracted) = 14.
+  const s4 = FP.snapshotAtLevel(4, { history, currentAbilities: current });
+  assert(s4.abilities.STR === 14,
+    `STR at L4 (pre-L4-boost): expected 14, got ${s4.abilities.STR}`);
+  // At L5, we're past the L4 boost but before the L8 one — STR = 16 - 1 = 15.
+  const s5 = FP.snapshotAtLevel(5, { history, currentAbilities: current });
+  assert(s5.abilities.STR === 15,
+    `STR at L5 (post-L4, pre-L8): expected 15, got ${s5.abilities.STR}`);
+  // At L9, both boosts have been applied — STR = current = 16.
+  const s9 = FP.snapshotAtLevel(9, { history, currentAbilities: current });
+  assert(s9.abilities.STR === 16,
+    `STR at L9 (post-both-boosts): expected 16, got ${s9.abilities.STR}`);
+});
+
+test('FeatPrereqs: snapshotAtLevel derives BAB from cumulative class levels', () => {
+  // Without DB, getClassMetadata returns nulls and BAB comes out as 0.
+  // With DB stubbed, we can drive the formula directly.
+  const fakeDB = {
+    isLoaded: () => true,
+    queryOne: (sql, params) => {
+      // The query asks for $.bab_progression and $.spellcasting.class_type.
+      const name = params[0];
+      const META = {
+        'Fighter': { bab: 'good',    flavor: null },
+        'Wizard':  { bab: 'poor',    flavor: 'arcane' },
+        'Cleric':  { bab: 'average', flavor: 'divine' },
+      };
+      const m = META[name];
+      if (!m) return null;
+      return { bab: m.bab, flavor: m.flavor };
+    },
+  };
+  const FP = loadFeatPrereqs({ DB: fakeDB });
+  const history = [
+    { level: 1, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 2, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 3, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 4, class_taken: 'Wizard',  feats_taken: [], skills_purchased: {} },
+  ];
+  // At L4 cumulative is Fighter 3 / Wizard 1 → BAB = 3 (full) + 0 (poor L1) = 3.
+  const s4 = FP.snapshotAtLevel(4, { history, currentAbilities: {
+    STR:10,DEX:10,CON:10,INT:10,WIS:10,CHA:10 } });
+  assert(s4.bab === 3, `BAB at L4 expected 3, got ${s4.bab}`);
+  assert(s4.casterLevels.arcane === 1,
+    `arcane CL at L4 expected 1, got ${s4.casterLevels.arcane}`);
+  assert(s4.casterLevels.any === 1,
+    `any-flavor CL at L4 expected 1, got ${s4.casterLevels.any}`);
+});
+
+test('FeatPrereqs: evaluateAtLevel flags an unmet feat-order violation', () => {
+  // End-to-end: parse + history-aware snapshot + check. Models the
+  // classic "took Cleave at L1, but Power Attack wasn't taken until
+  // L3" mistake.
+  const FP = loadFeatPrereqs();
+  const history = [
+    { level: 1, class_taken: 'Fighter', feats_taken: ['Cleave', 'Weapon Focus'],
+      skills_purchased: {} },
+    { level: 3, class_taken: 'Fighter', feats_taken: ['Power Attack'],
+      skills_purchased: {} },
+  ];
+  const result = FP.evaluateAtLevel('Power Attack', 1,
+    { history, currentAbilities: {
+      STR:13,DEX:10,CON:10,INT:10,WIS:10,CHA:10 } });
+  const featAtom = result.atoms.find(a => a.kind === 'feat');
+  assert(featAtom, 'parse extracted a feat atom');
+  assert(featAtom.status === 'unmet',
+    `expected feat prereq unmet at L1, got ${featAtom.status}`);
+});
+
+test('FeatPrereqs: evaluateAtLevel flags an ability-boost-order violation', () => {
+  // STR 13 prereq, current STR = 14, but L4 boost is what got us
+  // there. At L4 the boost hasn't applied yet → STR is 13 (which
+  // satisfies). At L1 (no boosts subtracted from 14 = 14)... wait,
+  // both should pass. Let me test a stricter case: STR 15 prereq at
+  // L4, current = 14 + L4 boost = 15. At L4, pre-boost STR is 14.
+  const FP = loadFeatPrereqs();
+  const history = [
+    { level: 1, class_taken: 'Fighter', feats_taken: [], skills_purchased: {} },
+    { level: 3, class_taken: 'Fighter', feats_taken: ['Power Attack'],
+      skills_purchased: {} },
+    { level: 4, class_taken: 'Fighter',
+      feats_taken: ['Improved Sunder'],  // prereq Str 15
+      skills_purchased: {}, ability_boost: 'STR' },
+  ];
+  // Current STR = 15 (after L4 boost).
+  const result = FP.evaluateAtLevel('Str 15, Power Attack', 4,
+    { history, currentAbilities: {
+      STR:15,DEX:10,CON:10,INT:10,WIS:10,CHA:10 } });
+  const strAtom = result.atoms.find(a => a.kind === 'ability');
+  assert(strAtom, 'parse extracted ability atom');
+  assert(strAtom.status === 'unmet',
+    `expected STR 15 unmet at L4 (pre-boost STR=14), got ${strAtom.status}`);
+  // Power Attack atom should be SATISFIED — taken at L3, before L4.
+  const featAtom = result.atoms.find(a => a.kind === 'feat');
+  assert(featAtom && featAtom.status === 'satisfied',
+    `Power Attack should be satisfied at L4 (taken L3), got ${featAtom && featAtom.status}`);
+});
+
+test('audit.js: checkFeatPrereqOrder uses FeatPrereqs.evaluateAtLevel + emits all-atom violations', () => {
+  // Structural guard. The new audit code path must:
+  //   (a) Call FeatPrereqs.evaluateAtLevel (not the legacy iteration).
+  //   (b) Emit issues for non-feat atom kinds — ability, bab, skill,
+  //       classLevel, casterLevel, castSpells, alignment.
+  //   (c) Preserve the same-level feat-prereq downgrade to 'info'.
+  const src = readSource('audit.js');
+  // The old path was `if (taken_at[need] > e.level)` — pure feat-only.
+  // The new path delegates to FeatPrereqs.evaluateAtLevel.
+  assert(/FeatPrereqs\.evaluateAtLevel/.test(src),
+    'audit.js: checkFeatPrereqOrder does not call ' +
+    'FeatPrereqs.evaluateAtLevel — Phase B (history-aware checking) ' +
+    'is not wired.');
+  // We should look at every atom kind, not just feat.
+  const KINDS = ['ability', 'bab', 'skill', 'classLevel',
+                 'casterLevel', 'castSpells', 'alignment'];
+  for (const k of KINDS) {
+    assert(new RegExp(`['"]${k}['"]`).test(src),
+      `audit.js: no mention of atom kind '${k}' — non-feat prereq ` +
+      `violations won't surface in the audit panel.`);
+  }
+  // Same-level feat-prereq downgrade — confirm we still emit info.
+  assert(/prereq-same-level/.test(src),
+    "audit.js: same-level feat-prereq downgrade ID 'prereq-same-level' " +
+    "missing — same-level Power Attack + Cleave would error spuriously.");
+});
+
 // ---- tests: window.X guard pattern ---------------------------------------
 //
 // Top-level `const Foo = (function(){...})()` creates a script-scope

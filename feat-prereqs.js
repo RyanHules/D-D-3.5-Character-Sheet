@@ -455,6 +455,183 @@ const FeatPrereqs = (function () {
     return { html: renderAtoms(checked), summary: summary(checked), atoms: checked };
   }
 
+  // ---- Phase B: history-aware snapshot ------------------------------
+  //
+  // `snapshotAtLevel(level, opts)` returns the same shape as
+  // `snapshot()` but rewound to the character's state AT the moment a
+  // level-N feat is being picked. Per RAW the picking order within a
+  // level is class → HP → skills → feats → ability boost (if HD%4),
+  // so feats see "after this level's class, before this level's
+  // boost." Concretely:
+  //   - classes: cumulative through level (inclusive — class taken
+  //     AT this level counts)
+  //   - featNames: cumulative through level-1 (we're CHECKING level-N
+  //     feats; the audit special-cases same-level prereqs)
+  //   - skillRanks: cumulative through level-1
+  //   - abilities: current totals minus boosts at level >= N. Doesn't
+  //     account for unrelated mid-build ability shifts (item swaps,
+  //     re-rolls) since history doesn't track those — but the
+  //     boost case is the common one.
+  //   - bab + casterLevels: derived from the cumulative classes via
+  //     the same bab_progression lookups class-picker uses.
+  //   - alignment: not tracked per-level; uses current.
+  //
+  // `opts` shape:
+  //   { history: [...] | undefined,    // CharacterHistory.get() result
+  //     currentAbilities: {STR:.., ..}, // defaults to live #*-total
+  //     currentAlignment: 'lawful good' }
+  //
+  // Falls back to the live `snapshot()` when `history` is empty (so
+  // callers don't have to guard).
+
+  // Cache class metadata lookups (bab_progression, flavor) by name
+  // so per-level evaluation doesn't re-query for every feat.
+  const _classMetaCache = new Map();
+  function getClassMetadata(className) {
+    if (_classMetaCache.has(className)) return _classMetaCache.get(className);
+    let meta = { bab: null, flavor: null };
+    if (window.DB && DB.isLoaded()) {
+      const r = DB.queryOne(
+        "SELECT json_extract(data, '$.bab_progression')           AS bab, " +
+        "       json_extract(data, '$.spellcasting.class_type')   AS flavor " +
+        "FROM entry WHERE type IN ('class','prc') " +
+        "AND name = ? COLLATE NOCASE LIMIT 1", [className]);
+      if (r) {
+        meta.bab = r.bab || null;
+        // class_type can be 'arcane' / 'divine' / 'psionic' OR an
+        // array (Sha'ir is ['arcane','divine']). Normalize to a flat
+        // list of strings.
+        const f = r.flavor;
+        if (f) {
+          try {
+            const parsed = (typeof f === 'string' && f.startsWith('['))
+              ? JSON.parse(f) : f;
+            meta.flavor = Array.isArray(parsed) ? parsed : [String(parsed)];
+          } catch (e) {
+            meta.flavor = [String(f)];
+          }
+        }
+      }
+    }
+    _classMetaCache.set(className, meta);
+    return meta;
+  }
+
+  // Local copy of class-picker's babAt formula. Mirrors the canonical
+  // SRD progressions: full (1×), three-quarters (×0.75), half (×0.5).
+  function babAtLevel(prog, lvl) {
+    if (lvl <= 0) return 0;
+    const p = String(prog || '').toLowerCase();
+    if (p.startsWith('good') || p === 'full' || p === 'high') return lvl;
+    if (p.startsWith('ave') || p.startsWith('avg') || p.startsWith('mid') ||
+        p === 'three-quarters' || p === '3/4') {
+      return Math.floor(lvl * 3 / 4);
+    }
+    if (p.startsWith('poor') || p === 'half' || p === '1/2') {
+      return Math.floor(lvl / 2);
+    }
+    return 0;
+  }
+
+  function snapshotAtLevel(level, opts) {
+    opts = opts || {};
+    const hist = Array.isArray(opts.history) ? opts.history : [];
+    if (!hist.length) {
+      // No history → fall back to present-tense (Phase A behavior).
+      return snapshot();
+    }
+
+    // Current totals as the baseline for ability rewind.
+    const currentAbilities = opts.currentAbilities || (() => {
+      const out = {};
+      for (const ab of ABILITIES) {
+        const tot = document.getElementById(`${ab.toLowerCase()}-total`);
+        out[ab] = tot ? parseInt(tot.textContent, 10) || 0 : 0;
+      }
+      return out;
+    })();
+
+    // Classes: cumulative through `level` (inclusive).
+    const classLevels = new Map();  // className → count
+    for (const e of hist) {
+      if (e.level > level) continue;
+      const c = e.class_taken;
+      if (c) classLevels.set(c, (classLevels.get(c) || 0) + 1);
+    }
+    const classes = [...classLevels].map(([name, lvl]) => ({ name, level: lvl }));
+
+    // Feats: through level - 1 (the feat we're checking is AT this
+    // level; the audit handles same-level prereqs separately).
+    const featNames = new Set();
+    for (const e of hist) {
+      if (e.level >= level) continue;
+      for (const fn of (e.feats_taken || [])) {
+        const s = String(fn || '').trim()
+          .replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+        if (s) featNames.add(s);
+      }
+    }
+
+    // Skill ranks: through level - 1.
+    const skillRanks = new Map();
+    for (const e of hist) {
+      if (e.level >= level) continue;
+      for (const [name, ranks] of Object.entries(e.skills_purchased || {})) {
+        const key = name.toLowerCase();
+        skillRanks.set(key, (skillRanks.get(key) || 0) + (parseFloat(ranks) || 0));
+      }
+    }
+
+    // Abilities: subtract boosts at levels >= N (those happened AFTER
+    // this level's feat was picked).
+    const abilities = { ...currentAbilities };
+    for (const e of hist) {
+      if (e.level < level) continue;
+      const boost = e.ability_boost;
+      if (boost && typeof abilities[boost] === 'number') {
+        abilities[boost] = abilities[boost] - 1;
+      }
+    }
+
+    // BAB + caster levels derived from the cumulative classes.
+    let bab = 0;
+    const casterLevels = { arcane: 0, divine: 0, psionic: 0, any: 0 };
+    for (const { name, level: lvl } of classes) {
+      const meta = getClassMetadata(name);
+      bab += babAtLevel(meta.bab, lvl);
+      if (meta.flavor && meta.flavor.length) {
+        for (const f of meta.flavor) {
+          const key = f === 'manifesting' ? 'psionic' : f;
+          if (casterLevels[key] != null) {
+            casterLevels[key] = Math.max(casterLevels[key], lvl);
+            casterLevels.any = Math.max(casterLevels.any, lvl);
+          }
+        }
+      }
+    }
+
+    return {
+      abilities, classes, featNames, skillRanks, bab,
+      alignment: (opts.currentAlignment ||
+        (document.getElementById('char-alignment')?.value || '').toLowerCase()),
+      casterLevels,
+    };
+  }
+
+  // Convenience: parse + history-aware snapshot + check + render.
+  // Mirrors `evaluate()` but pinned to the level the feat was taken.
+  function evaluateAtLevel(prereqText, level, opts) {
+    const atoms = parse(prereqText);
+    const state = snapshotAtLevel(level, opts);
+    const checked = check(atoms, state).atoms;
+    return {
+      html: renderAtoms(checked),
+      summary: summary(checked),
+      atoms: checked,
+      state,
+    };
+  }
+
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -462,5 +639,9 @@ const FeatPrereqs = (function () {
   }
   function escapeAttr(s) { return escapeHtml(s); }
 
-  return { parse, check, snapshot, renderAtoms, summary, evaluate };
+  return {
+    parse, check, snapshot, renderAtoms, summary, evaluate,
+    // Phase B (history-aware):
+    snapshotAtLevel, evaluateAtLevel,
+  };
 })();
