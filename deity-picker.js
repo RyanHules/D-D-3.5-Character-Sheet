@@ -52,6 +52,10 @@
     // 2. Insert info panel below the deity field. The Character info-
     // grid spans the full width; setting grid-column to span all cells
     // makes the panel appear on its own row below the grid.
+    //
+    // Default-hidden: the panel only opens when the user clicks the
+    // ⓘ button next to the deity input. Deity details are rarely
+    // needed during play, so they shouldn't always be in the way.
     infoPanel = document.getElementById('deity-info');
     if (!infoPanel) {
       infoPanel = document.createElement('div');
@@ -64,7 +68,37 @@
         'grid-column: 1 / -1; padding: 0.5rem; margin-top: 0.25rem; ' +
         'font-size: 0.85em; color: #ccc; background: rgba(255,255,255,0.04); ' +
         'border-left: 3px solid #aa8a6a; border-radius: 3px; display: none;';
-      deityInput.parentElement.parentElement.appendChild(infoPanel);
+      // Append after the info-grid (deityInput.parentElement is the
+      // grid <div> that wraps the deity-input-row; parentElement of
+      // that is the .field cell; the info-grid is the field's parent).
+      // Find the info-grid by walking up.
+      let container = deityInput.parentElement;
+      while (container && !container.classList.contains('info-grid')) {
+        container = container.parentElement;
+      }
+      (container || deityInput.parentElement).parentElement.appendChild(infoPanel);
+    }
+
+    // Wire the ⓘ toggle button (added in index.html alongside the
+    // deity input). Click toggles the panel + flips aria-expanded so
+    // screen readers + the user's "is it open?" intuition both match.
+    const infoBtn = document.getElementById('deity-info-btn');
+    if (infoBtn) {
+      infoBtn.addEventListener('click', () => {
+        const opening = infoPanel.style.display === 'none' || !infoPanel.style.display;
+        if (opening) {
+          // Re-render in case the user typed a different deity since
+          // the last open.
+          onDeityChosen(deityInput.value);
+          infoPanel.style.display = 'block';
+          infoBtn.setAttribute('aria-expanded', 'true');
+          infoBtn.classList.add('info-btn-active');
+        } else {
+          infoPanel.style.display = 'none';
+          infoBtn.setAttribute('aria-expanded', 'false');
+          infoBtn.classList.remove('info-btn-active');
+        }
+      });
     }
 
     // 3. Populate options from DB. Same source-recency tiebreak as
@@ -100,28 +134,47 @@
     populate();
     document.addEventListener('book-filter-changed', populate);
 
-    // 4. On input/change: try exact-match lookup, render info panel,
-    //    optionally auto-fill alignment.
+    // 4. On input/change: try exact-match lookup, optionally auto-
+    //    fill alignment. Only re-render the info panel when it's
+    //    already open — the panel is now toggle-driven (default
+    //    closed) since deity details are rarely needed during play.
     const onChange = () => onDeityChosen(deityInput.value);
     deityInput.addEventListener('change', onChange);
     deityInput.addEventListener('input', () => {
-      // Exact-match auto-fill while typing — matches race-picker UX.
       if (deityIndex.has(deityInput.value.trim().toLowerCase())) {
         onChange();
-      } else {
+      } else if (infoPanel && infoPanel.style.display !== 'none') {
+        // User has cleared / mistyped — clear the now-stale info.
         hideInfo();
       }
     });
 
-    // Re-render the info panel on book-filter change — the typed
-    // deity might have been filtered out, in which case clear.
+    // Re-render the info panel on book-filter change ONLY if it's
+    // already open; otherwise just leave it for the next toggle.
     document.addEventListener('book-filter-changed', () => {
-      if (deityInput.value.trim()) onChange();
+      if (deityInput.value.trim() &&
+          infoPanel && infoPanel.style.display !== 'none') {
+        onChange();
+      }
     });
 
     // Rehydrate on init: if a saved character already has a deity
-    // typed, populate the info panel + alignment immediately.
-    if (deityInput.value.trim()) onChange();
+    // typed, auto-fill alignment immediately. The info panel stays
+    // closed by default — user opens via the ⓘ button.
+    if (deityInput.value.trim()) {
+      const key = deityInput.value.trim().toLowerCase();
+      const stub = deityIndex.get(key);
+      if (stub) {
+        const row = DB.queryOne(
+          "SELECT data FROM entry WHERE id = ?", [stub.id]);
+        if (row && row.data) {
+          try {
+            const d = JSON.parse(row.data);
+            maybeAutoFillAlignment(d.alignment);
+          } catch (e) { /* ignore */ }
+        }
+      }
+    }
 
     // Click handler for domain chips inside the info panel. Single
     // delegated listener — chips are re-rendered on every renderInfo
@@ -297,13 +350,22 @@
     }
     infoPanel.innerHTML = html;
     if (window.ErrataBadge) ErrataBadge.attach(infoPanel, row.deity_id || row.id);
-    infoPanel.style.display = 'block';
+    // Note: display state is owned by the ⓘ toggle button, NOT by
+    // this render path. Filling content while closed is fine — the
+    // user sees fresh content the next time they click open.
   }
 
   function hideInfo() {
     if (!infoPanel) return;
     infoPanel.style.display = 'none';
     infoPanel.innerHTML = '';
+    // Reset the toggle button state so the chevron / aria-expanded
+    // match the actual panel state.
+    const btn = document.getElementById('deity-info-btn');
+    if (btn) {
+      btn.setAttribute('aria-expanded', 'false');
+      btn.classList.remove('info-btn-active');
+    }
   }
 
   function escapeHtml(s) {

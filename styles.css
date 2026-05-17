@@ -1106,6 +1106,54 @@ textarea {
   border-color: rgba(106, 138, 170, 0.6);
 }
 
+/* Generic info (ⓘ) toggle button — used next to the deity input on
+   the Character tab, and a candidate pattern for other "rarely-
+   needed detail panel" surfaces. Smaller + tighter than
+   .btn-feat-info since it sits inline next to a text input. */
+.info-btn {
+  flex-shrink: 0;
+  padding: 0 0.5rem;
+  background: var(--btn-bg);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.95em;
+  cursor: pointer;
+  line-height: 1.6;
+}
+.info-btn:hover,
+.info-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+.info-btn-active {
+  background: rgba(170, 138, 106, 0.25);
+  border-color: rgba(170, 138, 106, 0.6);
+}
+
+/* Deity field wraps the input + ⓘ button as a flex row so the
+   button sits beside the input, not below it. */
+.deity-input-row {
+  display: flex;
+  gap: 0.3rem;
+  align-items: stretch;
+}
+.deity-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The Class & Level + Total Level row uses a flex layout so the
+   level field sits flush right of the (wider) Class & Level
+   textarea. Both inputs align vertically via align-items:flex-end. */
+.class-level-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+.class-level-row .field { margin-bottom: 0; }
+
 .feat-rules {
   flex: 1 1 100%;
   margin-top: 0.4rem;
