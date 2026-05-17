@@ -129,6 +129,32 @@ const ClassFeatures = (function () {
     document.dispatchEvent(new CustomEvent('class-customizations-changed'));
   }
 
+  // Bulk remove every customization whose `class` matches `className`
+  // (tokenized — see ClassVariants.matchesClass). Called from
+  // class-picker when the user removes a class from the multiclass
+  // list. Returns the array of removed metas (for UI feedback).
+  function removeCustomizationsForClass(className) {
+    if (!className) return [];
+    const matches = (typeof ClassVariants !== 'undefined' &&
+                     typeof ClassVariants.matchesClass === 'function')
+      ? ClassVariants.matchesClass
+      : (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+    const toRemove = [];
+    for (const [idx, meta] of customizationMeta) {
+      if (matches(className, meta.class)) toRemove.push([idx, meta]);
+    }
+    for (const [idx] of toRemove) {
+      const row = $(`#class-customizations-list .cf-customization[data-cust-idx="${escapeAttr(idx)}"]`);
+      if (row) row.remove();
+      customizationMeta.delete(String(idx));
+    }
+    if (toRemove.length) {
+      refreshCustomizationsEmptyState();
+      document.dispatchEvent(new CustomEvent('class-customizations-changed'));
+    }
+    return toRemove.map(([, meta]) => meta);
+  }
+
   function refreshCustomizationsEmptyState() {
     const list = $('#class-customizations-list');
     const empty = $('#class-customizations-empty');
@@ -283,5 +309,6 @@ const ClassFeatures = (function () {
   return {
     getActiveBonuses, collectData, loadData,
     getCustomizations, addCustomization, removeCustomization,
+    removeCustomizationsForClass,
   };
 })();

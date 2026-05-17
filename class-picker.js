@@ -812,8 +812,12 @@
     classInput.addEventListener('input', refresh);
     levelInput.addEventListener('input', refresh);
     // Re-render when class customizations change so the strike-through
-    // preview reflects added/removed ACFs without a page reload.
-    document.addEventListener('class-customizations-changed', refresh);
+    // preview reflects added/removed ACFs without a page reload, and
+    // re-render the chip list so the per-chip tag badges refresh too.
+    document.addEventListener('class-customizations-changed', () => {
+      refresh();
+      renderClassList();
+    });
 
     // 4. Apply button writes calculated values into the sheet.
     applyBtn.addEventListener('click', () => {
@@ -1017,6 +1021,10 @@
     label.style.cssText = 'font-size:0.85em; opacity:0.7';
     list.appendChild(label);
 
+    // Build a class-name → [customization meta...] index once so each
+    // chip just looks up its own entry without re-scanning.
+    const custByClass = collectCustomizationsByClass();
+
     for (const e of pickedClasses) {
       const chip = document.createElement('span');
       chip.className = 'mc-class-chip';
@@ -1027,6 +1035,22 @@
         'display:inline-flex; gap:0.35rem; align-items:center;';
       const txt = document.createElement('span');
       txt.textContent = `${e.className} ${e.level}`;
+      chip.appendChild(txt);
+      // Customization tags: if the player has any active
+      // customizations for this class, render them inline as small
+      // badges with a tooltip showing the full name + kind. Removed
+      // automatically when the class itself is removed (see
+      // removeCustomizationsForClass call in removeClass below).
+      const custs = custByClass.get(e.className.toLowerCase()) || [];
+      for (const c of custs) {
+        const tag = document.createElement('span');
+        tag.className = 'mc-chip-tag';
+        // Shorten "Drow Wizard Substitution Level 5" → "Drow Sub L5".
+        tag.textContent = shortenVariantName(c);
+        tag.title = `${c.kind}: ${c.name}${c.race ? ' — ' + c.race : ''}` +
+          (c.replaces ? `\nReplaces: ${c.replaces}` : '');
+        chip.appendChild(tag);
+      }
       const x = document.createElement('button');
       x.type = 'button';
       x.textContent = '×';
@@ -1035,7 +1059,6 @@
         'background:transparent; border:0; color:#c88; cursor:pointer; ' +
         'font-size:1.1em; padding:0; line-height:1;';
       x.addEventListener('click', () => removeClass(e.className));
-      chip.appendChild(txt);
       chip.appendChild(x);
       list.appendChild(chip);
     }
@@ -1374,6 +1397,15 @@
     // listener clears the marker if the user types in the field,
     // so we won't blow away any manual customizations.
     removeAutoFilledClassFeatureFields(className);
+    // Strip ACFs / sub levels that targeted this class — they're
+    // tied to the class and have no meaning once it's removed. Per-
+    // customization notes the user wrote go with them; if you want
+    // to preserve those, re-apply the class first then remove
+    // individual customizations from the list.
+    if (typeof ClassFeatures !== 'undefined' &&
+        typeof ClassFeatures.removeCustomizationsForClass === 'function') {
+      ClassFeatures.removeCustomizationsForClass(className);
+    }
     // Untick class-skill checkboxes whose ONLY remaining source was
     // this class. Boxes claimed by other applied classes stay ticked.
     removeClassSkills(className);
@@ -2302,6 +2334,53 @@
     out.sort((a, b) =>
       a.firstLevel - b.firstLevel || a.label.localeCompare(b.label));
     return out;
+  }
+
+  // ---- Chip tagging helpers ------------------------------------------
+  //
+  // The chip list re-renders on every classes-changed event and we
+  // also subscribe to class-customizations-changed (wired in init)
+  // so tag badges refresh live without a page reload.
+
+  function collectCustomizationsByClass() {
+    const map = new Map();
+    if (typeof ClassFeatures === 'undefined' ||
+        typeof ClassFeatures.getCustomizations !== 'function') {
+      return map;
+    }
+    const matchesCls = (typeof ClassVariants !== 'undefined' &&
+                        typeof ClassVariants.matchesClass === 'function')
+      ? ClassVariants.matchesClass
+      : (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+    const customs = ClassFeatures.getCustomizations();
+    if (!customs.length) return map;
+    // Bucket each customization under every picked class it matches
+    // (matchesClass handles "Sorcerer / Wizard" → both Sorcerer and
+    // Wizard picked classes get the tag).
+    for (const e of pickedClasses) {
+      const key = e.className.toLowerCase();
+      const bucket = [];
+      for (const c of customs) {
+        if (matchesCls(e.className, c.class)) bucket.push(c);
+      }
+      if (bucket.length) map.set(key, bucket);
+    }
+    return map;
+  }
+
+  // Compact a long sub-level name down to "<Race> Sub L<N>" — keeps
+  // the chip from blowing the row width. ACF names stay verbatim
+  // since they're typically short already ("Spelltouched",
+  // "Ape Totem", etc.). Falls back to truncation for unusually long
+  // ACF names.
+  function shortenVariantName(c) {
+    if (c.kind === 'Sub Level' && c.race && c.level != null) {
+      return `${c.race.split(' ')[0]} Sub L${c.level}`;
+    }
+    if (c.name.length > 22) {
+      return c.name.slice(0, 20) + '…';
+    }
+    return c.name;
   }
 
   // ---- Class customizations integration -----------------------------

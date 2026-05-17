@@ -1851,6 +1851,19 @@ textarea {
   resize: vertical;
   min-height: 1.8rem;
 }
+
+/* Customization tag badges inline on each applied-class chip. */
+.mc-chip-tag {
+  display: inline-block;
+  padding: 0 0.4em;
+  background: rgba(200, 161, 74, 0.18);
+  color: #c8a14a;
+  border-radius: 6px;
+  font-size: 0.78em;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: help;
+}
 .mc-class-chip,
 .template-chip {
   background: rgba(106,138,170,0.2);

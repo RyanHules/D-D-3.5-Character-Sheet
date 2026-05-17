@@ -704,6 +704,26 @@ test('class-variants: appendToCustomizations integrates with ClassFeatures API',
     'ClassFeatures.addCustomization — clicks would no-op silently.');
 });
 
+test('class-variants: chips tagged with customizations + auto-strip on remove', () => {
+  // Two contracts:
+  //   (1) class-picker chip rendering injects a .mc-chip-tag badge
+  //       per customization matching the chip's class.
+  //   (2) removeClass strips customizations whose `class` matched the
+  //       removed class via ClassFeatures.removeCustomizationsForClass.
+  const cp = readSource('class-picker.js');
+  assert(/mc-chip-tag/.test(cp),
+    'class-picker.js: renderClassList does not render .mc-chip-tag ' +
+    'badges — applied chips would not show their customizations.');
+  assert(/ClassFeatures\.removeCustomizationsForClass\s*\(/.test(cp),
+    'class-picker.js: removeClass does not call ' +
+    'ClassFeatures.removeCustomizationsForClass — customizations ' +
+    'for a removed class would persist as orphans.');
+
+  const cf = readSource('class-features.js');
+  assert(/function removeCustomizationsForClass\s*\(/.test(cf),
+    'class-features.js: removeCustomizationsForClass API is missing.');
+});
+
 test('class-variants: class-picker strikes through replaced features', () => {
   // The whole point of customizations "doing something" is that
   // replaced class features get visually marked in the class-picker

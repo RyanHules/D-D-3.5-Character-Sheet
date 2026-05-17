@@ -684,6 +684,44 @@
     }
   });
 
+  regression('ACF2: chip tagging + auto-strip on class remove', async () => {
+    // (a) Applied class chip carries a .mc-chip-tag per matching
+    //     customization.
+    // (b) Removing the class via the chip's × button strips the
+    //     customizations from the Class Features list.
+    await newCharacter();
+    await applyClass('Wizard', 3);
+    const chips = $$('.mc-class-chip');
+    if (chips.length === 0) {
+      fail('ACF2: Wizard did not apply (no chip) — possibly DB still loading.');
+    }
+    // Pre-apply tags should be absent.
+    expect(chips[0].querySelectorAll('.mc-chip-tag').length, 0,
+      'ACF2: chip has no tags before any customization');
+    // Add a customization and watch the chip refresh live via the
+    // class-customizations-changed event.
+    ClassFeatures.addCustomization({
+      kind: 'ACF', name: 'Spelltouched', class: 'Wizard', level: 1,
+      replaces: 'Scribe Scroll', source: 'Unearthed Arcana',
+    });
+    await wait(100);
+    const refreshedChip = $('.mc-class-chip[data-class="Wizard"]');
+    if (!refreshedChip) fail('ACF2: Wizard chip vanished after customization add');
+    const tags = refreshedChip.querySelectorAll('.mc-chip-tag');
+    expect(tags.length, 1, 'ACF2: chip shows one customization tag');
+    expectIncludes(tags[0].textContent, 'Spelltouched',
+      'ACF2: tag text mentions the customization name');
+    // Remove the class via the × button. Customization should be auto-
+    // stripped from the list.
+    expect(ClassFeatures.getCustomizations().length, 1, 'ACF2: 1 cust before remove');
+    refreshedChip.querySelector('button').click();
+    await wait(200);
+    expect(ClassFeatures.getCustomizations().length, 0,
+      'ACF2: customization auto-stripped when class removed');
+    expect($('.mc-class-chip[data-class="Wizard"]'), null,
+      'ACF2: chip gone after remove');
+  });
+
   regression('ACF1: customization strikes through replaced features in info panel', async () => {
     // The whole point of "customizations do something" — Spelltouched
     // (ACF that replaces Wizard\'s Scribe Scroll) should appear as
