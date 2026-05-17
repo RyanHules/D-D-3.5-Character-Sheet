@@ -2356,6 +2356,189 @@ test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () =
     'boost values — user allocations would be lost on save/load.');
 });
 
+// ---- tests: companion Session C (template apply in AUTO mode) -----------
+//
+// Session C layers "apply template T to base creature C" on top of
+// the existing AUTO-mode pipeline (Session B). When AUTO has BOTH a
+// base creature AND a template selected, the template's deltas
+// (ability changes, NA bonus, type/size/speed override, SA/SQ
+// concatenation) layer in BEFORE the existing companion-progression
+// math runs against the mutated blob. Round-trips compTemplate via
+// collectData/loadData. A type-restricted template narrows the Base
+// Creature autocomplete via a lazily-built per-type datalist.
+
+test('companion Session C: template input wired into panel + listeners', () => {
+  const src = readSource('companion.js');
+  // UI: template input lives next to the base-creature input.
+  assert(/class="comp-template"/.test(src),
+    'companion.js: panel template has no .comp-template input. ' +
+    'Without it, users have no way to apply a template via AUTO mode.');
+  assert(/list="template-options"/.test(src),
+    'companion.js: .comp-template input is not wired to the ' +
+    '#template-options datalist (autocomplete will be empty).');
+  // The global template datalist must actually be built somewhere.
+  assert(/function buildGlobalTemplateDatalist\s*\(/.test(src),
+    'companion.js: buildGlobalTemplateDatalist is missing — the ' +
+    '#template-options datalist will never be populated.');
+  // The DB.ready handler must invoke both creature + template builds.
+  assert(/buildGlobalCreatureDatalist\(\);\s*\n\s*buildGlobalTemplateDatalist\(\)/
+         .test(src),
+    'companion.js: _scheduleCreatureDatalistBuild does not also call ' +
+    'buildGlobalTemplateDatalist on DB ready — template autocomplete ' +
+    'will be empty until a manual reload.');
+});
+
+test('companion Session C: autoFillFromBaseCreature applies template before progression', () => {
+  const src = readSource('companion.js');
+  // applyTemplateToCreature is the apply engine; must run inside
+  // autoFillFromBaseCreature and BEFORE the progression / stats math.
+  assert(/function applyTemplateToCreature\s*\(/.test(src),
+    'companion.js: applyTemplateToCreature helper is missing.');
+  // Verify call ordering *inside* autoFillFromBaseCreature's body
+  // (extractFunctionBody scopes us to the right function — a naive
+  // file-wide search would catch the helper definitions / unrelated
+  // computeCompanionLevels callers further down the file).
+  const body = extractFunctionBody(src, 'autoFillFromBaseCreature');
+  assert(body, "Couldn't extract autoFillFromBaseCreature body");
+  const applyIdx = body.search(/creature\s*=\s*applyTemplateToCreature\(/);
+  const progIdx  = body.search(/computeCompanionLevels\(\)/);
+  assert(applyIdx >= 0 && progIdx >= 0 && applyIdx < progIdx,
+    'companion.js: applyTemplateToCreature call must precede the ' +
+    'progression math (so template deltas are folded in before ' +
+    'companion-class adjustments). Found order inside ' +
+    'autoFillFromBaseCreature: applyIdx=' + applyIdx +
+    ', progIdx=' + progIdx);
+});
+
+test('companion Session C: applyTemplateToCreature handles dict + free-text ability_changes', () => {
+  const src = readSource('companion.js');
+  // Both shapes are real DB occurrences: Bodak Creature → dict,
+  // Anarchic/Blightspawned/etc. → free-text.
+  const body = extractFunctionBody(src, 'parseTemplateAbilityChanges');
+  assert(body, "Couldn't extract parseTemplateAbilityChanges body");
+  assert(/typeof\s+raw\s*===\s*['"]object['"]/.test(body),
+    'companion.js: parseTemplateAbilityChanges does not handle the ' +
+    'dict shape ({Str:"+4", Dex:"+2"}) — Bodak Creature and friends ' +
+    'would silently no-op.');
+  assert(/typeof\s+raw\s*===\s*['"]string['"]/.test(body),
+    'companion.js: parseTemplateAbilityChanges does not handle the ' +
+    'free-text shape ("Str +2, Con +4, Int -2") — Anarchic / ' +
+    'Blightspawned / Blooded One etc. would silently no-op.');
+  // Em-dash ("—") for ability loss must map to null (not 0).
+  assert(/===\s*['"]—['"]/.test(body),
+    'companion.js: parseTemplateAbilityChanges does not map em-dash ' +
+    '("—") to null — templates that strip an ability (e.g. Telthor ' +
+    'incorporeal: Str —) would treat the loss as a no-op.');
+});
+
+test('companion Session C: template natural armor folded into base AC text', () => {
+  const src = readSource('companion.js');
+  // The base creature's `armor_class` is a free-text string the
+  // existing AUTO parser extracts "+N natural" from. The template
+  // apply must REWRITE that token (or append one) so the existing
+  // parser picks up the new total without needing a second NA field.
+  assert(/function appendTemplateNaToAcText\s*\(/.test(src),
+    'companion.js: appendTemplateNaToAcText helper is missing — ' +
+    'template natural-armor bonuses will not reach the AC field.');
+  assert(/function deriveTemplateNaturalArmor\s*\(/.test(src),
+    'companion.js: deriveTemplateNaturalArmor helper is missing — ' +
+    'template NA bonus is not read from bonuses[] or armor_class text.');
+});
+
+test('companion Session C: SA/SQ concatenation preserves base creature trait list', () => {
+  const src = readSource('companion.js');
+  const body = extractFunctionBody(src, 'appendTraits');
+  assert(body, "Couldn't extract appendTraits body");
+  // Both shapes appear in the DB: string ("Bound to Land: ...") and
+  // {name, description} objects (older templates).
+  assert(/typeof\s+raw\s*===\s*['"]string['"]/.test(body) &&
+         /raw\.name/.test(body),
+    'companion.js: appendTraits does not handle both string and ' +
+    'object trait shapes — half of templates will silently drop ' +
+    'their special_qualities_added entries.');
+  // Must not blow away the existing string.
+  assert(/return\s+existing/.test(body),
+    'companion.js: appendTraits has no early-return path that keeps ' +
+    'the existing string when the template adds nothing.');
+});
+
+test('companion Session C: type_change cleans down to a bare type string', () => {
+  const src = readSource('companion.js');
+  const body = extractFunctionBody(src, 'cleanTemplateTypeChange');
+  assert(body, "Couldn't extract cleanTemplateTypeChange body");
+  // We need at least two patterns: "Augmented (X)" + "type changes to X".
+  assert(/Augmented/.test(body),
+    'companion.js: cleanTemplateTypeChange does not handle the ' +
+    'Augmented (X) form — half-celestials / half-dragons would ' +
+    'fail to clean down.');
+  assert(/type\\s\+changes/i.test(body) || /type\s+changes/i.test(body) ||
+         /changes\?\s\+to/.test(body),
+    'companion.js: cleanTemplateTypeChange does not handle the ' +
+    '"type changes to X" form — verbose SRD type_change strings ' +
+    'will leak into the displayed type field.');
+});
+
+test('companion Session C: source-type mismatch warns instead of blocking', () => {
+  const src = readSource('companion.js');
+  // The warning span exists in the panel template AND the apply
+  // function writes to it when source_creature_type doesn't match.
+  assert(/comp-template-warning/.test(src),
+    'companion.js: panel has no .comp-template-warning span — ' +
+    'users get no signal when applying a Fey-only template to a ' +
+    'Construct base.');
+  assert(/source_creature_type/.test(src),
+    'companion.js: applyTemplateToCreature does not read ' +
+    'source_creature_type — it cannot warn about base-type mismatch.');
+  // The warning must be advisory, not blocking — the apply still runs.
+  assert(/warnEl\.style\.display\s*=\s*['"]['"]/.test(src) ||
+         /warnEl\.style\.display\s*=\s*['"]block['"]/.test(src),
+    'companion.js: applyTemplateToCreature does not display the ' +
+    'warning span. Mismatch goes silently — defeats the purpose of ' +
+    'the per-panel warning.');
+});
+
+test('companion Session C: template-restricted base autocomplete narrows by type', () => {
+  const src = readSource('companion.js');
+  // Per-type datalists are built lazily and the input is swapped via
+  // syncBaseCreatureDatalist. The list= attribute swap is the key
+  // mechanic — without it the picker would still show every creature.
+  assert(/function buildTypedCreatureDatalist\s*\(/.test(src),
+    'companion.js: buildTypedCreatureDatalist is missing — ' +
+    'template-aware filtering of the base-creature autocomplete is ' +
+    'not wired.');
+  assert(/function syncBaseCreatureDatalist\s*\(/.test(src),
+    'companion.js: syncBaseCreatureDatalist is missing — the ' +
+    'list= attribute on .comp-base-creature is never swapped to a ' +
+    'type-narrowed datalist.');
+  // The SQL must filter by creature_type LIKE 'Animal%' (prefix
+  // match) so subtypes like "Animal (Aquatic)" still match.
+  assert(/creature_type\s+LIKE\s+:pfx/.test(src),
+    'companion.js: buildTypedCreatureDatalist does not filter by ' +
+    'creature_type with a LIKE prefix — subtyped creatures would ' +
+    'fall out of the narrowed list.');
+  // Wired to both input + change events on the template input AND
+  // to a deferred initial sync (for loadData round-trips).
+  const idx = src.indexOf('tplInput.addEventListener');
+  assert(idx > 0 && src.substring(idx, idx + 500).includes('syncBaseCreatureDatalist'),
+    'companion.js: template input listeners do not call ' +
+    'syncBaseCreatureDatalist — user typing a template name will ' +
+    'not narrow the picker.');
+});
+
+test('companion Session C: compTemplate round-trips through collectData/loadData', () => {
+  const src = readSource('companion.js');
+  // collectData must persist the template name.
+  const collectBody = extractFunctionBody(src, 'collectData');
+  assert(collectBody, "Couldn't extract collectData body");
+  assert(/compTemplate/.test(collectBody),
+    'companion.js: collectData does not persist .comp-template — ' +
+    'saved characters would lose their template selection on reload.');
+  // And the panel template (build) must read d.compTemplate back.
+  assert(/d\.compTemplate/.test(src),
+    'companion.js: panel template build does not read d.compTemplate ' +
+    '— round-trip is broken even if collect writes it.');
+});
+
 // ---- tests: deity-picker --------------------------------------------------
 
 test('deity-picker: list query (init)', (db) => {

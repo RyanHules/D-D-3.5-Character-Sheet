@@ -125,6 +125,11 @@ const Companion = (function () {
           <input type="text" class="comp-base-creature" list="creature-options"
                  placeholder="e.g. Wolf" value="${escapeHtml(d.compBaseCreature || '')}">
         </label>
+        <label class="comp-template-label">Template (optional)
+          <input type="text" class="comp-template" list="template-options"
+                 placeholder="e.g. Telthor" value="${escapeHtml(d.compTemplate || '')}">
+        </label>
+        <span class="comp-template-warning" style="display:none;color:var(--accent);font-size:0.7rem;margin-left:0.5rem"></span>
       </span>
     </div>
     <div class="two-column">
@@ -311,6 +316,26 @@ const Companion = (function () {
         if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
       });
     }
+    // Template input — optional. AUTO mode applies the template's
+    // deltas (ability changes, type/size override, NA bonus,
+    // appended SAs/SQs, speed override) ON TOP of the base creature
+    // before the existing companion-progression math runs.
+    const tplInput = panel.querySelector('.comp-template');
+    if (tplInput) {
+      tplInput.addEventListener('input', () => {
+        syncBaseCreatureDatalist(panel);
+        if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
+      });
+      tplInput.addEventListener('change', () => {
+        syncBaseCreatureDatalist(panel);
+        if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
+      });
+    }
+    // Initial sync — covers loadData round-trips that restore a
+    // template name into the input. Deferred to a microtask so the
+    // template-options datalist build (which depends on DB.ready)
+    // has a chance to land before we try to swap into a typed one.
+    Promise.resolve().then(() => syncBaseCreatureDatalist(panel));
     // Ability-boost inputs: user-owned in both modes, but in AUTO
     // mode a change needs to fold the new boost into the displayed
     // ability score. Single delegated listener on the panel covers
@@ -810,6 +835,396 @@ const Companion = (function () {
       `${seen.size} unique creature names`);
   }
 
+  // ---- Session C: build the global #template-options datalist -----
+  //
+  // Mirrors buildGlobalCreatureDatalist's shape. 3.5-first dedup by
+  // case-insensitive name. The template input on every companion
+  // panel references it via `list="template-options"`.
+
+  function buildGlobalTemplateDatalist() {
+    if (document.getElementById('template-options')) return;
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return;
+    const rows = DB.query(
+      "SELECT e.name AS name FROM entry e " +
+      "LEFT JOIN book b ON b.name = e.source " +
+      "WHERE e.type = 'template' AND e.name IS NOT NULL " +
+      "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "         b.publication_date DESC, " +
+      "         e.name COLLATE NOCASE"
+    );
+    const seen = new Set();
+    const dl = document.createElement('datalist');
+    dl.id = 'template-options';
+    for (const r of rows) {
+      const key = String(r.name || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const opt = document.createElement('option');
+      opt.value = r.name;
+      dl.appendChild(opt);
+    }
+    document.body.appendChild(dl);
+  }
+
+  // ---- Session C: per-type datalists for template-restricted picking.
+  //
+  // Templates with a `source_creature_type` (Telthor → Fey; Anarchic
+  // → Animal/Beast/Plant; Half-Dragon → corporeal creatures) only
+  // canonically apply to bases of the right type. When such a
+  // template is selected, the Base Creature input swaps to a
+  // type-narrowed datalist so the autocomplete suggests *valid*
+  // candidates first. The user can still type any name — the warning
+  // span calls out non-canonical applications, but doesn't block.
+  //
+  // Per-type datalists are built lazily on first use and cached on
+  // the document. Keys are normalized to the bare type root
+  // ("Animal" out of "Animal (Aquatic)") so e.g. Anarchic on
+  // Animal/Beast/Plant gets a single broader datalist rather than
+  // three narrow ones.
+
+  // Canonical D&D 3.5 creature types. Used by both the warning
+  // tokenizer (in applyTemplateToCreature) and the autocomplete
+  // narrowing path. "magical beast" / "monstrous humanoid" are
+  // two-word types and must be matched BEFORE "beast" / "humanoid"
+  // — order matters.
+  const COMPANION_CANONICAL_TYPES = [
+    'magical beast', 'monstrous humanoid',
+    'aberration', 'animal', 'beast', 'construct', 'deathless',
+    'dragon', 'elemental', 'fey', 'giant', 'humanoid',
+    'ooze', 'outsider', 'plant', 'undead', 'vermin',
+  ];
+
+  // Pluck the LAST canonical type word out of a source_creature_type
+  // string. The qualifier ("Any", "good", "evil", "corporeal",
+  // "incorporeal") always comes first; the actual type word is at
+  // the end. Falls back to the leading word when no canonical type
+  // matches (e.g. odd prose strings).
+  function _typeRoot(t) {
+    if (!t) return null;
+    const s = String(t).toLowerCase();
+    for (const ct of COMPANION_CANONICAL_TYPES) {
+      if (new RegExp(`\\b${ct}\\b`, 'i').test(s)) {
+        // Capitalize to match creature_type column casing ("Fey", "Outsider").
+        return ct.split(' ')
+          .map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      }
+    }
+    // Last-ditch fallback: first word minus parenthetical.
+    const first = String(t).replace(/\s*\(.*$/, '').trim();
+    return first || null;
+  }
+
+  function buildTypedCreatureDatalist(typeRoot) {
+    if (!typeRoot) return null;
+    const dlId = `creature-options--${typeRoot.toLowerCase()}`;
+    let dl = document.getElementById(dlId);
+    if (dl) return dlId;
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return null;
+    const rows = DB.query(
+      "SELECT e.name AS name FROM entry e " +
+      "LEFT JOIN book b ON b.name = e.source " +
+      "WHERE e.type = 'creature' " +
+      "AND e.creature_type IS NOT NULL " +
+      "AND e.creature_type LIKE :pfx " +
+      "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+      "         b.publication_date DESC, " +
+      "         e.name COLLATE NOCASE",
+      { ':pfx': typeRoot + '%' });
+    if (!rows || !rows.length) return null;
+    const seen = new Set();
+    dl = document.createElement('datalist');
+    dl.id = dlId;
+    for (const r of rows) {
+      const key = String(r.name || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const opt = document.createElement('option');
+      opt.value = r.name;
+      dl.appendChild(opt);
+    }
+    document.body.appendChild(dl);
+    return dlId;
+  }
+
+  // Look up the template's source_creature_type from the DB without
+  // re-parsing the full blob. Cached per session so panel re-renders
+  // don't re-hit DB for the same template.
+  const _templateTypeCache = new Map();
+  function getTemplateSourceType(templateName) {
+    if (!templateName) return null;
+    const key = templateName.toLowerCase();
+    if (_templateTypeCache.has(key)) return _templateTypeCache.get(key);
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return null;
+    const row = DB.queryOne(
+      "SELECT json_extract(data, '$.source_creature_type') AS t " +
+      "FROM entry WHERE type='template' AND name = :n " +
+      "COLLATE NOCASE LIMIT 1", { ':n': templateName });
+    const out = row && row.t ? String(row.t) : null;
+    _templateTypeCache.set(key, out);
+    return out;
+  }
+
+  // Swap the panel's Base Creature autocomplete datalist between the
+  // global all-creatures list and a type-narrowed list, based on the
+  // currently-selected template. Called on template input changes
+  // AND on panel-build (so loadData round-trips re-narrow correctly).
+  function syncBaseCreatureDatalist(panel) {
+    const baseInput = panel.querySelector('.comp-base-creature');
+    const tplName = panel.querySelector('.comp-template')?.value?.trim();
+    if (!baseInput) return;
+    if (!tplName) {
+      baseInput.setAttribute('list', 'creature-options');
+      return;
+    }
+    const srcType = getTemplateSourceType(tplName);
+    const root = _typeRoot(srcType);
+    if (!root) {
+      baseInput.setAttribute('list', 'creature-options');
+      return;
+    }
+    const dlId = buildTypedCreatureDatalist(root);
+    baseInput.setAttribute('list', dlId || 'creature-options');
+  }
+
+  // ---- Session C: apply a template's deltas to a base-creature blob.
+  //
+  // Returns the SAME creature object when no template / unknown name /
+  // DB not loaded — caller doesn't have to guard. For a recognized
+  // template, returns a shallow-cloned creature with template effects
+  // layered in:
+  //   - abilities[*]    + parsed numeric mods from ability_changes
+  //     (dict {Str:"+4"} OR free-text "Str +2, Con +4")
+  //   - armor_class     + derived natural-armor bonus
+  //     (via bonuses[bonus_type=natural_armor] or +N parsed from text)
+  //   - type            ← cleaned `type_change` text (when present)
+  //   - size            ← `size_change` (when "Same as base creature"
+  //     leave alone; when "+1 size" / "Increase by one" not yet
+  //     supported — pass through with a warning)
+  //   - speed           ← `speed_change` (overrides whole string when
+  //     the template gives one)
+  //   - alignment       ← `alignment_change` (when present)
+  //   - special_attacks / special_qualities — APPENDED to the
+  //     existing strings (so the auto-populated SQs row still picks
+  //     them up via parseCreatureSkills/Feats).
+  //
+  // Logs the chosen template into a per-panel warning span when
+  // `source_creature_type` doesn't match the base creature's type
+  // (e.g. Telthor → Fey-only on a Construct base) so the user knows
+  // the apply is non-canonical.
+
+  function applyTemplateToCreature(creature, templateName, panel) {
+    // Always clear any prior warning — re-run is idempotent.
+    const warnEl = panel?.querySelector('.comp-template-warning');
+    if (warnEl) { warnEl.textContent = ''; warnEl.style.display = 'none'; }
+
+    if (!templateName) return creature;
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return creature;
+
+    const row = DB.queryOne(
+      "SELECT data FROM entry WHERE name = :n COLLATE NOCASE " +
+      "AND type = 'template' LIMIT 1", { ':n': templateName });
+    if (!row || !row.data) return creature;
+    let tpl;
+    try { tpl = JSON.parse(row.data); } catch { return creature; }
+
+    // Source-type compatibility hint (warn-only — don't block).
+    //
+    // `source_creature_type` is messy in the DB: sometimes a bare
+    // type ("dragon", "fey"), sometimes a qualified phrase ("good
+    // outsider", "Any humanoid"), sometimes verbose prose listing
+    // every applicable type. To avoid spurious warnings on prose
+    // strings, we tokenize both sides against the canonical
+    // D&D 3.5 creature-type list and warn only when the template
+    // names AT LEAST one type AND the creature's type doesn't
+    // match ANY of those.
+    if (warnEl && tpl.source_creature_type && creature.type) {
+      const haveType = String(creature.type)
+        .split(/[\s(,]/)[0].toLowerCase();   // "Animal" from "Animal (Aquatic)"
+      const needText = String(tpl.source_creature_type).toLowerCase();
+      const TYPES = ['aberration','animal','beast','construct','deathless',
+                     'dragon','elemental','fey','giant','humanoid',
+                     'magical beast','monstrous humanoid','ooze',
+                     'outsider','plant','undead','vermin'];
+      const named = TYPES.filter(t =>
+        new RegExp(`\\b${t}\\b`, 'i').test(needText));
+      const wildcard = /\bany\b.*\bcreature\b|\bany\s+living\b/i.test(needText);
+      const ok = wildcard ||
+                 named.length === 0 ||              // unparseable → don't warn
+                 named.some(t => t === haveType ||
+                                  haveType.includes(t.split(' ')[0]));
+      if (!ok) {
+        warnEl.textContent = `⚠ ${tpl.name || templateName} normally ` +
+          `requires a ${tpl.source_creature_type} base creature ` +
+          `(have ${creature.type}). Applying anyway — verify with DM.`;
+        warnEl.style.display = '';
+      }
+    }
+
+    // Deep-enough clone — abilities is the only nested struct we
+    // mutate, so a shallow copy + abilities re-copy is sufficient.
+    const out = { ...creature, abilities: { ...(creature.abilities || {}) } };
+
+    // Ability changes — dict OR free-text.
+    const acMods = parseTemplateAbilityChanges(tpl.ability_changes);
+    for (const [ab, delta] of Object.entries(acMods)) {
+      // Use Title-case ability key matching creature.abilities shape.
+      const key = ab[0].toUpperCase() + ab.slice(1).toLowerCase();
+      const cur = out.abilities[key];
+      // "—" (em-dash) marks ability loss; convert to null/0.
+      if (delta === null) {
+        out.abilities[key] = null;
+      } else if (typeof cur === 'number') {
+        out.abilities[key] = cur + delta;
+      }
+    }
+
+    // Natural armor bonus from template — add to base creature's
+    // `armor_class` text so the existing parser in
+    // autoFillFromBaseCreature picks up the new total.
+    const tplNa = deriveTemplateNaturalArmor(tpl);
+    if (tplNa && typeof out.armor_class === 'string') {
+      out.armor_class = appendTemplateNaToAcText(out.armor_class, tplNa);
+    }
+
+    // Type, size, speed, alignment overrides.
+    if (tpl.type_change) {
+      const cleaned = cleanTemplateTypeChange(tpl.type_change);
+      if (cleaned) out.type = cleaned;
+    }
+    if (tpl.size_change && typeof tpl.size_change === 'string') {
+      const m = tpl.size_change.match(
+        /\b(Fine|Diminutive|Tiny|Small|Medium|Large|Huge|Gargantuan|Colossal)\b/i);
+      if (m) out.size = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+    }
+    if (tpl.speed_change && typeof tpl.speed_change === 'string' &&
+        !/same\s+as\s+(?:base|the)/i.test(tpl.speed_change)) {
+      out.speed = tpl.speed_change;
+    }
+    if (tpl.alignment_change) {
+      out.alignment = tpl.alignment_change;
+    }
+
+    // SA / SQ concatenation. Each *_added is a list of either
+    // strings ("Name: description") or {name, description} objects.
+    out.special_attacks   = appendTraits(out.special_attacks,
+                                         tpl.special_attacks_added);
+    out.special_qualities = appendTraits(out.special_qualities,
+                                         tpl.special_qualities_added);
+
+    return out;
+  }
+
+  // Parse `ability_changes` (dict or free-text) → {Str: +N, Con: -N, ...}
+  // Em-dash / "—" maps to null (ability loss).
+  function parseTemplateAbilityChanges(raw) {
+    const out = {};
+    if (!raw) return out;
+    if (typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [k, v] of Object.entries(raw)) {
+        if (v === '—' || v === '-' || v == null) { out[k] = null; continue; }
+        const n = parseInt(String(v).replace(/^\+/, ''), 10);
+        if (Number.isFinite(n) && n !== 0) out[k] = n;
+      }
+      return out;
+    }
+    if (typeof raw === 'string') {
+      // Match "Str +4", "Con -2", "Int —". The "—" / "no Strength" /
+      // "Intelligence is at least N" prose hits are ignored (warn-
+      // only — we don't model "ability set to N" overrides).
+      const rx = /\b(Str|Dex|Con|Int|Wis|Cha)\b\s*([+\-—]\d+|—)/gi;
+      let m;
+      while ((m = rx.exec(raw)) !== null) {
+        const ab = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+        const tok = m[2];
+        if (tok === '—') { out[ab] = null; continue; }
+        const n = parseInt(tok, 10);
+        if (Number.isFinite(n) && n !== 0) out[ab] = n;
+      }
+      return out;
+    }
+    return out;
+  }
+
+  // Pull a numeric natural-armor bonus out of either bonuses[] or
+  // the template's `armor_class` text. Mirrors template-picker's
+  // `deriveNaturalArmor` (kept local to avoid reaching across IIFE
+  // boundaries).
+  function deriveTemplateNaturalArmor(tpl) {
+    if (Array.isArray(tpl.bonuses)) {
+      for (const b of tpl.bonuses) {
+        if (b?.bonus_type === 'natural_armor' &&
+            typeof b.amount === 'number') {
+          return b.amount;
+        }
+      }
+    }
+    const ac = tpl.armor_class;
+    if (typeof ac === 'string') {
+      const m = ac.match(/\+?(\d+)\s*natural\s*armor/i);
+      if (m) return parseInt(m[1], 10);
+    }
+    return 0;
+  }
+
+  // The base creature's `armor_class` is a free-text rule string the
+  // existing autoFillFromBaseCreature parses for a "+N natural" token.
+  // To layer a template's NA on top, we rewrite that token in-place
+  // (or append one if missing) — keeps the downstream parser happy
+  // without having to plumb a second NA field through.
+  function appendTemplateNaToAcText(acText, tplNa) {
+    const m = acText.match(/([+\-]?\d+)\s*natural/i);
+    if (m) {
+      const have = parseInt(m[1], 10);
+      const newTok = `+${have + tplNa} natural`;
+      return acText.replace(m[0], newTok);
+    }
+    // No existing natural token — append. Best-effort: drop into the
+    // first " (...)" block, or just suffix.
+    if (acText.includes('(')) {
+      return acText.replace(/\(([^)]+)\)/,
+        (_, inner) => `(${inner}, +${tplNa} natural)`);
+    }
+    return acText + ` (+${tplNa} natural)`;
+  }
+
+  // Reduce a verbose `type_change` like "Type changes to outsider
+  // (native, lawful, evil)" or "Augmented humanoid" to a clean type
+  // string. Falls back to the raw input when no pattern fires.
+  function cleanTemplateTypeChange(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const s = raw.trim();
+    let m = s.match(/^Augmented\s+\(([^)]+)\)/i);
+    if (m) return `Augmented (${m[1]})`;
+    m = s.match(/type\s+changes?\s+to\s+([A-Za-z]+(?:\s*\([^)]+\))?)/i);
+    if (m) return m[1];
+    m = s.match(/^([A-Z][a-z]+(?:\s*\([^)]+\))?)/);
+    if (m) return m[1];
+    return null;
+  }
+
+  // Append a list of trait records (strings or {name, description})
+  // to an existing free-text SA/SQ string. Used for both
+  // special_attacks_added and special_qualities_added.
+  function appendTraits(existing, added) {
+    if (!Array.isArray(added) || !added.length) return existing;
+    const parts = [];
+    for (const raw of added) {
+      if (typeof raw === 'string') {
+        // Strings often arrive as "Name: long description". Take
+        // just the name + first-clause for the summary line.
+        const idx = raw.indexOf(':');
+        const name = (idx > 0 ? raw.slice(0, idx) : raw).trim();
+        if (name) parts.push(name);
+      } else if (raw && typeof raw === 'object' && raw.name) {
+        parts.push(String(raw.name).trim());
+      }
+    }
+    if (!parts.length) return existing;
+    const addedText = parts.join(', ');
+    if (!existing || existing === '—') return addedText;
+    return `${existing}, ${addedText}`;
+  }
+
   // ---- AUTO mode: fill stat fields from base creature + progression ----
   //
   // Looks up the base creature in the DB, extracts its abilities /
@@ -830,6 +1245,17 @@ const Companion = (function () {
     if (!row || !row.data) return;
     let creature;
     try { creature = JSON.parse(row.data); } catch { return; }
+
+    // Session C: apply optional template on top of the base creature
+    // BEFORE the progression math runs. `applyTemplateToCreature`
+    // returns a new blob with template effects layered in (ability
+    // changes, type / size / speed overrides, NA bonus from
+    // bonuses[] or armor_class text, SAs / SQs concatenated). Empty
+    // / unknown template name = no-op. Mismatched base type (e.g.
+    // Telthor on a Construct) flashes a hint in the warning span;
+    // we still apply, since DMs may rule otherwise.
+    const tplName = panel.querySelector('.comp-template')?.value?.trim();
+    creature = applyTemplateToCreature(creature, tplName, panel);
 
     // Compute the active progression row for this panel's selected
     // companion type (key vocabulary: animal / familiar / cohort).
@@ -1221,6 +1647,7 @@ const Companion = (function () {
       d.isFamiliar = panel.querySelector(".comp-familiar-toggle")?.checked || false;
       d.compMode = panel.querySelector(".comp-mode-radio:checked")?.value || "manual";
       d.compBaseCreature = panel.querySelector(".comp-base-creature")?.value || "";
+      d.compTemplate = panel.querySelector(".comp-template")?.value || "";
       ["STR","DEX","CON","INT","WIS","CHA"].forEach((ab) => {
         d[`comp-${ab.toLowerCase()}-score`] = panel.querySelector(`.comp-score[data-ab="${ab}"]`)?.value || "";
         d[`comp-${ab.toLowerCase()}-boost`] = panel.querySelector(`.comp-ability-boost[data-ab="${ab}"]`)?.value || "";
@@ -1397,7 +1824,12 @@ const Companion = (function () {
   // yet defined when this IIFE runs. Poll briefly for it.
   function _scheduleCreatureDatalistBuild(attempt = 0) {
     if (typeof DB !== 'undefined' && DB.ready) {
-      DB.ready.then((db) => { if (db) buildGlobalCreatureDatalist(); });
+      DB.ready.then((db) => {
+        if (db) {
+          buildGlobalCreatureDatalist();
+          buildGlobalTemplateDatalist();  // Session C: template picker datalist
+        }
+      });
       return;
     }
     if (attempt > 50) return;  // give up after ~5s of polling

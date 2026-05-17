@@ -1285,9 +1285,16 @@ textarea {
   display: inline-flex;
   gap: 0.8rem;
 }
-.comp-base-creature-field { display: inline-flex; align-items: center; gap: 0.3rem; }
-.comp-base-creature-label { display: inline-flex; align-items: center; gap: 0.3rem; }
-.comp-base-creature {
+.comp-base-creature-field {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.comp-base-creature-label,
+.comp-template-label { display: inline-flex; align-items: center; gap: 0.3rem; }
+.comp-base-creature,
+.comp-template {
   min-width: 12rem;
   font: inherit;
 }
