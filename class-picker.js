@@ -1418,6 +1418,11 @@
         typeof ClassFeatures.removeCustomizationsForClass === 'function') {
       ClassFeatures.removeCustomizationsForClass(className);
     }
+    // Subtract monster-class extensions (ability bumps + NA + size)
+    // that this class applied. Stored on the removed entry by
+    // applyMonsterClassExtensions on the original apply; no-op for
+    // non-monster classes.
+    removeMonsterClassExtensions(removed);
     // Untick class-skill checkboxes whose ONLY remaining source was
     // this class. Boxes claimed by other applied classes stay ticked.
     removeClassSkills(className);
@@ -1520,6 +1525,10 @@
           mysteryAdvancesLevels:  e.mysteryAdvancesLevels,
           mysteryAdvancesTarget:  e.mysteryAdvancesTarget,
           mysteryAdvancingLevels: e.mysteryAdvancingLevels,
+          // Savage-Species monster-class extensions (size / NA / ability
+          // bumps applied to the sheet on apply). Needed for removeClass
+          // to subtract the right delta after a save/load round-trip.
+          monsterExt: e.monsterExt,
         }));
       }
       if (useFractional) out._fractionalBaseBonus = true;
@@ -1576,6 +1585,12 @@
             mysteryAdvancesLevels:  stub.mysteryAdvancesLevels  || undefined,
             mysteryAdvancesTarget:  stub.mysteryAdvancesTarget  || undefined,
             mysteryAdvancingLevels: stub.mysteryAdvancingLevels || undefined,
+            // Monster-class extensions — restored as-is so a future
+            // removeClass after a save/load can subtract the right
+            // delta. The ability scores / NA / size themselves are
+            // restored via Character.loadData (origLoad above); we
+            // just need to remember what we added.
+            monsterExt: stub.monsterExt || undefined,
           });
         }
       }
@@ -1680,6 +1695,142 @@
       .filter(r => Number(r.level) <= Number(level))
       .map(r => ({ level: r.level, special: r.special || '' }))
       .sort((a, b) => a.level - b.level);
+  }
+
+  // ============================================================
+  // Monster-class extensions (Savage Species)
+  // ============================================================
+  //
+  // Savage Species monster classes (Ogre, Drider, Centaur, Half-Ogre,
+  // etc.) extend their class_table rows with per-level `size`,
+  // `natural_armor`, `racial_hd`, and `ability_changes` fields. These
+  // are racial-template-style adjustments that need to actually
+  // affect the character sheet's Template ability column, Natural
+  // Armor field, and Size select when the class is applied.
+  //
+  // `ability_changes` is the DELTA at each level (e.g. L2 ogre adds
+  // +2 Str / +2 Con). `natural_armor`, `size`, `racial_hd` are
+  // cumulative — they're the TOTAL value at that level. Aggregation
+  // sums ability_changes across L1..applied-level, and takes the
+  // most-recent non-null value of the cumulative fields.
+
+  function getMonsterClassExtensions(classId, atLevel) {
+    const table = fetchClassTable(classId);
+    if (!table.length) return null;
+    // A class is "monster-flavored" if any row carries the SS-style
+    // extension fields. Non-monster classes never enter this code path.
+    const isMonsterClass = table.some(r =>
+      r.natural_armor != null || r.size != null ||
+      r.racial_hd != null ||
+      (Array.isArray(r.ability_changes) && r.ability_changes.length));
+    if (!isMonsterClass) return null;
+    const abilityMods = {};
+    let naturalArmor = 0;
+    let size = null;
+    let racialHD = 0;
+    for (const r of table) {
+      if (Number(r.level) > Number(atLevel)) continue;
+      for (const ch of (r.ability_changes || [])) {
+        // DB schema uses "Str" / "Con" — uppercase 3-letter for the
+        // sheet's `${ab}-template` IDs.
+        const ab = String(ch.ability || '').toUpperCase().slice(0, 3);
+        if (!ab) continue;
+        abilityMods[ab] = (abilityMods[ab] || 0) + (Number(ch.modifier) || 0);
+      }
+      if (r.natural_armor != null) naturalArmor = Number(r.natural_armor) || 0;
+      if (r.size) size = r.size;
+      if (r.racial_hd != null) racialHD = Number(r.racial_hd) || 0;
+    }
+    return { abilityMods, naturalArmor, size, racialHD };
+  }
+
+  // Apply (or re-apply) monster-class extensions to the sheet. Diffs
+  // against `prevExt` (the previously-applied extensions for this
+  // SAME class, captured BEFORE the entry was replaced) and applies
+  // only the delta — so re-applying Ogre 2 → Ogre 3 only adds the
+  // L3 changes, not the full L1..L3 stack again. Stores the new
+  // extensions on entry.monsterExt for removeClass to subtract.
+  function applyMonsterClassExtensions(entry, prevExt) {
+    const ext = getMonsterClassExtensions(entry.classId, entry.level);
+    if (!ext) return;
+    entry.monsterExt = ext;
+    // Ability mods → Template column (matches template-picker's
+    // pattern; multiple monster-classy things stack additively).
+    for (const ab of ['STR','DEX','CON','INT','WIS','CHA']) {
+      const prev = (prevExt && prevExt.abilityMods && prevExt.abilityMods[ab]) || 0;
+      const next = ext.abilityMods[ab] || 0;
+      const delta = next - prev;
+      if (delta === 0) continue;
+      const el = document.getElementById(`${ab.toLowerCase()}-template`);
+      if (!el) continue;
+      const cur = parseInt(el.value, 10) || 0;
+      el.value = String(cur + delta);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    // Natural armor → #ac-natural.
+    const prevNA = (prevExt && prevExt.naturalArmor) || 0;
+    const deltaNA = ext.naturalArmor - prevNA;
+    if (deltaNA !== 0) {
+      const na = document.getElementById('ac-natural');
+      if (na) {
+        const cur = parseInt(na.value, 10) || 0;
+        na.value = String(cur + deltaNA);
+        na.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    // Size → #char-size, but only if either (a) this class owns the
+    // current value (data-from-class === className) so we can refresh
+    // it on re-apply, or (b) the user hasn't deviated from Medium
+    // default. The data-from-class marker rides on top of the existing
+    // _fromClassMarkers persistence so it survives save/load.
+    if (ext.size) {
+      const sizeSel = document.getElementById('char-size');
+      if (sizeSel) {
+        const ownedByThis = sizeSel.dataset.fromClass === entry.className;
+        const looksDefault = sizeSel.value === '' || sizeSel.value === 'Medium';
+        if (ownedByThis || looksDefault) {
+          if (sizeSel.value !== ext.size) {
+            sizeSel.value = ext.size;
+            sizeSel.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          sizeSel.dataset.fromClass = entry.className;
+        }
+      }
+    }
+  }
+
+  // Inverse of applyMonsterClassExtensions — runs from removeClass.
+  // Subtracts the stored ability mods + natural armor, clears the
+  // size if we were the ones who set it.
+  function removeMonsterClassExtensions(removedEntry) {
+    const ext = removedEntry && removedEntry.monsterExt;
+    if (!ext) return;
+    for (const ab of ['STR','DEX','CON','INT','WIS','CHA']) {
+      const mod = ext.abilityMods[ab] || 0;
+      if (mod === 0) continue;
+      const el = document.getElementById(`${ab.toLowerCase()}-template`);
+      if (!el) continue;
+      const cur = parseInt(el.value, 10) || 0;
+      el.value = String(cur - mod);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (ext.naturalArmor) {
+      const na = document.getElementById('ac-natural');
+      if (na) {
+        const cur = parseInt(na.value, 10) || 0;
+        na.value = String(cur - ext.naturalArmor);
+        na.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    if (ext.size) {
+      const sizeSel = document.getElementById('char-size');
+      if (sizeSel && sizeSel.dataset.fromClass === removedEntry.className) {
+        // Reset to Medium and drop our ownership marker.
+        sizeSel.value = 'Medium';
+        delete sizeSel.dataset.fromClass;
+        sizeSel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
   }
 
   // Detect spell-advancing PrC. Returns { types: [...], levels: N } or null.
@@ -2613,6 +2764,12 @@
       entry.mysteryAdvancesLevels = mystadv.levels;
       entry.mysteryAdvancingLevels = mystadv.advancingLevels;
     }
+    // Capture the previous entry's monster-class extensions BEFORE
+    // the replace below so applyMonsterClassExtensions can diff
+    // against them (re-applying Ogre 2 → Ogre 3 only adds the new
+    // L3 changes, not the full L1..L3 stack again).
+    const prevMonsterExt = (existingIdx >= 0)
+      ? pickedClasses[existingIdx].monsterExt : null;
     if (existingIdx >= 0) {
       // Preserve user-pinned target overrides on re-apply (advancesTargets
       // / advancementSlots may have been manually selected by the user
@@ -2652,6 +2809,12 @@
       seedAdvancementSlots(entry);
     }
 
+    // Apply Savage-Species-style monster-class extensions: per-level
+    // ability score bumps land in the Template column, natural armor
+    // in #ac-natural, size in #char-size. Diffed against the entry's
+    // previous extensions so re-apply at a higher level only adds
+    // the new levels. No-op for non-monster classes.
+    applyMonsterClassExtensions(entry, prevMonsterExt);
     const totals = applyAggregatesToSheet();
     renderClassList();
 

@@ -2096,6 +2096,77 @@ test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () =
     'boost values — user allocations would be lost on save/load.');
 });
 
+// ---- tests: monster-class extensions (SS) -----------------------------
+
+test('monster-class: SS monster classes have the extended class_table fields', (db) => {
+  // The class-picker treats a class as "monster" when its class_table
+  // rows carry size / natural_armor / racial_hd / ability_changes
+  // fields. SS classes all have these. Guard at the DB layer.
+  const rows = execAll(db,
+    "SELECT name, json_extract(data, '$.class_table') AS ct "
+    + "FROM entry WHERE type='class' AND name LIKE '%(Monster Class)' LIMIT 5");
+  assertGE(rows.length, 5,
+    'expected at least 5 monster classes in the DB');
+  for (const row of rows) {
+    const table = JSON.parse(row.ct || '[]');
+    assert(table.length > 0, `${row.name} has empty class_table`);
+    const hasExtensions = table.some(r =>
+      r.natural_armor != null || r.size != null ||
+      r.racial_hd != null ||
+      (Array.isArray(r.ability_changes) && r.ability_changes.length));
+    assert(hasExtensions,
+      `${row.name} class_table lacks SS extension fields — picker ` +
+      `would treat it as non-monster.`);
+  }
+});
+
+test('monster-class: Ogre L3 aggregates the right ability bumps', (db) => {
+  // The picker aggregates ability_changes from L1 to applied level.
+  // Per the DB: Ogre L2 grants +2 Str / +2 Con; L1 and L3 grant 0.
+  // So at L3 the aggregate is STR +2, CON +2.
+  const row = execOne(db,
+    "SELECT json_extract(data, '$.class_table') AS ct FROM entry "
+    + "WHERE type='class' AND name='Ogre (Monster Class)'");
+  const table = JSON.parse(row.ct || '[]');
+  const acc = {};
+  for (const r of table) {
+    if (Number(r.level) > 3) continue;
+    for (const ch of (r.ability_changes || [])) {
+      const ab = String(ch.ability).toUpperCase().slice(0, 3);
+      acc[ab] = (acc[ab] || 0) + (ch.modifier || 0);
+    }
+  }
+  assert(acc.STR === 2, `Ogre L3 STR aggregate expected +2, got ${acc.STR}`);
+  assert(acc.CON === 2, `Ogre L3 CON aggregate expected +2, got ${acc.CON}`);
+});
+
+test('monster-class: class-picker wiring is present + persists monsterExt', () => {
+  // Static guard for the apply/remove path and the save-stability
+  // round-trip via the _multiclass stub.
+  const src = readSource('class-picker.js');
+  assert(/function getMonsterClassExtensions\s*\(/.test(src),
+    'class-picker.js: getMonsterClassExtensions aggregator missing.');
+  assert(/function applyMonsterClassExtensions\s*\(/.test(src),
+    'class-picker.js: applyMonsterClassExtensions hook missing.');
+  assert(/function removeMonsterClassExtensions\s*\(/.test(src),
+    'class-picker.js: removeMonsterClassExtensions hook missing.');
+  // applyToSheet must capture the previous ext BEFORE the entry is
+  // replaced — otherwise re-apply would diff against the new (not
+  // the old) extensions and apply zero delta.
+  assert(/prevMonsterExt/.test(src),
+    'class-picker.js: applyToSheet does not capture prevMonsterExt; ' +
+    're-apply of monster classes would double-add ability bumps.');
+  // _multiclass save shape must include monsterExt so removeClass
+  // after a save/load can subtract the right delta.
+  assert(/monsterExt:\s*e\.monsterExt/.test(src),
+    'class-picker.js: collectData does not persist monsterExt on the ' +
+    '_multiclass stub. After save/load, removeClass would not subtract ' +
+    'the racial bumps that AUTO mode applied.');
+  assert(/monsterExt:\s*stub\.monsterExt/.test(src),
+    'class-picker.js: loadData does not restore monsterExt onto ' +
+    'pickedClasses entries.');
+});
+
 test('rebuild-killer: textarea auto-expand has details/visibility fallback', () => {
   // The pre-2026-05-17 autoExpand wrote scrollHeight unconditionally;
   // textareas in closed <details> or inactive tabs report 0 → showed
