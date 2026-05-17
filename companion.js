@@ -91,6 +91,11 @@ const Companion = (function () {
         <option value="psicrystal"${d.compType === "psicrystal" ? " selected" : ""}>Psicrystal</option>
         <option value="other"${d.compType === "other" ? " selected" : ""}>Other</option>
       </select></div>
+      <div class="field"><label>Size</label><select class="comp-size">
+        ${["Fine","Diminutive","Tiny","Small","Medium","Large","Huge","Gargantuan","Colossal"]
+          .map(s => `<option value="${s}"${(d.compSize || "Medium") === s ? " selected" : ""}>${s}</option>`)
+          .join("")}
+      </select></div>
       <label class="mi-toggle"><input type="checkbox" class="comp-familiar-toggle"${d.isFamiliar ? " checked" : ""}> Familiar</label>
     </div>
     <!-- Auto-computed progression panel (see companion.js
@@ -879,12 +884,17 @@ const Companion = (function () {
     // HD-derived BAB / saves / skill points / feat count. Bonus HD
     // from the progression table stack onto the creature's base HD;
     // the creature type's BAB and good-saves rules recompute against
-    // the new total. Skill points + feat count are surfaced as a
-    // read-only summary line so the player knows their budget when
-    // adding skill / feat rows manually (auto-populating individual
-    // rows is a stretch goal — feat names like "Track(B)" are free
-    // text in the DB description, not structured).
+    // the new total.
     autoFillHDDerivedStats(panel, creature, matchType, prog, stats.INT);
+    // Auto-populate skill + feat rows from the creature's free-text
+    // statblock fields. Idempotent: removes previous auto-marked
+    // rows before adding new ones so re-running AUTO doesn't stack.
+    autoFillSkillRows(panel, creature);
+    autoFillFeatRows(panel, creature);
+    // Size escalation: parse the advancement bands and use the total
+    // HD (base + bonus) to pick the size category. Falls back to the
+    // creature's base size when no band matches.
+    autoFillSize(panel, creature, matchType, prog);
 
     // Re-apply disabled state (since setAuto cleared / set values
     // but the toggle handler runs only on radio change).
@@ -926,13 +936,37 @@ const Companion = (function () {
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
 
-    // Familiars: skip the recompute; per RAW they inherit master's
-    // BAB and use better-of-saves. Surface that as a note instead
-    // of silently writing wrong numbers.
+    // Familiars: per PHB p.52 ("A familiar uses its master's base
+    // attack bonus and base save bonuses, but receives no other
+    // attack bonuses other than those it would normally gain.")
+    // and "It uses its own ability modifiers to saves. Note that the
+    // familiar uses its own base save bonuses if they are higher."
+    //
+    // So:
+    //   BAB = master's BAB (unconditional)
+    //   Save = max(master's base save, familiar's natural base save)
     if (matchType === 'familiar') {
+      const masterBab = parseInt(
+        document.getElementById('bab-1')?.value, 10) || 0;
+      const masterSaves = {
+        Fort: parseInt(document.getElementById('fort-base')?.value, 10) || 0,
+        Ref:  parseInt(document.getElementById('ref-base')?.value, 10) || 0,
+        Will: parseInt(document.getElementById('will-base')?.value, 10) || 0,
+      };
+      setAuto('.comp-bab', masterBab);
+      for (const which of ['Fort', 'Ref', 'Will']) {
+        const natural = DND35.creatureSaveAtHD(type, totalHD, which);
+        const best = Math.max(natural, masterSaves[which]);
+        setAuto(`.comp-save-base[data-save="${which}"]`, best);
+      }
+      const intMod = Math.floor((intTotal - 10) / 2);
+      const skillPts = DND35.creatureSkillPoints(type, totalHD, intMod);
+      const featCount = DND35.creatureFeatCount(totalHD);
       renderHDSummary(panel, {
         type, baseHD, bonusHD, totalHD,
-        familiarNote: true,
+        bab: masterBab, intMod, skillPts, featCount,
+        familiarNote: `BAB inherited from master (+${masterBab}); ` +
+          `saves use max(familiar natural, master's base).`,
       });
       return;
     }
@@ -972,21 +1006,114 @@ const Companion = (function () {
     const bits = [];
     bits.push(`<b>HD:</b> ${info.totalHD} ` +
       `<span style="opacity:.7">(${info.baseHD} base${info.bonusHD ? ` + ${info.bonusHD} bonus` : ''})</span>`);
-    if (info.familiarNote) {
-      bits.push(`<i style="color:#aaa">Familiar: BAB &amp; saves inherit from master (RAW uses better-of-saves; recompute deferred)</i>`);
-    } else {
-      bits.push(`<b>Type:</b> ${info.type}`);
-      if (info.bab != null) bits.push(`<b>BAB:</b> +${info.bab}`);
-      if (info.skillPts != null) bits.push(`<b>Skill points:</b> ${info.skillPts} (INT mod ${info.intMod >= 0 ? '+' : ''}${info.intMod})`);
-      if (info.featCount != null) bits.push(`<b>Feats:</b> ${info.featCount}`);
-    }
+    bits.push(`<b>Type:</b> ${info.type}`);
+    if (info.bab != null) bits.push(`<b>BAB:</b> +${info.bab}`);
+    if (info.skillPts != null) bits.push(`<b>Skill points:</b> ${info.skillPts} (INT mod ${info.intMod >= 0 ? '+' : ''}${info.intMod})`);
+    if (info.featCount != null) bits.push(`<b>Feats:</b> ${info.featCount}`);
     el.innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    if (typeof info.familiarNote === 'string') {
+      el.innerHTML += `<div style="margin-top:0.3rem;color:#aaa;font-style:italic">` +
+        escapeHtml(info.familiarNote) + '</div>';
+    }
     el.style.display = '';
   }
 
   function clearHDSummary(panel) {
     const el = panel.querySelector('.comp-hd-summary');
     if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+  }
+
+  // Auto-populate the companion's skill list from the creature's
+  // free-text `skills` field. Statblock modifiers (e.g. "Hide +3")
+  // land in the row's "Misc" field; the user can split into Ranks +
+  // ability mod later if they want fidelity. Re-running AUTO clears
+  // previous auto rows so the list doesn't stack.
+  //
+  // Note: the displayed modifier IS the creature's TOTAL bonus from
+  // the statblock — it already includes ability mods + racial
+  // bonuses + skill ranks. We dump it into Misc verbatim so the
+  // computed Total stays correct without parsing the breakdown.
+  function autoFillSkillRows(panel, creature) {
+    if (typeof DND35 === 'undefined' ||
+        typeof DND35.parseCreatureSkills !== 'function') return;
+    const container = panel.querySelector('.comp-skills-list');
+    if (!container) return;
+    // Clear previous auto-marked rows for idempotency.
+    container.querySelectorAll('.comp-skill-row[data-from-auto="1"]')
+      .forEach(r => r.remove());
+    const skills = DND35.parseCreatureSkills(creature.skills || '');
+    for (const s of skills) {
+      // Strip leading "+" so the number input accepts the value
+      // (negatives like "-2" are valid number-input strings already).
+      const misc = String(s.modifier).replace(/^\+/, '');
+      addSkillRow(container, { name: s.name, ranks: '', misc });
+      const row = container.lastElementChild;
+      if (row) {
+        row.dataset.fromAuto = '1';
+        // If the parser captured trailing notes ("(+4 acting)" or
+        // "*"), surface them as a small hint after the row. Notes
+        // aren't stored on skill rows today — append as a tooltip
+        // on the name input so the info isn't lost.
+        if (s.notes) {
+          const nameIn = row.querySelector('.comp-skill-name');
+          if (nameIn) nameIn.title = s.notes;
+        }
+      }
+    }
+  }
+
+  // Pick the right size for the companion at its current total HD.
+  // Uses DND35.parseCreatureAdvancement to read the bands, picks the
+  // size matching total HD, and falls back to the creature's base
+  // size if no band matches (or the advancement is "By character
+  // class"). Writes to the .comp-size select (marked from-auto).
+  function autoFillSize(panel, creature, matchType, prog) {
+    if (typeof DND35 === 'undefined' ||
+        typeof DND35.parseCreatureAdvancement !== 'function') return;
+    const sizeSel = panel.querySelector('.comp-size');
+    if (!sizeSel) return;
+    const baseSize = creature.size || 'Medium';
+    let chosen = baseSize;
+    const baseHD = DND35.parseHitDieCount(creature.hit_dice) || 0;
+    const bonusHD = (prog && prog.bonusHD) || 0;
+    const totalHD = baseHD + bonusHD;
+    if (totalHD > 0) {
+      const bands = DND35.parseCreatureAdvancement(creature.advancement);
+      if (bands) {
+        const matched = DND35.advancementSizeAtHD(bands, totalHD);
+        if (matched) chosen = matched;
+      }
+    }
+    if (sizeSel.value !== chosen) {
+      sizeSel.value = chosen;
+      sizeSel.dataset.fromAuto = '1';
+      sizeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      // Still mark as from-auto so the disable-on-AUTO toggle covers it.
+      sizeSel.dataset.fromAuto = '1';
+    }
+  }
+
+  // Auto-populate the companion's feat list from the creature's
+  // free-text `feats` field. Bonus-feat markers ("(B)" suffix) are
+  // surfaced as a "(racial bonus)" note on the row. Re-running AUTO
+  // clears previous auto rows.
+  function autoFillFeatRows(panel, creature) {
+    if (typeof DND35 === 'undefined' ||
+        typeof DND35.parseCreatureFeats !== 'function') return;
+    const container = panel.querySelector('.comp-feats-list');
+    if (!container) return;
+    container.querySelectorAll('.comp-feat-entry[data-from-auto="1"]')
+      .forEach(r => r.remove());
+    const feats = DND35.parseCreatureFeats(creature.feats || '');
+    for (const f of feats) {
+      addListRow(container, 'comp-feat', 'Feat name', 'Notes', {
+        name: f.name,
+        notes: f.bonus ? '(racial bonus feat)' : '',
+      });
+      const row = container.lastElementChild;
+      if (row) row.dataset.fromAuto = '1';
+    }
   }
 
   // When AUTO mode is on, the stat fields populated by autoFillFromBase
@@ -997,7 +1124,7 @@ const Companion = (function () {
     const auto = mode === 'auto';
     const fields = panel.querySelectorAll(
       '.comp-score, .comp-speed, .comp-ac-natural, ' +
-      '.comp-bab, .comp-save-base');
+      '.comp-bab, .comp-save-base, .comp-size');
     for (const el of fields) {
       el.disabled = auto;
       el.classList.toggle('comp-auto-locked', auto);
@@ -1023,6 +1150,7 @@ const Companion = (function () {
       d.name = btn.textContent.replace("×", "").trim();
       d.compName = panel.querySelector(".comp-name")?.value || "";
       d.compType = panel.querySelector(".comp-type")?.value || "";
+      d.compSize = panel.querySelector(".comp-size")?.value || "Medium";
       d.isFamiliar = panel.querySelector(".comp-familiar-toggle")?.checked || false;
       d.compMode = panel.querySelector(".comp-mode-radio:checked")?.value || "manual";
       d.compBaseCreature = panel.querySelector(".comp-base-creature")?.value || "";

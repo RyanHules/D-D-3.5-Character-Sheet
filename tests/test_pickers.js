@@ -1938,6 +1938,64 @@ test('companion HD scaling: parseHitDieCount handles common shapes', () => {
   assert(D.parseHitDieCount('garbage') === null);
 });
 
+test('companion HD scaling: parseCreatureSkills handles compound clauses', () => {
+  const D = loadData();
+  // Plain skills.
+  const wolf = D.parseCreatureSkills(
+    'Hide +2, Listen +3, Move Silently +3, Spot +3, Survival +1*');
+  assert(wolf.length === 5, 'Wolf has 5 skills');
+  assert(wolf[0].name === 'Hide' && wolf[0].modifier === '+2');
+  assert(wolf[4].name === 'Survival' && wolf[4].notes === '*',
+    'Asterisk preserved as notes');
+  // Compound clauses with parens.
+  const mage = D.parseCreatureSkills('Disguise +2 (+4 acting), Listen +5');
+  assert(mage.length === 2, 'paren-aware split: 2 skills');
+  assert(mage[0].name === 'Disguise' && mage[0].notes === '(+4 acting)',
+    'paren clause preserved as notes');
+  // Edge cases.
+  assert(D.parseCreatureSkills('').length === 0);
+  assert(D.parseCreatureSkills(null).length === 0);
+});
+
+test('companion HD scaling: parseCreatureFeats marks bonus feats', () => {
+  const D = loadData();
+  // (B) marker variants.
+  const a = D.parseCreatureFeats('Track(B), Weapon Focus (bite)');
+  assert(a.length === 2, 'two feats');
+  assert(a[0].name === 'Track' && a[0].bonus === true, 'Track is bonus');
+  assert(a[1].name === 'Weapon Focus (bite)' && a[1].bonus === false,
+    'parenthetical kept on Weapon Focus; not bonus');
+  // Spaced "(B)" suffix.
+  const b = D.parseCreatureFeats('Improved Initiative (B), Weapon Finesse (B)');
+  assert(b.length === 2);
+  assert(b[0].bonus === true && b[1].bonus === true);
+  // Plain comma list.
+  const c = D.parseCreatureFeats('Dodge, Mobility, Spring Attack');
+  assert(c.length === 3 && c.every(f => !f.bonus));
+});
+
+test('companion HD scaling: parseCreatureAdvancement reads HD bands', () => {
+  const D = loadData();
+  // Multi-band semicolon-separated.
+  const aboleth = D.parseCreatureAdvancement('9-16 HD (Huge); 17-24 HD (Gargantuan)');
+  assert(Array.isArray(aboleth) && aboleth.length === 2);
+  assert(aboleth[0].minHD === 9 && aboleth[0].maxHD === 16 && aboleth[0].size === 'Huge');
+  assert(aboleth[1].minHD === 17 && aboleth[1].maxHD === 24);
+  // Single-step (minHD == maxHD).
+  const adam = D.parseCreatureAdvancement('5 HD (Small); 6-8 HD (Medium)');
+  assert(adam.length === 2 && adam[0].minHD === 5 && adam[0].maxHD === 5);
+  // "By character class" → null (not a stat-block advancement).
+  assert(D.parseCreatureAdvancement('By character class') === null);
+  assert(D.parseCreatureAdvancement('') === null);
+  // advancementSizeAtHD: pick the right band.
+  assert(D.advancementSizeAtHD(aboleth, 10) === 'Huge', '10 HD → Huge');
+  assert(D.advancementSizeAtHD(aboleth, 20) === 'Gargantuan');
+  // Below lowest → null (clamp to base size in the caller).
+  assert(D.advancementSizeAtHD(aboleth, 4) === null);
+  // Above highest → clamp to last band per MM rules.
+  assert(D.advancementSizeAtHD(aboleth, 99) === 'Gargantuan');
+});
+
 test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () => {
   // Guard the wiring so the companion AUTO path actually invokes the
   // new HD-derived calculation. Without this hook the BAB/save fields
@@ -1956,6 +2014,22 @@ test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () =
   // be carved out so we don't write wrong numbers to it.
   assert(/matchType\s*===\s*['"]familiar['"]/.test(src),
     'companion.js: familiar case is not carved out of HD recompute.');
+  // Familiar inherit: must read master's BAB + saves from main sheet.
+  assert(/bab-1/.test(src) && /fort-base/.test(src) && /ref-base/.test(src) && /will-base/.test(src),
+    'companion.js: familiar inherit does not read master BAB + saves ' +
+    'from the main sheet (#bab-1 / #fort-base / etc.).');
+  // Auto-populate hooks should call into the data.js parsers.
+  assert(/DND35\.parseCreatureSkills/.test(src),
+    'companion.js: AUTO mode does not call parseCreatureSkills — ' +
+    'skill rows would stay blank after picking a creature.');
+  assert(/DND35\.parseCreatureFeats/.test(src),
+    'companion.js: AUTO mode does not call parseCreatureFeats.');
+  assert(/DND35\.parseCreatureAdvancement/.test(src),
+    'companion.js: AUTO mode does not call parseCreatureAdvancement ' +
+    '— size escalation has no source.');
+  assert(/comp-size/.test(src),
+    'companion.js: no .comp-size selector references — size field ' +
+    'either missing from the panel or not auto-filled.');
 });
 
 test('rebuild-killer: textarea auto-expand has details/visibility fallback', () => {

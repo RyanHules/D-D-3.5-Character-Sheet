@@ -261,6 +261,132 @@ const DND35 = {
     return 1 + Math.floor(hd / 3);
   },
 
+  // Parse a creature's free-text `skills` string into structured
+  // rows. Format examples:
+  //   "Hide +2, Listen +3, Spot +3"
+  //   "Disguise +2 (+4 acting), Listen +5"
+  //   "Survival +1*"  (asterisk = situational; preserved in notes)
+  //
+  // Returns array of {name, modifier, notes} objects. Caller handles
+  // the modifier-vs-ranks split (ranks aren't directly stored on
+  // creature entries; the modifier IS the total bonus from the
+  // statblock).
+  parseCreatureSkills(raw) {
+    if (!raw || typeof raw !== 'string') return [];
+    // Split on commas NOT inside parentheses. Regex would be cleaner
+    // with a lookahead; here we walk the string instead.
+    const parts = [];
+    let depth = 0, start = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth = Math.max(0, depth - 1);
+      else if (ch === ',' && depth === 0) {
+        parts.push(raw.slice(start, i));
+        start = i + 1;
+      }
+    }
+    parts.push(raw.slice(start));
+    const rows = [];
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      // Match "<name> +<N>" or "<name> -<N>", capturing any trailing
+      // text (e.g. "(+4 acting)", "*", or extra modifier clauses).
+      const m = trimmed.match(/^(.+?)\s+([+\-]\d+)(.*)$/);
+      if (!m) {
+        // Some statblocks have skills without a numeric modifier
+        // (e.g. "Listen" with no bonus). Treat as a 0-modifier row.
+        rows.push({ name: trimmed, modifier: '+0', notes: '' });
+        continue;
+      }
+      rows.push({
+        name: m[1].trim(),
+        modifier: m[2],
+        notes: m[3].trim(),
+      });
+    }
+    return rows;
+  },
+
+  // Parse a creature's free-text `feats` string into structured rows.
+  //   "Track(B), Weapon Focus (bite)"  → 2 rows, Track marked bonus
+  //   "Improved Initiative (B), Weapon Finesse (B)" → both bonus
+  //   "Dodge, Flyby Attack, Great Fortitude" → 3 plain feats
+  //
+  // The "(B)" suffix marks a bonus feat granted by the creature's
+  // type (vs. one selected via the regular HD-based progression).
+  // Returns {name, bonus} objects.
+  parseCreatureFeats(raw) {
+    if (!raw || typeof raw !== 'string') return [];
+    // Same paren-aware split as skills — feats often have weapon
+    // names in parens that contain commas (rare but possible).
+    const parts = [];
+    let depth = 0, start = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth = Math.max(0, depth - 1);
+      else if (ch === ',' && depth === 0) {
+        parts.push(raw.slice(start, i));
+        start = i + 1;
+      }
+    }
+    parts.push(raw.slice(start));
+    const rows = [];
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      // Bonus marker can be "(B)" appended or " (B)" with space.
+      const bonus = /\(B\)\s*$/.test(trimmed);
+      const name = trimmed.replace(/\s*\(B\)\s*$/, '').trim();
+      if (!name) continue;
+      rows.push({ name, bonus });
+    }
+    return rows;
+  },
+
+  // Parse a creature's free-text `advancement` string into structured
+  // size bands. Format examples:
+  //   "9-16 HD (Huge); 17-24 HD (Gargantuan)"  → 2 bands
+  //   "5 HD (Small); 6-8 HD (Medium)"          → 2 bands (first single-step)
+  //   "By character class"                     → null (no size escalation)
+  //   "5-8 HD (Large)"                         → 1 band
+  //
+  // Returns array of {minHD, maxHD, size} OR null when the string is
+  // not a parseable advancement table (e.g. "By character class").
+  parseCreatureAdvancement(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!trimmed || /character class/i.test(trimmed)) return null;
+    const bands = [];
+    for (const seg of trimmed.split(/\s*;\s*/)) {
+      // "<lo>(-<hi>)? HD (<size>)"
+      const m = seg.match(/^(\d+)(?:\s*[-–]\s*(\d+))?\s*HD\s*\(([^)]+)\)\s*$/);
+      if (!m) continue;
+      const minHD = parseInt(m[1], 10);
+      const maxHD = m[2] ? parseInt(m[2], 10) : minHD;
+      const size = m[3].trim();
+      bands.push({ minHD, maxHD, size });
+    }
+    return bands.length ? bands : null;
+  },
+
+  // Given parsed advancement bands and a total HD, find the band the
+  // creature falls into. Returns the band's size string or null if no
+  // band matches (under the lowest band — creature is at base size).
+  advancementSizeAtHD(bands, hd) {
+    if (!Array.isArray(bands) || !hd) return null;
+    for (const b of bands) {
+      if (hd >= b.minHD && hd <= b.maxHD) return b.size;
+    }
+    // Above highest band: clamp to last (per MM rules for advancing
+    // beyond the table — DM may continue scaling).
+    const last = bands[bands.length - 1];
+    if (last && hd > last.maxHD) return last.size;
+    return null;
+  },
+
   // Parse hit-die count from a creature's `hit_dice` string
   //   "2d8+4 (13 hp)"  → 2
   //   "1d10"           → 1
