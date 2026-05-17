@@ -1428,6 +1428,17 @@
     const origLoad    = Character.loadData;
     Character.collectData = function () {
       const out = origCollect.apply(this, arguments) || {};
+      // Save-stability: persist the `data-from-class` markers that
+      // setIfEmpty stamped on auto-filled fields (Turn Undead per-day,
+      // Rage rounds, etc.). Without this, the field VALUES survive
+      // save/load via the normal collect path, but the MARKERS are
+      // lost — so a subsequent class-remove can't clean those fields.
+      // Stored as a flat {fieldId: className} map; tiny payload.
+      const markers = {};
+      document.querySelectorAll('[data-from-class]').forEach(el => {
+        if (el.id) markers[el.id] = el.dataset.fromClass;
+      });
+      if (Object.keys(markers).length) out._fromClassMarkers = markers;
       if (pickedClasses.length) {
         // Strip prog object for compactness; rehydrate from DB on load.
         out._multiclass = pickedClasses.map(e => ({
@@ -1522,6 +1533,25 @@
         }
       }
       renderClassList();
+      // Save-stability: restore `data-from-class` markers stamped by
+      // setIfEmpty during the original session. The field values are
+      // already restored via origLoad; we just re-apply the dataset
+      // attribute + the clear-on-edit listener so a subsequent class
+      // removal can still clean these fields. See collectData above
+      // for the matching emit logic.
+      if (data && data._fromClassMarkers && typeof data._fromClassMarkers === 'object') {
+        for (const [id, className] of Object.entries(data._fromClassMarkers)) {
+          const el = document.getElementById(id);
+          if (!el) continue;
+          el.dataset.fromClass = className;
+          if (!el.dataset.fromClassWired) {
+            el.dataset.fromClassWired = '1';
+            el.addEventListener('input', (ev) => {
+              if (ev.isTrusted) delete el.dataset.fromClass;
+            });
+          }
+        }
+      }
       // Stamp dataset.mcComputed so the loaded total-level value is
       // recognized as "computed by us" (not a manual deviation) on the
       // next Apply.

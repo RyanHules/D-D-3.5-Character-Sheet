@@ -1616,6 +1616,55 @@ test('save: every UI module exposes collectData + loadData', () => {
     `Missing persistence functions:\n  ${missing.join('\n  ')}`);
 });
 
+test('save: companion compType options have explicit value= attrs', () => {
+  // Regression guard for the 2026-05-17 round-trip bug. Pre-fix,
+  // the <option>s had no `value` attribute, so `.value` returned the
+  // option's display text ("Animal Companion"), while the build
+  // template compared against lowercase keys ("animal"). Saved
+  // Familiars/Cohorts/Psicrystals reloaded silently as Animal
+  // Companion. The fix: explicit `value="animal"` etc. on each
+  // option. This test guards against accidental removal.
+  const src = readSource('companion.js');
+  for (const key of ['animal', 'familiar', 'cohort', 'psicrystal', 'other']) {
+    assert(
+      new RegExp(`<option value="${key}"`).test(src),
+      `companion.js: <option value="${key}"...> is missing. Without ` +
+      `explicit value attrs, saved companion types reload as the ` +
+      `first option (silent data loss). See normalizeCompType for ` +
+      `the migration path.`
+    );
+  }
+  // Also guard that the migration helper exists — old saves with
+  // display-text compType need normalization.
+  assert(/function normalizeCompType\s*\(/.test(src),
+    'companion.js: normalizeCompType migration helper is missing. ' +
+    'Without it, old saves with display-text compType silently ' +
+    'reload as Animal Companion.');
+});
+
+test('save: class-picker persists data-from-class markers', () => {
+  // Regression guard for the 2026-05-17 fix. setIfEmpty stamps a
+  // `data-from-class="<className>"` marker on auto-filled fields
+  // (turn-per-day, rage-rounds, etc.). Pre-fix, the marker was
+  // dropped on save, so a class removed after a save/load cycle
+  // couldn't clean its auto-fills. The fix: collectData emits
+  // `_fromClassMarkers: {fieldId: className}`; loadData restores.
+  const src = readSource('class-picker.js');
+  assert(/_fromClassMarkers/.test(src),
+    'class-picker.js: _fromClassMarkers field is missing from the ' +
+    'Character.collectData/loadData hook. Without it, fields ' +
+    'auto-filled by class-picker survive save/load but lose their ' +
+    'origin tag, so a future class-remove leaves them as stale data.');
+  // Specifically check both directions.
+  const hook = src.slice(src.indexOf('installPersistenceHooks'));
+  assert(/markers\s*\[\s*el\.id\s*\]\s*=\s*el\.dataset\.fromClass/.test(hook),
+    'class-picker.js: collectData hook does not iterate ' +
+    '[data-from-class] elements to populate _fromClassMarkers.');
+  assert(/el\.dataset\.fromClass\s*=\s*className/.test(hook),
+    'class-picker.js: loadData hook does not restore _fromClassMarkers ' +
+    'onto the matching elements after class-state rehydration.');
+});
+
 test('save: app.js#collectData wires every UI module', () => {
   // Catch the case where collectData/loadData is added to a module but
   // not plumbed through app.js.

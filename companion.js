@@ -85,11 +85,11 @@ const Companion = (function () {
     <div class="comp-header info-grid">
       <div class="field"><label>Name</label><input type="text" class="comp-name" value="${d.compName || ""}"></div>
       <div class="field"><label>Type</label><select class="comp-type">
-        <option${d.compType === "animal" ? " selected" : ""}>Animal Companion</option>
-        <option${d.compType === "familiar" ? " selected" : ""}>Familiar</option>
-        <option${d.compType === "cohort" ? " selected" : ""}>Cohort</option>
-        <option${d.compType === "psicrystal" ? " selected" : ""}>Psicrystal</option>
-        <option${d.compType === "other" ? " selected" : ""}>Other</option>
+        <option value="animal"${d.compType === "animal" ? " selected" : ""}>Animal Companion</option>
+        <option value="familiar"${d.compType === "familiar" ? " selected" : ""}>Familiar</option>
+        <option value="cohort"${d.compType === "cohort" ? " selected" : ""}>Cohort</option>
+        <option value="psicrystal"${d.compType === "psicrystal" ? " selected" : ""}>Psicrystal</option>
+        <option value="other"${d.compType === "other" ? " selected" : ""}>Other</option>
       </select></div>
       <label class="mi-toggle"><input type="checkbox" class="comp-familiar-toggle"${d.isFamiliar ? " checked" : ""}> Familiar</label>
     </div>
@@ -222,16 +222,8 @@ const Companion = (function () {
       // Initial auto-default: only when no explicit type was loaded.
       if (!d.compType) {
         const auto = defaultCompTypeFromClasses();
-        if (auto) {
-          const TEXT_FOR_KEY = {
-            animal: "Animal Companion",
-            familiar: "Familiar",
-            cohort: "Cohort",
-          };
-          const want = TEXT_FOR_KEY[auto];
-          if (want && compTypeSel.value !== want) {
-            compTypeSel.value = want;
-          }
+        if (auto && compTypeSel.value !== auto) {
+          compTypeSel.value = auto;
         }
       }
     }
@@ -640,11 +632,13 @@ const Companion = (function () {
     if (!body || !status || !wrap) return;
     const lvls = computeCompanionLevels();
     // Find the companion type most relevant to THIS panel (based on
-    // the comp-type dropdown — Animal Companion / Familiar / Cohort).
+    // the comp-type dropdown's serialization key — animal / familiar
+    // / cohort / psicrystal / other). Maps to computeCompanionLevels
+    // bucket key.
     const typeMap = {
-      'Animal Companion': 'animal_companion',
-      'Familiar':         'familiar',
-      'Cohort':           'cohort',
+      'animal':     'animal_companion',
+      'familiar':   'familiar',
+      'cohort':     'cohort',
       // No direct selector for special_mount today — Paladin special
       // mounts get used via Familiar/Animal Companion proxies; we
       // surface mount info under whichever type the player picks.
@@ -820,12 +814,12 @@ const Companion = (function () {
     try { creature = JSON.parse(row.data); } catch { return; }
 
     // Compute the active progression row for this panel's selected
-    // companion type (Animal Companion / Familiar / etc.).
+    // companion type (key vocabulary: animal / familiar / cohort).
     const lvls = computeCompanionLevels();
     const typeMap = {
-      'Animal Companion': 'animal_companion',
-      'Familiar':         'familiar',
-      'Cohort':           'cohort',
+      'animal':   'animal_companion',
+      'familiar': 'familiar',
+      'cohort':   'cohort',
     };
     const selType = panel.querySelector('.comp-type')?.value || '';
     const matchType = typeMap[selType] || null;
@@ -970,6 +964,25 @@ const Companion = (function () {
     return { companions };
   }
 
+  // Pre-2026-05-17: compType was saved as the option's display text
+  // ("Animal Companion" / "Familiar" / etc.) because the `<option>`
+  // elements had no `value` attribute. The build template compared
+  // against lowercase keys, so saved Familiars/Cohorts/etc. silently
+  // reloaded as Animal Companion. Map old → new before letting
+  // anything else consume the field.
+  function normalizeCompType(raw) {
+    if (!raw) return "";
+    const v = String(raw);
+    const TEXT_TO_KEY = {
+      "Animal Companion": "animal",
+      "Familiar":         "familiar",
+      "Cohort":           "cohort",
+      "Psicrystal":       "psicrystal",
+      "Other":            "other",
+    };
+    return TEXT_TO_KEY[v] || v;
+  }
+
   function loadData(data) {
     const tabBar = $("#companion-tab-bar");
     const content = $("#companion-content");
@@ -985,7 +998,7 @@ const Companion = (function () {
       const legacy = {
         name: "Companion",
         compName: data["comp-name"] || "",
-        compType: data["comp-type"] || "",
+        compType: normalizeCompType(data["comp-type"]),
         compSpeed: data["comp-speed"] || "",
         compNotes: data["comp-personality"] || "",
         compSpecial: data["comp-special"] || "",
@@ -999,7 +1012,10 @@ const Companion = (function () {
       });
       addCompanion(legacy);
     } else {
-      (data.companions || []).forEach((c) => addCompanion(c));
+      (data.companions || []).forEach((c) => {
+        c.compType = normalizeCompType(c.compType);
+        addCompanion(c);
+      });
     }
 
     // Ensure at least one companion tab exists
@@ -1056,16 +1072,11 @@ const Companion = (function () {
       // we computed a meaningful default.
       const sel = panel.querySelector(".comp-type");
       if (sel && defaultType && !sel.dataset.userSet) {
-        // Map serialization key → display text (option order matches
-        // buildCompanionHTML's `<option>` list).
-        const TEXT_FOR_KEY = {
-          animal: "Animal Companion",
-          familiar: "Familiar",
-          cohort: "Cohort",
-        };
-        const want = TEXT_FOR_KEY[defaultType];
-        if (want && sel.value !== want) {
-          sel.value = want;
+        // The `<option>` `value` attrs in buildCompanionHTML use the
+        // same key vocabulary as defaultCompTypeFromClasses (animal /
+        // familiar / cohort), so we can set the select directly.
+        if (sel.value !== defaultType) {
+          sel.value = defaultType;
           // Dispatch change so any downstream listeners (AUTO-fill
           // recompute, etc.) react.
           sel.dispatchEvent(new Event("change", { bubbles: true }));

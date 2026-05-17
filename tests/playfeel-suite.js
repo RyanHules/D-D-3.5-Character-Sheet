@@ -454,7 +454,10 @@
     expect(wrap.style.display !== 'none', true, 'H4: progression panel visible');
     expectIncludes(wrap.querySelector('.comp-progression-body').innerHTML, 'Familiar',
       'H4: panel mentions Familiar');
-    expectValue('#companion-0 .comp-type', 'Familiar', 'H5: comp-type auto-defaulted to Familiar');
+    // Save-stability fix (2026-05-17): comp-type stores the key
+    // ("familiar"), not the display text. See companion.js
+    // normalizeCompType for old-save migration.
+    expectValue('#companion-0 .comp-type', 'familiar', 'H5: comp-type auto-defaulted to Familiar');
   });
 
   regression('H6: Wizard 5 INT 18 has no L4 phantom slot', async () => {
@@ -577,6 +580,79 @@
     // CL 3, max castable L2. Catalog L1-L2: 7+7 = 14 freebies.
     const freebies = $$('#spells-content .sc-known-row[data-freebie="1"]');
     expect(freebies.length, 14, 'M9: 14 freebies (L1-L2 only)');
+  });
+
+  // ---- Save-stability regressions (2026-05-17 sweep) -----------------
+  //
+  // Each fix in the save-stability sweep gets a regression here that
+  // exercises the actual collectData → loadData round-trip path.
+  // Static-source regression guards live in tests/test_pickers.js;
+  // these are the runtime checks.
+
+  regression('SS1: companion compType round-trips as a key (not display text)', async () => {
+    await newCharacter();
+    document.querySelector('[data-tab="tab-companion"]').click();
+    await wait(200);
+    const sel = $('#companion-0 .comp-type');
+    if (!sel) fail('SS1: companion select not found');
+    sel.value = 'familiar';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await wait(100);
+    const blob = Companion.collectData();
+    expect(blob.companions[0].compType, 'familiar',
+      'SS1: collectData emits the key, not display text');
+    // Force the select back to default + reload to prove the round-trip.
+    sel.value = 'animal';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await wait(100);
+    Companion.loadData(blob);
+    await wait(200);
+    expectValue('#companion-0 .comp-type', 'familiar',
+      'SS1: loadData restores the saved Familiar (was reloading as Animal Companion pre-fix)');
+  });
+
+  regression('SS1: companion loadData migrates legacy display-text compType', async () => {
+    await newCharacter();
+    // Simulate an old save: compType is the option's display text.
+    const legacyBlob = {
+      companions: [{
+        name: 'Test', compName: 'Bob', compType: 'Familiar', compType_legacy: true,
+      }],
+    };
+    Companion.loadData(legacyBlob);
+    await wait(200);
+    expectValue('#companion-0 .comp-type', 'familiar',
+      'SS1: old "Familiar" display-text compType migrates to "familiar" key on load');
+  });
+
+  regression('SS2: data-from-class markers survive a save/load round-trip', async () => {
+    await newCharacter();
+    setAbilities({ CHA: 14 });
+    await applyClass('Cleric', 3);
+    // Sanity check: Cleric actually applied. Without this the next
+    // assertion's "marker missing" failure misleads the user into
+    // thinking the marker code is broken when really the apply
+    // didn't take (e.g. DB never loaded in the preview harness).
+    const chips = $$('.mc-class-chip');
+    if (chips.length === 0) fail(
+      'SS2: Cleric did not apply (no mc-class-chip) — possibly DB ' +
+      'still loading. Re-run after [DB] Loaded appears in console.');
+    const tpd = document.getElementById('turn-per-day');
+    if (!tpd) fail('SS2: turn-per-day field not found');
+    expect(tpd.dataset.fromClass, 'Cleric',
+      'SS2: marker stamped by Cleric apply');
+    // Round-trip via Character.collect/load (which class-picker wraps
+    // to emit/consume _fromClassMarkers).
+    const blob = Character.collectData();
+    expect(blob._fromClassMarkers && blob._fromClassMarkers['turn-per-day'], 'Cleric',
+      'SS2: collectData emits _fromClassMarkers["turn-per-day"]="Cleric"');
+    // Clear the marker manually to simulate the post-load state where
+    // origLoad has restored the VALUE but not yet the marker.
+    delete tpd.dataset.fromClass;
+    Character.loadData(blob);
+    await wait(100);
+    expect(tpd.dataset.fromClass, 'Cleric',
+      'SS2: loadData re-stamps the marker so a future class-remove can clean the field');
   });
 
   // ---- Per-class application sweep -------------------------------------
