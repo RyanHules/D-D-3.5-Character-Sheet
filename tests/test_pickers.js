@@ -90,9 +90,18 @@ test('count of spells > 2500', (db) => {
 });
 
 test('count of feats > 1000', (db) => {
+  // feat-picker covers feat + acf; skill_trick moved to
+  // special-ability-picker (2026-05-17).
   const r = execOne(db, "SELECT COUNT(*) AS n FROM entry "
-    + "WHERE type IN ('feat','acf','skill_trick')");
+    + "WHERE type IN ('feat','acf')");
   assertGE(r.n, 1000);
+});
+
+test('count of skill_tricks >= 40', (db) => {
+  // Skill tricks are now their own pickable scope (Special Abilities).
+  const r = execOne(db,
+    "SELECT COUNT(*) AS n FROM entry WHERE type = 'skill_trick'");
+  assertGE(r.n, 40);
 });
 
 test('count of items > 1500', (db) => {
@@ -119,7 +128,7 @@ test('no per-type compat views remain', (db) => {
 test('feat-picker: list query (init)', (db) => {
   const rows = execAll(db,
     "SELECT id AS feat_id, name, version, types_csv FROM entry "
-    + "WHERE type IN ('feat', 'acf', 'skill_trick') "
+    + "WHERE type IN ('feat', 'acf') "
     + "ORDER BY CASE version WHEN '3.5' THEN 0 ELSE 1 END, "
     + "name COLLATE NOCASE");
   assertGE(rows.length, 1000);
@@ -129,7 +138,7 @@ test('feat-picker: list query (init)', (db) => {
 test('feat-picker: detail query (onSelect)', (db) => {
   const list = execAll(db,
     "SELECT id AS feat_id FROM entry "
-    + "WHERE type IN ('feat','acf','skill_trick') LIMIT 1");
+    + "WHERE type IN ('feat','acf') LIMIT 1");
   const detail = execOne(db,
     "SELECT id AS feat_id, name, source, version, types_csv, "
     + "json_extract(data, '$.prerequisites') AS prerequisites, "
@@ -613,9 +622,31 @@ test('feat-picker: tag filter (combat-maneuver feats >= 60)', (db) => {
   const rows = execAll(db,
     "SELECT COUNT(*) AS n FROM entry e "
     + "JOIN tag t ON t.entry_id = e.id "
-    + "WHERE e.type IN ('feat','acf','skill_trick') "
+    + "WHERE e.type IN ('feat','acf') "
     + "AND t.tag = 'combat-maneuver'");
   assertGE(rows[0].n, 60);
+});
+
+// ---- tests: special-ability-picker (skill tricks) -------------------------
+
+test('special-ability-picker: list query (init)', (db) => {
+  const rows = execAll(db,
+    "SELECT id AS trick_id, name, source, version, "
+    + "json_extract(data, '$.category')      AS category, "
+    + "json_extract(data, '$.prerequisites') AS prerequisites, "
+    + "json_extract(data, '$.benefit')       AS benefit, "
+    + "json_extract(data, '$.description')   AS description "
+    + "FROM entry WHERE type = 'skill_trick' "
+    + "ORDER BY name COLLATE NOCASE, "
+    + "         CASE version WHEN '3.5' THEN 0 ELSE 1 END");
+  assertGE(rows.length, 40);
+  assert(rows[0].name && rows[0].trick_id != null);
+  // Category should be one of the four CScoundrel buckets.
+  const cats = new Set(rows.map(r => r.category).filter(Boolean));
+  for (const expected of ['Interaction', 'Manipulation', 'Mental', 'Movement']) {
+    assert(cats.has(expected),
+      `skill_trick.category set should include "${expected}"`);
+  }
 });
 
 test('item-picker: tag filter (slotless items >= 500)', (db) => {
@@ -1733,7 +1764,7 @@ test('book-filter: every picker consults BookFilter.allowsSource in its row loop
     'race-picker.js', 'template-picker.js', 'class-picker.js',
     'domain-picker.js', 'maneuver-picker.js', 'power-picker.js',
     'mystery-picker.js', 'soulmeld-picker.js', 'vestige-picker.js',
-    'invocation-picker.js',
+    'invocation-picker.js', 'special-ability-picker.js',
   ];
   const missing = [];
   for (const p of pickers) {
@@ -1753,7 +1784,7 @@ test('book-filter: every picker re-runs on book-filter-changed', () => {
     'race-picker.js', 'template-picker.js', 'class-picker.js',
     'domain-picker.js', 'maneuver-picker.js', 'power-picker.js',
     'mystery-picker.js', 'soulmeld-picker.js', 'vestige-picker.js',
-    'invocation-picker.js',
+    'invocation-picker.js', 'special-ability-picker.js',
   ];
   const missing = [];
   for (const p of pickers) {

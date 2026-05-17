@@ -1,14 +1,17 @@
-// invocation-picker.js — Warlock / Dragonfire Adept / etc. invocation
-// picker. Warlock invocations are essentially the class's spell list —
-// known, at-will, picked at level-up. No dedicated UI surface exists
-// for them today, so we wire into the Feats tab's Special Abilities
-// list (which already hosts class features and racial traits).
+// invocation-picker.js — Warlock / Dragonfire Adept invocation picker.
 //
-// Layout: picker bar injected next to the "+ Add Special Ability"
-// button with Grade + Subcategory filters + Invocation autocomplete +
-// "+ Add" button. Selecting an invocation and clicking + Add inserts
-// a formatted entry ("Name (Grade, Lvl-equiv N) — description") into
-// the Special Abilities list via Feats.addSpecialAbility.
+// As of 2026-05-17 invocations live on their own Spells sub-tab
+// (mirroring Maneuvers / Mysteries / Vestiges). This module observes
+// every `data-caster-type="invocations"` panel and injects a picker
+// bar above its per-grade Known list: Grade filter + Subcategory
+// filter + invocation autocomplete + "+ Known" button. The "+ Known"
+// button appends the picked invocation to the textarea matching the
+// invocation's grade (Least → `.invo-text[data-grade="least"]` etc.).
+//
+// History: pre-2026-05-17 this lived on the Feats & Abilities tab and
+// wrote to the Special Abilities list. Moved here because invocations
+// are a class-spell-list equivalent (known, at-will, picked at
+// level-up) — they belong with the other spell-list-style mechanics.
 
 (function () {
   if (!window.DB) {
@@ -20,6 +23,7 @@
   const invocationIndex = new Map();
   let grades = [];
   let subcategories = [];
+  let datalistCounter = 0;
 
   function rebuildIndex() {
     const rows = DB.query(
@@ -62,30 +66,36 @@
 
   function init() {
     rebuildIndex();
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', injectUI);
-    } else {
-      injectUI();
-    }
-
+    observePanels();
     document.addEventListener('book-filter-changed', () => {
       rebuildIndex();
-      // The filter dropdown's refresh() reads invocationIndex live,
-      // so just dispatch a synthetic change to repopulate the datalist
-      // with the current grade/subcategory selection.
-      const gradeSel = document.getElementById('invo-lookup-grade');
-      if (gradeSel) gradeSel.dispatchEvent(new Event('change'));
+      // Re-inject pickers so dropdown options reflect the new index.
+      document.querySelectorAll('.invocation-picker').forEach(p => p.remove());
+      sweepPanels();
     });
   }
 
-  function injectUI() {
-    if (document.querySelector('.invocation-picker')) return;
-    const addBtn = document.getElementById('btn-add-special-ability');
-    if (!addBtn) {
-      console.warn('[invocation-picker] #btn-add-special-ability not found');
-      return;
+  // ---------- Per-panel picker bar -----------------------------------------
+
+  function observePanels() {
+    const ob = new MutationObserver(() => sweepPanels());
+    ob.observe(document.body, { childList: true, subtree: true });
+    sweepPanels();
+  }
+
+  function sweepPanels() {
+    const panels = document.querySelectorAll(
+      '#spells-content [data-caster-type="invocations"]'
+    );
+    for (const panel of panels) {
+      const lists = panel.querySelector('.invo-grade-lists');
+      if (!lists) continue;
+      if (panel.querySelector('.invocation-picker')) continue;
+      injectPicker(panel, lists);
     }
+  }
+
+  function injectPicker(panel, listsEl) {
     const wrap = document.createElement('div');
     wrap.className = 'invocation-picker';
     wrap.style.cssText =
@@ -93,6 +103,7 @@
       'background:rgba(255,255,255,0.04); border-left:3px solid #6a6a8a; ' +
       'border-radius:3px;';
 
+    const dlId = `invo-picker-options-${++datalistCounter}`;
     const gradeOpts = grades
       .map(g => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`)
       .join('');
@@ -104,45 +115,44 @@
       <div style="display:flex;gap:0.4rem;align-items:flex-end;flex-wrap:wrap">
         <div class="field" style="flex:1 1 8rem;min-width:7rem">
           <label>Grade</label>
-          <select id="invo-lookup-grade">
+          <select class="ip-grade">
             <option value="">Any grade</option>
             ${gradeOpts}
           </select>
         </div>
         <div class="field" style="flex:1 1 10rem;min-width:9rem">
           <label>Subcategory</label>
-          <select id="invo-lookup-sub">
+          <select class="ip-sub">
             <option value="">Any subcategory</option>
             ${subOpts}
           </select>
         </div>
         <div class="field" style="flex:2 1 14rem;min-width:12rem">
           <label>Invocation</label>
-          <input type="text" id="invo-lookup" list="invocation-options"
+          <input type="text" class="ip-invo" list="${dlId}"
                  placeholder="(filter then pick)" autocomplete="off">
-          <datalist id="invocation-options"></datalist>
+          <datalist id="${dlId}"></datalist>
         </div>
-        <button type="button" id="invo-lookup-add" class="btn-add"
-                style="height:2rem"
-                title="Add to Special Abilities list">
-          + Add to Specials
+        <button type="button" class="btn-add ip-add-known"
+                title="Append to Known Invocations for this invocation's grade">
+          + Known
         </button>
       </div>
-      <div id="invo-info"
+      <div class="ip-info"
            style="display:none;font-size:0.85em;color:#ccc;margin-top:0.4rem">
       </div>
     `;
-    addBtn.parentElement.insertBefore(wrap, addBtn);
-    wirePicker();
+    listsEl.parentElement.insertBefore(wrap, listsEl);
+    wirePicker(panel, wrap, dlId);
   }
 
-  function wirePicker() {
-    const gradeSel = document.getElementById('invo-lookup-grade');
-    const subSel   = document.getElementById('invo-lookup-sub');
-    const invoIn   = document.getElementById('invo-lookup');
-    const info     = document.getElementById('invo-info');
-    const addBtn   = document.getElementById('invo-lookup-add');
-    const datalist = document.getElementById('invocation-options');
+  function wirePicker(panel, picker, dlId) {
+    const gradeSel = picker.querySelector('.ip-grade');
+    const subSel   = picker.querySelector('.ip-sub');
+    const invoIn   = picker.querySelector('.ip-invo');
+    const info     = picker.querySelector('.ip-info');
+    const addK     = picker.querySelector('.ip-add-known');
+    const datalist = picker.querySelector(`#${dlId}`);
 
     function refresh() {
       const g = gradeSel.value;
@@ -174,28 +184,22 @@
       if (window.ErrataBadge) ErrataBadge.attach(info, r.invocation_id);
     }
 
-    function addToSpecials() {
+    function addToKnown() {
       const r = invocationIndex.get(invoIn.value.trim().toLowerCase());
       if (!r) { flash('Pick an invocation first.', '#a66'); return; }
-      const text = formatForSpecials(r);
-      // De-dupe by name (case-insensitive) so re-adding is a no-op.
-      const existing = Array.from(
-        document.querySelectorAll('#special-abilities-container ' +
-          '.special-ability-entry')
-      ).map(t => (t.value || '').toLowerCase());
-      if (existing.some(s => s.startsWith(r.name.toLowerCase()))) {
-        flash(`"${r.name}" already in Special Abilities.`, '#aa8');
-        return;
-      }
-      // `Feats` is a top-level `const` (script-scope binding), not a
-      // `window` property. typeof guard for cross-module access.
-      if (typeof Feats !== 'undefined' &&
-          typeof Feats.addSpecialAbility === 'function') {
-        Feats.addSpecialAbility(text);
-        flash(`Added "${r.name}".`, '#7a9');
-      } else {
-        flash('Feats module unavailable.', '#a66');
-      }
+      const grade = (r.grade || '').toLowerCase();
+      if (!grade) { flash(`"${r.name}" has no grade — append manually.`, '#aa8'); return; }
+      const ta = panel.querySelector(`.invo-text[data-grade="${grade}"]`);
+      if (!ta) { flash(`No textarea for grade "${grade}".`, '#a66'); return; }
+      // De-dupe by name (case-insensitive) per-textarea.
+      const lines = String(ta.value || '').split(/\r?\n/);
+      const exists = lines.some(
+        l => l.trim().toLowerCase() === r.name.trim().toLowerCase());
+      if (exists) { flash(`"${r.name}" already in ${r.grade}.`, '#aa8'); return; }
+      const existing = String(ta.value || '').replace(/\s+$/, '');
+      ta.value = existing ? `${existing}\n${r.name}` : r.name;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      flash(`Added "${r.name}" to ${r.grade}.`, '#7a9');
     }
 
     function flash(msg, color) {
@@ -211,20 +215,9 @@
     subSel  .addEventListener('change', refresh);
     invoIn  .addEventListener('input',  updateInfo);
     invoIn  .addEventListener('change', updateInfo);
-    addBtn  .addEventListener('click',  addToSpecials);
+    addK    .addEventListener('click',  addToKnown);
 
     refresh();
-  }
-
-  function formatForSpecials(r) {
-    const head = [
-      r.name,
-      r.grade && `${r.grade} invocation`,
-      r.spell_level_equivalent != null
-        ? `lvl-equiv ${r.spell_level_equivalent}` : null,
-      r.subcategory,
-    ].filter(Boolean).join(' · ');
-    return r.description ? `${head}\n${r.description}` : head;
   }
 
   function renderInfo(r) {
@@ -232,23 +225,22 @@
       `<span style="opacity:.7">(${escapeHtml(r.source || '?')})</span>`;
     const bits = [head];
     const meta = [
-      r.warlock_class,
       r.grade && `${r.grade} invocation`,
       r.spell_level_equivalent != null
-        ? `Spell-level equivalent: ${r.spell_level_equivalent}` : null,
+        ? `lvl-equiv ${r.spell_level_equivalent}` : null,
       r.subcategory,
     ].filter(Boolean).map(escapeHtml).join(' · ');
     if (meta) bits.push(meta);
+    let html = bits.join('<br>');
     if (r.description) {
-      const d = r.description.length > 400
-        ? r.description.slice(0, 400) + '…' : r.description;
-      bits.push(escapeHtml(d));
+      html += `<div class="ip-info-desc" style="margin-top:0.4rem;` +
+              `line-height:1.4">${escapeHtml(r.description)}</div>`;
     }
-    return bits.join('<br>');
+    return html;
   }
 
   function escapeHtml(s) {
-    return String(s)
+    return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }

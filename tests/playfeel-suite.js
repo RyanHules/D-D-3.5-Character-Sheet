@@ -625,6 +625,51 @@
       'SS1: old "Familiar" display-text compType migrates to "familiar" key on load');
   });
 
+  regression('SS3: invocations panel round-trips per-grade Known + scalars', async () => {
+    await newCharacter();
+    // Add an invocations panel via the Spells tab button.
+    document.querySelector('[data-tab="tab-spells"]').click();
+    await wait(150);
+    const addBtn = $('#btn-add-invocations');
+    if (!addBtn) fail('SS3: + Invocations button missing');
+    addBtn.click();
+    await wait(300);
+    const panel = $('[data-caster-type="invocations"]');
+    if (!panel) fail('SS3: invocations panel did not spawn');
+    // Fill some fields + a Known entry under Lesser.
+    panel.querySelector('.invo-level').value = '6';
+    panel.querySelector('.invo-caster-level').value = '6';
+    panel.querySelector('.invo-highest-grade').value = 'Lesser';
+    panel.querySelector('.invo-known-count').value = '4';
+    panel.querySelector('.invo-text[data-grade="lesser"]').value =
+      'Eldritch Spear\nWalk Unseen';
+    // Force a dispatch so any input listeners catch it.
+    panel.querySelectorAll('input, textarea').forEach(el => {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Round-trip via Spells.collect/load.
+    const blob = Spells.collectData();
+    const invo = blob.casters.find(c => c.type === 'invocations');
+    if (!invo) fail('SS3: collectData did not include invocations caster');
+    expect(invo.invokerLevel, '6', 'SS3: invokerLevel round-tripped');
+    expect(invo.highestGrade, 'Lesser', 'SS3: highestGrade round-tripped');
+    expect(invo['invo-lesser'], 'Eldritch Spear\nWalk Unseen',
+      'SS3: per-grade Known textarea round-tripped');
+    // Wipe + reload.
+    Spells.loadData({ casters: [] });
+    await wait(200);
+    if ($('[data-caster-type="invocations"]')) fail('SS3: panel should be gone after reload-empty');
+    Spells.loadData(blob);
+    await wait(300);
+    const restored = $('[data-caster-type="invocations"]');
+    if (!restored) fail('SS3: panel not rebuilt on loadData');
+    expect(restored.querySelector('.invo-level').value, '6',
+      'SS3: invokerLevel restored to panel');
+    expect(restored.querySelector('.invo-text[data-grade="lesser"]').value,
+      'Eldritch Spear\nWalk Unseen',
+      'SS3: Lesser textarea restored');
+  });
+
   regression('SS2: data-from-class markers survive a save/load round-trip', async () => {
     await newCharacter();
     setAbilities({ CHA: 14 });

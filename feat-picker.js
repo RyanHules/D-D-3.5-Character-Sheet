@@ -65,7 +65,7 @@
     const rows = DB.query(
       "SELECT t.tag, t.entry_id FROM tag t "
       + "JOIN entry e ON e.id = t.entry_id "
-      + "WHERE e.type IN ('feat', 'acf', 'skill_trick')"
+      + "WHERE e.type IN ('feat', 'acf')"
     );
     for (const r of rows) {
       if (!tagIndex.has(r.tag)) tagIndex.set(r.tag, new Set());
@@ -75,13 +75,18 @@
   }
 
   function buildIndex() {
-    // Query the unified `entry` table. Ties between same-named feats
-    // resolve to 3.5 first, then newest publication date.
+    // Query the unified `entry` table. Skill tricks moved out to the
+    // Special Abilities picker (2026-05-17) since they're not feats and
+    // belong in a different list. ACFs stay here for now — they're a
+    // class-feature swap; we'll relocate them to a class-context picker
+    // (Class Features tab / class-picker info panel) when that lands.
+    // Ties between same-named feats resolve to 3.5 first, then newest
+    // publication date.
     const rows = DB.query(
       "SELECT e.id AS feat_id, e.name, e.version, e.types_csv, e.source " +
       "FROM entry e " +
       "LEFT JOIN book b ON b.name = e.source " +
-      "WHERE e.type IN ('feat', 'acf', 'skill_trick') " +
+      "WHERE e.type IN ('feat', 'acf') " +
       "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
       "         b.publication_date DESC, " +
       "         e.name COLLATE NOCASE"

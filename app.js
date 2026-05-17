@@ -397,6 +397,7 @@
   $("#btn-add-spellcasting").addEventListener("click", () => Spells.addCaster("spellcasting"));
   $("#btn-add-psionics").addEventListener("click", () => Spells.addCaster("psionics"));
   $("#btn-add-maneuvers").addEventListener("click", () => Spells.addCaster("maneuvers"));
+  $("#btn-add-invocations").addEventListener("click", () => Spells.addCaster("invocations"));
   $("#btn-add-epic").addEventListener("click", () => Spells.addCaster("epic"));
   $("#btn-add-binding").addEventListener("click", () => Spells.addCaster("binding"));
   $("#btn-add-shadowcaster").addEventListener("click", () => Spells.addCaster("shadowcaster"));

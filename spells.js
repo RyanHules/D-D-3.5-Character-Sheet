@@ -18,7 +18,7 @@ const Spells = (function () {
   // --- Add a caster sub-tab (spellcasting or psionics) ---
   function addCaster(type, data = {}) {
     const idx = casterIndex++;
-    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers", epic: "Epic Spellcasting", binding: "Binding", shadowcaster: "Shadowcasting" };
+    const DEFAULT_NAMES = { spellcasting: "Spellcasting", psionics: "Psionics", maneuvers: "Maneuvers", epic: "Epic Spellcasting", binding: "Binding", shadowcaster: "Shadowcasting", invocations: "Invocations" };
     const defaultName = DEFAULT_NAMES[type] || type;
     const name = data.name || defaultName;
 
@@ -71,6 +71,12 @@ const Spells = (function () {
       panel.innerHTML = notesHTML + buildBindingHTML(idx, data);
       container.appendChild(panel);
       wireBindingVestiges(panel);
+    } else if (type === "invocations") {
+      panel.innerHTML = notesHTML + buildInvocationsHTML(idx, data);
+      container.appendChild(panel);
+      panel._casterData = data;
+      buildInvocationLists(idx, panel);
+      wireLevelTabs(panel);
     } else if (type === "shadowcaster") {
       panel.innerHTML = notesHTML + Shadowcaster.buildHTML(idx, data);
       container.appendChild(panel);
@@ -1032,6 +1038,60 @@ const Spells = (function () {
       el.classList.toggle("counter-over", max > 0 && count > max);
     }
   }
+
+  // --- Invocations (Warlock / Dragonfire Adept / etc.) ----------------
+  //
+  // Invocations are graded — Least / Lesser / Greater / Dark — and
+  // a Warlock-style class knows a fixed number per grade. We render
+  // a tabbed list per grade with a Known textarea each, mirroring the
+  // maneuver / spell pattern. The invocation-picker (per-panel) wires
+  // a picker bar above the tabs so the player can filter + insert.
+  //
+  // No DCs / per-day tracking because Warlock invocations are at-will;
+  // a "Caster Level" field is enough for save-DC calculations the
+  // user does manually (10 + spell-level-equivalent + CHA).
+  const INVOCATION_GRADES = ['Least', 'Lesser', 'Greater', 'Dark'];
+
+  function buildInvocationsHTML(idx, data) {
+    const gradeTabs = INVOCATION_GRADES.map((g, i) =>
+      `<button class="spell-level-tab${i === 0 ? " active" : ""}" data-level="${i}">${g}</button>`
+    ).join("");
+    return `
+      <section class="section">
+        <h2>Invocations</h2>
+        <div class="info-grid">
+          <div class="field field-sm"><label>Invoker Level</label><input type="number" class="invo-level" min="1" value="${data.invokerLevel || ""}"></div>
+          <div class="field field-sm"><label>Caster Level</label><input type="number" class="invo-caster-level" min="1" value="${data.casterLevel || ""}" title="For save DCs, dispels, etc. Usually = invoker level."></div>
+          <div class="field field-sm"><label>Highest Grade</label><input type="text" class="invo-highest-grade" value="${data.highestGrade || ""}" placeholder="e.g. Greater"></div>
+          <div class="field field-sm"><label>Invocations Known</label><input type="number" class="invo-known-count" min="0" value="${data.knownCount || ""}"></div>
+          <div class="field"><label>Conditional Modifiers</label><textarea class="invo-conditional" rows="1">${data.conditional || ""}</textarea></div>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Known Invocations</h2>
+        <div class="spell-list-tabs">${gradeTabs}</div>
+        <div class="invo-grade-lists"></div>
+      </section>
+    `;
+  }
+
+  function buildInvocationLists(idx, panel) {
+    const container = panel.querySelector(".invo-grade-lists");
+    const data = panel._casterData || {};
+    INVOCATION_GRADES.forEach((grade, i) => {
+      const div = document.createElement("div");
+      div.className = `spell-list-content${i === 0 ? " active" : ""}`;
+      div.dataset.level = i;
+      const key = `invo-${grade.toLowerCase()}`;
+      div.innerHTML = `
+        <h3>${grade} Invocations</h3>
+        <textarea class="invo-text" data-grade="${grade.toLowerCase()}" rows="8"
+                  placeholder="Enter ${grade.toLowerCase()} invocations, one per line...">${data[key] || ""}</textarea>
+      `;
+      container.appendChild(div);
+    });
+  }
+
   // --- Recalculate DCs and slot tracking for all casters ---
   function recalc(getAbilityMod) {
     if (getAbilityMod) _getAbilityMod = getAbilityMod;
@@ -1401,6 +1461,19 @@ const Spells = (function () {
           abilities: entry.querySelector(".vestige-abilities")?.value || "",
           sign: entry.querySelector(".vestige-sign")?.value || "",
         }));
+      } else if (type === "invocations") {
+        caster.invokerLevel = panel.querySelector(".invo-level")?.value || "";
+        caster.casterLevel = panel.querySelector(".invo-caster-level")?.value || "";
+        caster.highestGrade = panel.querySelector(".invo-highest-grade")?.value || "";
+        caster.knownCount = panel.querySelector(".invo-known-count")?.value || "";
+        caster.conditional = panel.querySelector(".invo-conditional")?.value || "";
+        // Per-grade Known textarea, one per Least / Lesser / Greater /
+        // Dark. Stored as `invo-<gradeKey>` for stable round-trip.
+        for (const grade of INVOCATION_GRADES) {
+          const key = `invo-${grade.toLowerCase()}`;
+          caster[key] = panel.querySelector(
+            `.invo-text[data-grade="${grade.toLowerCase()}"]`)?.value || "";
+        }
       }
 
       data.casters.push(caster);
