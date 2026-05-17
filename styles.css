@@ -1759,6 +1759,98 @@ textarea {
 .cv-variant .cv-sub-levels b {
   color: #c8a14a;
 }
+
+/* Class-feature label that's been replaced by an ACF / sub level the
+   player picked. Rendered in the class-picker info panel; hover for a
+   tooltip naming the replacing customization. */
+.cf-replaced > s {
+  color: #888;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: rgba(200, 100, 100, 0.6);
+}
+.cf-replaced {
+  cursor: help;
+}
+
+/* ==================== Class Customizations list ==================== */
+/* Structured rows on the Class Features tab. Populated via the
+   class-picker's "+ To Customizations" button per variant. */
+
+#class-customizations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+.cf-customization {
+  padding: 0.4rem 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid #c8a14a;
+  border-radius: 3px;
+  transition: background 0.4s ease;
+}
+.cf-customization.cf-cust-flash {
+  background: rgba(200, 161, 74, 0.25);
+}
+.cf-cust-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+.cf-cust-kind {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  background: rgba(106, 138, 170, 0.25);
+  color: #cce;
+  border-radius: 8px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cf-cust-name {
+  font-weight: 600;
+  color: #eef;
+}
+.cf-cust-class {
+  font-size: 0.85em;
+  color: #c8a14a;
+  font-variant-numeric: tabular-nums;
+}
+.cf-cust-race {
+  font-size: 0.85em;
+  color: #aaa;
+  font-style: italic;
+}
+.cf-cust-source {
+  font-size: 0.78em;
+  color: #889;
+  margin-left: auto;
+}
+.cf-cust-remove {
+  margin-left: 0.3rem;
+}
+.cf-cust-replaces {
+  font-size: 0.82em;
+  color: #ccd;
+  margin: 0.2rem 0;
+  line-height: 1.35;
+}
+.cf-cust-replaces b { color: #c8a14a; }
+.cf-cust-notes {
+  width: 100%;
+  margin-top: 0.2rem;
+  font-size: 0.85em;
+  background: #1a1a1a;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 0.3rem;
+  resize: vertical;
+  min-height: 1.8rem;
+}
 .mc-class-chip,
 .template-chip {
   background: rgba(106,138,170,0.2);

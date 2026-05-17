@@ -669,19 +669,58 @@ test('class-variants: sub-level query returns matches via class or base_class', 
   }
 });
 
-test('class-variants: appendToCustomizations target field exists', () => {
-  // The picker's "+ To Customizations" button writes to a textarea on
-  // the Class Features tab. Guard that the element ID stays stable.
+test('class-variants: appendToCustomizations integrates with ClassFeatures API', () => {
+  // The "+ To Customizations" button targets the structured list on
+  // the Class Features tab. Guard the wiring contract:
+  //   - index.html hosts the list container + empty-state element
+  //   - class-features.js exposes addCustomization()
+  //   - class-features.js collectData emits `customizations`
+  //   - class-features.js loadData accepts both the new shape AND
+  //     the legacy textarea field via migrateLegacyTextarea
+  //   - class-variants.js invokes ClassFeatures.addCustomization
   const html = readSource('index.html');
-  assert(/id="class-customizations"/.test(html),
-    'index.html: #class-customizations textarea is missing — the ' +
-    'class-variants picker has no target for its "+ To Customizations" ' +
-    'button.');
-  // Also confirm class-features.js persists the field.
+  assert(/id="class-customizations-list"/.test(html),
+    'index.html: #class-customizations-list container is missing — ' +
+    'class-features.js cannot render customization rows.');
+  assert(/id="class-customizations-empty"/.test(html),
+    'index.html: #class-customizations-empty placeholder is missing.');
+
   const cf = readSource('class-features.js');
-  assert(/['"]class-customizations['"]/.test(cf),
-    'class-features.js: FIELDS does not include "class-customizations" ' +
-    '— the customizations textarea would not survive save/load.');
+  assert(/function addCustomization\s*\(/.test(cf),
+    'class-features.js: addCustomization API is missing — ' +
+    'class-variants.js has no programmatic insert path.');
+  assert(/function migrateLegacyTextarea\s*\(/.test(cf),
+    'class-features.js: migrateLegacyTextarea is missing — pre-' +
+    'structured-list saves with `class-customizations: <string>` ' +
+    'would silently drop the user\'s customization list on load.');
+  const collectBody = extractFunctionBody(cf, 'collectData');
+  assert(/data\.customizations\s*=/.test(collectBody),
+    'class-features.js: collectData does not emit `customizations` ' +
+    '— the structured list would not survive save/load.');
+
+  const cv = readSource('class-variants.js');
+  assert(/ClassFeatures\.addCustomization\s*\(/.test(cv),
+    'class-variants.js: "+ To Customizations" does not call ' +
+    'ClassFeatures.addCustomization — clicks would no-op silently.');
+});
+
+test('class-variants: class-picker strikes through replaced features', () => {
+  // The whole point of customizations "doing something" is that
+  // replaced class features get visually marked in the class-picker
+  // info panel. Guard that the wiring is present (the runtime
+  // assertion lives in playfeel-suite SS4).
+  const src = readSource('class-picker.js');
+  assert(/function buildReplacedMap\s*\(/.test(src),
+    'class-picker.js: buildReplacedMap helper is missing.');
+  assert(/function findReplacement\s*\(/.test(src),
+    'class-picker.js: findReplacement helper is missing.');
+  assert(/cf-replaced/.test(src),
+    'class-picker.js: cumulative-features rendering does not apply ' +
+    'the cf-replaced class — ACFs would have no visible effect.');
+  assert(/class-customizations-changed/.test(src),
+    'class-picker.js: info panel does not listen for ' +
+    'class-customizations-changed — adding/removing a customization ' +
+    'would not refresh the strike-through preview.');
 });
 
 // ---- tests: special-ability-picker (skill tricks) -------------------------

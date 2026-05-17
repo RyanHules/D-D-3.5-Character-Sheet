@@ -258,35 +258,23 @@ const ClassVariants = (function () {
   }
 
   function appendToCustomizations(meta) {
-    const ta = document.getElementById('class-customizations');
-    if (!ta) {
-      console.warn('[class-variants] #class-customizations textarea not found');
+    // The Class Features tab now hosts a structured customizations
+    // list; class-features.js owns the data model + de-dupe logic.
+    if (typeof ClassFeatures === 'undefined' ||
+        typeof ClassFeatures.addCustomization !== 'function') {
+      console.warn('[class-variants] ClassFeatures.addCustomization unavailable');
       return;
     }
-    const parts = [`[${meta.kind}]`, meta.name];
-    if (meta.class) parts.push(`(${meta.class}${meta.level ? ` L${meta.level}` : ''})`);
-    if (meta.race) parts.push(`— ${meta.race}`);
-    const line = parts.join(' ');
-    // De-dupe: don't append if the same name is already present.
-    const existing = String(ta.value || '').split(/\r?\n/);
-    if (existing.some(l => l.includes(meta.name))) {
-      // Flash feedback near the button by toggling a CSS class briefly.
-      flashAlreadyAdded(meta.name);
-      return;
-    }
-    const trimmed = String(ta.value || '').replace(/\s+$/, '');
-    ta.value = trimmed ? `${trimmed}\n${line}` : line;
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  function flashAlreadyAdded(name) {
-    // Best-effort visual cue; if the helper notification function
-    // exists, use it; otherwise console.log.
-    if (typeof window.showNotification === 'function') {
-      window.showNotification(`"${name}" already in Class Customizations.`);
-    } else {
-      console.log(`[class-variants] "${name}" already in customizations`);
-    }
+    ClassFeatures.addCustomization({
+      kind:     meta.kind || 'ACF',
+      name:     meta.name,
+      class:    meta.class || '',
+      level:    meta.level || null,
+      race:     meta.race || '',
+      replaces: meta.replaces || '',
+      source:   meta.source || '',
+      notes:    '',
+    });
   }
 
   return {

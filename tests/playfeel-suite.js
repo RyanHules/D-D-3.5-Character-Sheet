@@ -625,6 +625,95 @@
       'SS1: old "Familiar" display-text compType migrates to "familiar" key on load');
   });
 
+  regression('SS4: class customizations round-trip + legacy textarea migration', async () => {
+    // The Class Customizations list is structured (added 2026-05-17,
+    // refactored same day from a free-form textarea). Two contracts:
+    //   (a) Structured round-trip: add → collectData → loadData →
+    //       same rows + notes survive.
+    //   (b) Legacy migration: a save with `class-customizations: <str>`
+    //       (pre-refactor) gets parsed into rows on load.
+    await newCharacter();
+    // (a) Structured round-trip via addCustomization.
+    ClassFeatures.addCustomization({
+      kind: 'ACF', name: 'Spelltouched', class: 'Wizard', level: 1,
+      replaces: 'Scribe Scroll', source: 'Unearthed Arcana',
+    });
+    await wait(50);
+    let collected = ClassFeatures.collectData();
+    expect(Array.isArray(collected.customizations), true,
+      'SS4: collectData emits customizations as an array');
+    expect(collected.customizations.length, 1,
+      'SS4: one customization captured');
+    expect(collected.customizations[0].name, 'Spelltouched',
+      'SS4: customization name preserved');
+    expect(collected.customizations[0].replaces, 'Scribe Scroll',
+      'SS4: customization replaces field preserved');
+
+    // Edit the notes on the row, re-collect, confirm notes round-trip.
+    const noteTa = $('#class-customizations-list .cf-cust-notes');
+    if (!noteTa) fail('SS4: notes textarea missing on row');
+    noteTa.value = 'gained Spelltouched feat';
+    noteTa.dispatchEvent(new Event('input', { bubbles: true }));
+    collected = ClassFeatures.collectData();
+    expect(collected.customizations[0].notes, 'gained Spelltouched feat',
+      'SS4: notes textarea round-tripped through collectData');
+
+    // Wipe + reload from the collected blob.
+    ClassFeatures.loadData({ customizations: [] });
+    await wait(50);
+    expect($$('#class-customizations-list .cf-customization').length, 0,
+      'SS4: wipe cleared the list');
+    ClassFeatures.loadData(collected);
+    await wait(50);
+    expect($$('#class-customizations-list .cf-customization').length, 1,
+      'SS4: loadData rebuilt the row');
+    expect($('#class-customizations-list .cf-cust-name')?.textContent, 'Spelltouched',
+      'SS4: rebuilt row shows the right name');
+
+    // (b) Legacy textarea migration.
+    ClassFeatures.loadData({
+      'class-customizations':
+        '[ACF] Spelltouched (Wizard L1)\n[Sub Level] Drow Wizard Substitution Level 5 (Wizard L5)',
+    });
+    await wait(50);
+    const migrated = $$('#class-customizations-list .cf-customization');
+    expect(migrated.length, 2, 'SS4: legacy 2-line textarea migrated to 2 rows');
+    const names = [...migrated].map(r => r.querySelector('.cf-cust-name')?.textContent);
+    if (!names.includes('Spelltouched')) {
+      fail('SS4: legacy migration lost Spelltouched');
+    }
+  });
+
+  regression('ACF1: customization strikes through replaced features in info panel', async () => {
+    // The whole point of "customizations do something" — Spelltouched
+    // (ACF that replaces Wizard\'s Scribe Scroll) should appear as
+    // <s>Scribe Scroll</s> in the Class Lookup info panel for Wizard.
+    await newCharacter();
+    // Pre-load a Wizard Spelltouched customization (skip the variants-
+    // section click flow so this test doesn't depend on Wizard being
+    // typed first).
+    ClassFeatures.addCustomization({
+      kind: 'ACF', name: 'Spelltouched', class: 'Wizard', level: 1,
+      replaces: 'Scribe Scroll', source: 'Unearthed Arcana',
+    });
+    await wait(50);
+    // Trigger the info panel by typing Wizard + level 1.
+    set('class-lookup', 'Wizard');
+    set('class-lookup-level', '1');
+    await wait(400);
+    const panel = $('#class-info');
+    if (!panel || panel.style.display === 'none') {
+      fail('ACF1: class-info panel did not render (DB still loading?)');
+    }
+    const hasStrike = panel.querySelector('.cf-replaced > s');
+    if (!hasStrike) {
+      fail('ACF1: no struck-through feature in panel HTML:\n' +
+        panel.innerHTML.slice(0, 400));
+    }
+    expectIncludes(hasStrike.textContent, 'Scribe Scroll',
+      'ACF1: struck feature is Scribe Scroll');
+  });
+
   regression('SS3: invocations panel round-trips per-grade Known + scalars', async () => {
     await newCharacter();
     // Add an invocations panel via the Spells tab button.

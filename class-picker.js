@@ -811,6 +811,9 @@
     const refresh = () => updatePreview(infoPanel, classInput.value, levelInput.value);
     classInput.addEventListener('input', refresh);
     levelInput.addEventListener('input', refresh);
+    // Re-render when class customizations change so the strike-through
+    // preview reflects added/removed ACFs without a page reload.
+    document.addEventListener('class-customizations-changed', refresh);
 
     // 4. Apply button writes calculated values into the sheet.
     applyBtn.addEventListener('click', () => {
@@ -2301,6 +2304,69 @@
     return out;
   }
 
+  // ---- Class customizations integration -----------------------------
+  //
+  // The Class Features tab hosts a structured list of selected ACFs /
+  // sub levels (see class-features.js#getCustomizations). For each
+  // customization whose `class` matches the typed class, we tokenize
+  // its free-text `replaces` field and stick the resulting feature
+  // names into a Map<feature-token-lower, {kind, name}> keyed by the
+  // class-feature label we'd strike through. The info panel's
+  // cumulative-features rendering then checks each feature label
+  // against this map and applies the strikethrough.
+
+  function buildReplacedMap(className) {
+    if (typeof ClassFeatures === 'undefined' ||
+        typeof ClassFeatures.getCustomizations !== 'function') {
+      return new Map();
+    }
+    const customs = ClassFeatures.getCustomizations();
+    if (!customs.length) return new Map();
+    const matchesCls = (typeof ClassVariants !== 'undefined' &&
+                        typeof ClassVariants.matchesClass === 'function')
+      ? ClassVariants.matchesClass
+      : (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+    const map = new Map();
+    for (const c of customs) {
+      if (!c.replaces || !matchesCls(className, c.class)) continue;
+      // Split on commas, semicolons, "and". Strip any parenthesized
+      // clarifications ("(8th level)") and trim.
+      const tokens = c.replaces
+        .split(/\s*(?:,|;|\band\b)\s*/i)
+        .map(t => t.replace(/\([^)]*\)/g, '').trim())
+        .filter(Boolean);
+      for (const t of tokens) {
+        const key = t.toLowerCase();
+        if (!map.has(key)) map.set(key, { kind: c.kind, name: c.name });
+      }
+    }
+    return map;
+  }
+
+  // Match a class-feature label against the replaced-map's tokens. We
+  // use substring matching in BOTH directions because the strings
+  // diverge in irritating ways: the cumulative-feature label might be
+  // "Scribe Scroll" while the ACF `replaces` says "Scribe Scroll" —
+  // exact match. But also "Bonus Feat (8th level)" in the cumulative
+  // list versus "Bonus feat (8th level)" — case-insensitive substring
+  // catches that. Returns the matching customization meta or null.
+  function findReplacement(featureLabel, replacedMap) {
+    if (!replacedMap || replacedMap.size === 0) return null;
+    const label = String(featureLabel || '').toLowerCase().trim();
+    if (!label) return null;
+    // Exact match first (fastest, most accurate).
+    if (replacedMap.has(label)) return replacedMap.get(label);
+    // Substring match either way — handle slightly-different phrasing
+    // between the cumulative-features list and the ACF `replaces`
+    // free text.
+    for (const [token, meta] of replacedMap) {
+      if (label === token) return meta;
+      if (label.includes(token) && token.length >= 4) return meta;
+      if (token.includes(label) && label.length >= 4) return meta;
+    }
+    return null;
+  }
+
   function updatePreview(panel, typedName, levelStr) {
     const cls = lookupClass(typedName);
     const level = parseInt(levelStr, 10);
@@ -2323,9 +2389,21 @@
     bits.push(`<b>Saves:</b> Fort +${fort}, Ref +${ref}, Will +${will}`);
 
     // Cumulative class features (1..level), with stack-vs-scale dedup.
+    // If the player has any ACFs / Sub Levels for this class in their
+    // Class Customizations list, strike through the features each one
+    // replaces (with a tooltip naming the customization). Makes the
+    // mechanical effect of the customization visible at a glance.
     const cumulative = dedupSpecials(levelsUpTo(cls.class_id, level));
+    const replacedMap = buildReplacedMap(cls.class);
     if (cumulative.length) {
       const head = cumulative.slice(0, 8).map(c => {
+        const replacedBy = findReplacement(c.label, replacedMap);
+        if (replacedBy) {
+          return `<span class="cf-replaced" title="Replaced by ` +
+            `${escapeHtml(replacedBy.kind)}: ${escapeHtml(replacedBy.name)} ` +
+            `(gained at level ${c.firstLevel})">` +
+            `<s>${escapeHtml(c.label)}</s></span>`;
+        }
         return `<span title="Gained at level ${c.firstLevel}">` +
                escapeHtml(c.label) + '</span>';
       }).join(', ');
