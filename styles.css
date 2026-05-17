@@ -1264,6 +1264,29 @@ textarea {
   line-height: 1.5;
 }
 .comp-hd-summary b { color: #c8a14a; }
+.comp-hd-boost-under { color: #c8a14a; font-weight: 600; }
+.comp-hd-boost-over  { color: var(--danger, #c66); font-weight: 600; }
+
+/* Tiny user-owned input for ability-score boosts (every 4 total HD
+   over the base creature's HD). Sits next to .comp-score and is
+   read by AUTO mode's recompute. */
+.comp-ability-boost {
+  width: 2.6rem;
+  margin-left: 0.2rem;
+  text-align: center;
+  font-size: 0.85em;
+  padding: 0.1rem 0.2rem;
+  background: rgba(200, 161, 74, 0.10);
+  border: 1px solid rgba(200, 161, 74, 0.3);
+  border-radius: 3px;
+  color: #eee;
+}
+.comp-ability-boost::-webkit-inner-spin-button,
+.comp-ability-boost::-webkit-outer-spin-button {
+  /* Hide spinners on the tiny boost input — clutters the row. */
+  -webkit-appearance: none;
+  margin: 0;
+}
 
 /* === Companion class-based progression panel === */
 .comp-progression-panel {

@@ -74,9 +74,12 @@ const Companion = (function () {
   function buildCompanionHTML(idx, d = {}) {
     const mods = ["STR","DEX","CON","INT","WIS","CHA"].map((ab) => {
       const sc = int(d[`comp-${ab.toLowerCase()}-score`]);
+      const boost = d[`comp-${ab.toLowerCase()}-boost`] || "";
       return `<div class="field field-sm">
         <label>${ab}</label>
         <input type="number" class="comp-score" data-ab="${ab}" value="${d[`comp-${ab.toLowerCase()}-score`] || ""}">
+        <input type="number" class="comp-ability-boost" data-ab="${ab}" min="0" max="5" value="${boost}"
+               title="User-allocated ability boosts (every 4 HD over the base creature's HD — see HD summary).&#10;Folded into the displayed score by AUTO mode.">
         <span class="comp-mod calc-field" data-ab="${ab}">--</span>
       </div>`;
     }).join("");
@@ -308,6 +311,16 @@ const Companion = (function () {
         if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
       });
     }
+    // Ability-boost inputs: user-owned in both modes, but in AUTO
+    // mode a change needs to fold the new boost into the displayed
+    // ability score. Single delegated listener on the panel covers
+    // all 6 inputs without per-row wiring.
+    panel.addEventListener('input', (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLElement)) return;
+      if (!t.classList.contains('comp-ability-boost')) return;
+      if (currentMode() === 'auto') autoFillFromBaseCreature(panel);
+    });
     // Initial state on panel-build (matters for loadData round-trips).
     syncModeUI();
     if (currentMode() === 'auto' && baseInput?.value?.trim()) {
@@ -885,6 +898,18 @@ const Companion = (function () {
       }
     }
 
+    // User-allocated ability boosts (every 4 total HD over the base
+    // creature's HD — see HD summary's "earned vs allocated" line).
+    // These are user-owned inputs that AUTO mode READS but never
+    // overwrites. Fold them into the stats before writing the final
+    // displayed ability scores.
+    for (const ab of ['STR','DEX','CON','INT','WIS','CHA']) {
+      const boostEl = panel.querySelector(
+        `.comp-ability-boost[data-ab="${ab}"]`);
+      const boost = int(boostEl?.value) || 0;
+      stats[ab] += boost;
+    }
+
     // Apply to the panel's fields. Each is marked data-from-auto so
     // applyAutoFillState can grey them out in AUTO mode.
     const setAuto = (sel, val) => {
@@ -1001,6 +1026,8 @@ const Companion = (function () {
       renderHDSummary(panel, {
         type, baseHD, bonusHD, totalHD,
         bab: masterBab, intMod, skillPts, featCount,
+        boostsEarned: DND35.creatureAbilityBoostsEarned(baseHD, totalHD),
+        boostsAllocated: countAllocatedBoosts(panel),
         familiarNote: `BAB inherited from master (+${masterBab}); ` +
           `saves use max(familiar natural, master's base).`,
       });
@@ -1021,7 +1048,17 @@ const Companion = (function () {
     const featCount = DND35.creatureFeatCount(totalHD);
     renderHDSummary(panel, {
       type, baseHD, bonusHD, totalHD, bab, intMod, skillPts, featCount,
+      boostsEarned: DND35.creatureAbilityBoostsEarned(baseHD, totalHD),
+      boostsAllocated: countAllocatedBoosts(panel),
     });
+  }
+
+  function countAllocatedBoosts(panel) {
+    let total = 0;
+    for (const el of panel.querySelectorAll('.comp-ability-boost')) {
+      total += parseInt(el.value, 10) || 0;
+    }
+    return total;
   }
 
   // Render (or clear) the HD-derived summary line above the Skills /
@@ -1046,6 +1083,18 @@ const Companion = (function () {
     if (info.bab != null) bits.push(`<b>BAB:</b> +${info.bab}`);
     if (info.skillPts != null) bits.push(`<b>Skill points:</b> ${info.skillPts} (INT mod ${info.intMod >= 0 ? '+' : ''}${info.intMod})`);
     if (info.featCount != null) bits.push(`<b>Feats:</b> ${info.featCount}`);
+    // Ability boosts: earned over the base creature's HD (every 4
+    // total HD past the base's). Color the count gold when there are
+    // unallocated boosts, red when over-allocated, default otherwise.
+    if (info.boostsEarned != null) {
+      const alloc = info.boostsAllocated || 0;
+      const earned = info.boostsEarned;
+      let cls = '';
+      if (alloc < earned) cls = 'comp-hd-boost-under';
+      else if (alloc > earned) cls = 'comp-hd-boost-over';
+      bits.push(`<b>Ability boosts:</b> ` +
+        `<span class="${cls}">${earned} earned / ${alloc} allocated</span>`);
+    }
     el.innerHTML = bits.join(' &nbsp;·&nbsp; ');
     if (typeof info.familiarNote === 'string') {
       el.innerHTML += `<div style="margin-top:0.3rem;color:#aaa;font-style:italic">` +
@@ -1174,6 +1223,7 @@ const Companion = (function () {
       d.compBaseCreature = panel.querySelector(".comp-base-creature")?.value || "";
       ["STR","DEX","CON","INT","WIS","CHA"].forEach((ab) => {
         d[`comp-${ab.toLowerCase()}-score`] = panel.querySelector(`.comp-score[data-ab="${ab}"]`)?.value || "";
+        d[`comp-${ab.toLowerCase()}-boost`] = panel.querySelector(`.comp-ability-boost[data-ab="${ab}"]`)?.value || "";
       });
       d.compHpMax = panel.querySelector(".comp-hp-max")?.value || "";
       d.compHpCur = panel.querySelector(".comp-hp-cur")?.value || "";

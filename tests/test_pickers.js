@@ -1974,6 +1974,29 @@ test('companion HD scaling: parseCreatureFeats marks bonus feats', () => {
   assert(c.length === 3 && c.every(f => !f.bonus));
 });
 
+test('companion HD scaling: creatureAbilityBoostsEarned subtracts base HD boosts', () => {
+  const D = loadData();
+  // Base creature already has its own boosts baked in for ITS base HD;
+  // the player only allocates boosts EARNED above that.
+  // Wolf (2 base) → 4 total HD: earned 1, baked 0 → user 1.
+  assert(D.creatureAbilityBoostsEarned(2, 4) === 1, 'Wolf at 4HD: 1');
+  // Wolf (2 base) → 8 total HD: earned 2, baked 0 → user 2.
+  assert(D.creatureAbilityBoostsEarned(2, 8) === 2, 'Wolf at 8HD: 2');
+  // 4 HD base creature at total 4 HD: boost already in stat block.
+  assert(D.creatureAbilityBoostsEarned(4, 4) === 0,
+    'a 4-HD base creature at total 4 HD allocates 0 (boost baked in)');
+  // 4 HD base at total 8 HD: HD 8 boost is new.
+  assert(D.creatureAbilityBoostsEarned(4, 8) === 1, '4HD base at 8HD: 1');
+  // 6 HD base at total 12 HD: HD 8 + HD 12 are new (2 boosts above base).
+  assert(D.creatureAbilityBoostsEarned(6, 12) === 2, '6HD base at 12HD: 2');
+  // Pre-threshold cases.
+  assert(D.creatureAbilityBoostsEarned(2, 3) === 0, 'no boost before HD 4');
+  assert(D.creatureAbilityBoostsEarned(2, 7) === 1, '2HD base at 7HD: 1');
+  // Negative / nonsense → 0 (never negative).
+  assert(D.creatureAbilityBoostsEarned(8, 4) === 0, 'shrinking is 0, not negative');
+  assert(D.creatureAbilityBoostsEarned(0, 0) === 0);
+});
+
 test('companion HD scaling: cumulativeSizeDelta sums per-step MM Table 4-2', () => {
   const D = loadData();
   // Same size → all zeros.
@@ -2059,6 +2082,18 @@ test('companion HD scaling: AUTO mode wired into autoFillFromBaseCreature', () =
   assert(/comp-size/.test(src),
     'companion.js: no .comp-size selector references — size field ' +
     'either missing from the panel or not auto-filled.');
+  // Ability boosts (every 4 total HD over base) must be wired into
+  // AUTO recompute and round-trip via collectData.
+  assert(/comp-ability-boost/.test(src),
+    'companion.js: no .comp-ability-boost references — user-allocated ' +
+    'ability boosts have no UI.');
+  assert(/DND35\.creatureAbilityBoostsEarned/.test(src),
+    'companion.js: AUTO recompute does not call ' +
+    'creatureAbilityBoostsEarned — the HD summary would not show the ' +
+    'earned-vs-allocated count.');
+  assert(/comp-\$\{ab\.toLowerCase\(\)\}-boost/.test(src),
+    'companion.js: collectData does not round-trip the per-ability ' +
+    'boost values — user allocations would be lost on save/load.');
 });
 
 test('rebuild-killer: textarea auto-expand has details/visibility fallback', () => {

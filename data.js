@@ -261,6 +261,29 @@ const DND35 = {
     return 1 + Math.floor(hd / 3);
   },
 
+  // User-allocatable ability boosts the COMPANION earns above the
+  // base creature's stat block. Per PHB p.59 Table 3-3 (and MM
+  // advancement rules): +1 to one ability of choice at HD 4, 8, 12,
+  // 16, 20. The base creature's published stat block already reflects
+  // any boosts it earned for ITS base HD (a 4-HD base creature has
+  // already had its first boost rolled in), so we subtract those out
+  // to return only the boosts the player should still be allocating
+  // for THIS character's companion. Returns 0 when bonus HD doesn't
+  // cross another boost threshold (most common case for low-mid
+  // companions).
+  //
+  // Examples:
+  //   base 2 HD, total 3 HD → 0 (no boosts earned at HD 3)
+  //   base 2 HD, total 4 HD → 1 (first boost at HD 4, none baked in)
+  //   base 4 HD, total 4 HD → 0 (boost already in the stat block)
+  //   base 4 HD, total 8 HD → 1 (HD 8 boost is new)
+  //   base 6 HD, total 12 HD → 2 (HD 8 + HD 12 are new)
+  creatureAbilityBoostsEarned(baseHD, totalHD) {
+    const total = Math.floor((totalHD || 0) / 4);
+    const baked = Math.floor((baseHD || 0) / 4);
+    return Math.max(0, total - baked);
+  },
+
   // Parse a creature's free-text `skills` string into structured
   // rows. Format examples:
   //   "Hide +2, Listen +3, Spot +3"
