@@ -627,6 +627,63 @@ test('feat-picker: tag filter (combat-maneuver feats >= 60)', (db) => {
   assertGE(rows[0].n, 60);
 });
 
+// ---- tests: class-variants (ACFs + sub levels) ----------------------------
+
+test('class-variants: ACF query returns matches for common classes', (db) => {
+  // The picker queries all ACFs and tokenizes the class field in JS.
+  // Here we just confirm the underlying data: each common class has
+  // at least one ACF whose class field mentions it.
+  const rows = execAll(db,
+    "SELECT name, json_extract(data, '$.class') AS class_field "
+    + "FROM entry WHERE type = 'acf'");
+  function tokenize(raw) {
+    if (!raw) return [];
+    return String(raw)
+      .replace(/\([^)]*\)/g, '')
+      .split(/\s*(?:\/|,|\bor\b)\s*/i)
+      .map(s => s.trim()).filter(Boolean);
+  }
+  for (const expected of ['Wizard', 'Cleric', 'Fighter', 'Barbarian',
+                          'Monk', 'Druid', 'Paladin', 'Rogue']) {
+    const matched = rows.filter(r => tokenize(r.class_field)
+      .some(t => t.toLowerCase() === expected.toLowerCase()));
+    assert(matched.length > 0,
+      `class-variants: no ACFs match class "${expected}" — picker ` +
+      `would render an empty section for it.`);
+  }
+});
+
+test('class-variants: sub-level query returns matches via class or base_class', (db) => {
+  // Sub levels use `class` (PlH-style) or `base_class` (MoI-style).
+  // Confirm at least a handful of common classes resolve at least one.
+  const rows = execAll(db,
+    "SELECT name, "
+    + "  json_extract(data, '$.class')      AS class_field, "
+    + "  json_extract(data, '$.base_class') AS base_class_field "
+    + "FROM entry WHERE type = 'subst_level'");
+  for (const expected of ['Wizard', 'Fighter', 'Cleric', 'Paladin']) {
+    const matched = rows.filter(r =>
+      r.class_field === expected || r.base_class_field === expected);
+    assert(matched.length > 0,
+      `class-variants: no sub levels for class "${expected}".`);
+  }
+});
+
+test('class-variants: appendToCustomizations target field exists', () => {
+  // The picker's "+ To Customizations" button writes to a textarea on
+  // the Class Features tab. Guard that the element ID stays stable.
+  const html = readSource('index.html');
+  assert(/id="class-customizations"/.test(html),
+    'index.html: #class-customizations textarea is missing — the ' +
+    'class-variants picker has no target for its "+ To Customizations" ' +
+    'button.');
+  // Also confirm class-features.js persists the field.
+  const cf = readSource('class-features.js');
+  assert(/['"]class-customizations['"]/.test(cf),
+    'class-features.js: FIELDS does not include "class-customizations" ' +
+    '— the customizations textarea would not survive save/load.');
+});
+
 // ---- tests: special-ability-picker (skill tricks) -------------------------
 
 test('special-ability-picker: list query (init)', (db) => {

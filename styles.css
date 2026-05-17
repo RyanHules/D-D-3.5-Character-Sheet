@@ -1665,6 +1665,100 @@ textarea {
   border-left: 3px solid #6a8aaa;
   border-radius: 3px;
 }
+
+/* ==================== Class Variants (ACFs + Sub Levels) ==================== */
+/* Appended to the class-picker info panel by class-variants.js. Two
+   collapsible sections (ACFs / Sub Levels), each containing a list of
+   per-variant <details> entries. */
+
+.class-variants {
+  margin-top: 0.6rem;
+  font-size: 0.88em;
+}
+.cv-section {
+  margin-top: 0.4rem;
+  border-top: 1px solid #3a3a3a;
+  padding-top: 0.3rem;
+}
+.cv-section-head {
+  cursor: pointer;
+  font-weight: 600;
+  color: #ddd;
+  font-size: 0.95em;
+  padding: 0.15rem 0;
+}
+.cv-section-head:hover { color: #c8a14a; }
+.cv-section-count {
+  color: #889;
+  font-weight: normal;
+  margin-left: 0.3rem;
+}
+.cv-list {
+  margin-top: 0.3rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid #333;
+}
+.cv-variant {
+  margin: 0.25rem 0;
+}
+.cv-variant > details > summary {
+  cursor: pointer;
+  padding: 0.2rem 0.3rem;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.cv-variant > details > summary:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.cv-variant > details[open] > summary {
+  background: rgba(106, 138, 170, 0.1);
+}
+.cv-name {
+  color: #eef;
+  font-weight: 500;
+}
+.cv-level {
+  display: inline-block;
+  padding: 0 0.35em;
+  background: rgba(200, 161, 74, 0.18);
+  color: #c8a14a;
+  border-radius: 8px;
+  font-size: 0.82em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cv-race {
+  color: #aaa;
+  font-size: 0.85em;
+  font-style: italic;
+}
+.cv-source {
+  color: #889;
+  font-size: 0.82em;
+  margin-left: auto;
+}
+.cv-add {
+  font-size: 0.78em;
+  padding: 0.15rem 0.5rem;
+  margin-left: 0.3rem;
+}
+.cv-variant .cv-replaces,
+.cv-variant .cv-prereq,
+.cv-variant .cv-benefit,
+.cv-variant .cv-sub-levels {
+  margin: 0.3rem 0.3rem 0.3rem 1rem;
+  line-height: 1.35;
+  color: #ccd;
+}
+.cv-variant .cv-replaces b,
+.cv-variant .cv-prereq b,
+.cv-variant .cv-benefit b,
+.cv-variant .cv-sub-levels b {
+  color: #c8a14a;
+}
 .mc-class-chip,
 .template-chip {
   background: rgba(106,138,170,0.2);

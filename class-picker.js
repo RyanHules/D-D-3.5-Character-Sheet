@@ -2368,6 +2368,14 @@
 
     panel.innerHTML = bits.join(' &nbsp;·&nbsp; ');
     if (window.ErrataBadge) ErrataBadge.attach(panel, cls.class_id);
+    // Append the collapsible Variants section (ACFs + Sub Levels)
+    // below the main summary. Skipped silently if ClassVariants
+    // didn't load (e.g. script order issue) or the class has no
+    // matching variants.
+    if (typeof ClassVariants !== 'undefined' &&
+        typeof ClassVariants.renderInto === 'function') {
+      ClassVariants.renderInto(panel, cls.class);
+    }
     panel.style.display = 'block';
   }
 

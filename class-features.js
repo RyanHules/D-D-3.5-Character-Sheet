@@ -11,6 +11,11 @@ const ClassFeatures = (function () {
     "turn-per-day", "turn-check", "turn-damage",
     "rage-per-day", "rage-duration", "rage-str-con", "rage-will", "rage-ac",
     "rage-used", "rage-rounds",
+    // Free-form list of ACFs / sub levels the player chose. Populated
+    // by the class-picker's Variants section (class-variants.js). The
+    // user can edit freely after; the picker's "+ To Customizations"
+    // button just appends a tagged line.
+    "class-customizations",
   ];
 
   // ============================================================
