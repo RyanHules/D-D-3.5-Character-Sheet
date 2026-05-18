@@ -1430,6 +1430,10 @@ test('companion: every relevant class feature has metadata or explicit exclusion
     // flavor reference to the wanderer's bonded animal — does not
     // grant or advance a wizard/sorcerer familiar mechanically.
     'Mystic Wanderer/Familiar',
+    // 2026-05-18 HoB extraction: Legendary Leader's "To Hell and Back"
+    // grants fear immunity to existing cohorts/followers — modifies,
+    // doesn't grant/advance, nothing for the companion engine to do.
+    'Legendary Leader/To Hell and Back (Ex)',
   ]);
 
   const rows = execAll(db,
