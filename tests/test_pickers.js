@@ -400,7 +400,15 @@ test('domain-picker: list query (init)', (db) => {
     + "ORDER BY name COLLATE NOCASE, "
     + "CASE version WHEN '3.5' THEN 0 ELSE 1 END");
   assertGE(rows.length, 65);
-  assert(rows[0].name && rows[0].granted_power);
+  // Every row must have a name. The majority should have a
+  // granted_power (some PGtF entries are deity-list-only refs back
+  // to PHB and have null granted_power — those rely on the
+  // picker's name-based fallback to find the canonical version).
+  assert(rows.every(r => r.name), 'every domain has a name');
+  const withPower = rows.filter(r => r.granted_power).length;
+  assertGE(withPower, rows.length * 0.5,
+    `at least half of domains should have a granted_power; only ` +
+    `${withPower}/${rows.length} do — picker fallback may not work`);
 });
 
 test('domain-picker: Celerity domain has spell list and granted power', (db) => {
