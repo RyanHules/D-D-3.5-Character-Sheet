@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <title>D&D 3.5 Character Sheet</title>
-  <link rel="stylesheet" href="styles.css?v=20260518o">
+  <link rel="stylesheet" href="styles.css?v=20260518p">
 </head>
 <body>
   <header>
@@ -629,55 +629,55 @@
     </section>
   </div>
 
-  <script src="data.js?v=20260518o"></script>
-  <script src="skills.js?v=20260518o"></script>
-  <script src="character.js?v=20260518o"></script>
-  <script src="equipment.js?v=20260518o"></script>
-  <script src="shadowcaster.js?v=20260518o"></script>
-  <script src="spells.js?v=20260518o"></script>
-  <script src="feats.js?v=20260518o"></script>
-  <script src="companion.js?v=20260518o"></script>
-  <script src="class-features.js?v=20260518o"></script>
-  <script src="conditions.js?v=20260518o"></script>
-  <script src="feat-prereqs.js?v=20260518o"></script>
-  <script src="character-history.js?v=20260518o"></script>
-  <script src="build-timeline.js?v=20260518o"></script>
-  <script src="audit.js?v=20260518o"></script>
-  <script src="app.js?v=20260518o"></script>
+  <script src="data.js?v=20260518p"></script>
+  <script src="skills.js?v=20260518p"></script>
+  <script src="character.js?v=20260518p"></script>
+  <script src="equipment.js?v=20260518p"></script>
+  <script src="shadowcaster.js?v=20260518p"></script>
+  <script src="spells.js?v=20260518p"></script>
+  <script src="feats.js?v=20260518p"></script>
+  <script src="companion.js?v=20260518p"></script>
+  <script src="class-features.js?v=20260518p"></script>
+  <script src="conditions.js?v=20260518p"></script>
+  <script src="feat-prereqs.js?v=20260518p"></script>
+  <script src="character-history.js?v=20260518p"></script>
+  <script src="build-timeline.js?v=20260518p"></script>
+  <script src="audit.js?v=20260518p"></script>
+  <script src="app.js?v=20260518p"></script>
 
   <!-- D&D 3.5 database (sql.js + dnd35.db). Purely additive: failing to
        load these leaves the sheet operating in manual-entry mode. -->
-  <script src="vendor/sql-wasm.js?v=20260518o"></script>
-  <script src="database.js?v=20260518o"></script>
+  <script src="vendor/sql-wasm.js?v=20260518p"></script>
+  <script src="database.js?v=20260518p"></script>
   <!-- book-filter.js loads early so pickers can consult it during
        their initial buildIndex; book-filter-ui.js loads at the END
        (after lookup.js) so its header-button insertion can find
        #lookup-trigger-btn and slot in immediately to its left. -->
-  <script src="book-filter.js?v=20260518o"></script>
-  <script src="race-picker.js?v=20260518o"></script>
-  <script src="deity-picker.js?v=20260518o"></script>
-  <script src="template-picker.js?v=20260518o"></script>
-  <script src="class-spell-additions.js?v=20260518o"></script>
-  <script src="class-variants.js?v=20260518o"></script>
-  <script src="class-picker.js?v=20260518o"></script>
-  <script src="metamagic-catalog.js?v=20260518o"></script>
-  <script src="spell-picker.js?v=20260518o"></script>
-  <script src="feat-picker.js?v=20260518o"></script>
-  <script src="item-picker.js?v=20260518o"></script>
-  <script src="domain-picker.js?v=20260518o"></script>
-  <script src="maneuver-picker.js?v=20260518o"></script>
-  <script src="power-picker.js?v=20260518o"></script>
-  <script src="mystery-picker.js?v=20260518o"></script>
-  <script src="soulmeld-picker.js?v=20260518o"></script>
-  <script src="vestige-picker.js?v=20260518o"></script>
-  <script src="invocation-picker.js?v=20260518o"></script>
-  <script src="special-ability-picker.js?v=20260518o"></script>
-  <script src="errata-badge.js?v=20260518o"></script>
-  <script src="lookup.js?v=20260518o"></script>
-  <script src="book-filter-ui.js?v=20260518o"></script>
+  <script src="book-filter.js?v=20260518p"></script>
+  <script src="race-picker.js?v=20260518p"></script>
+  <script src="deity-picker.js?v=20260518p"></script>
+  <script src="template-picker.js?v=20260518p"></script>
+  <script src="class-spell-additions.js?v=20260518p"></script>
+  <script src="class-variants.js?v=20260518p"></script>
+  <script src="class-picker.js?v=20260518p"></script>
+  <script src="metamagic-catalog.js?v=20260518p"></script>
+  <script src="spell-picker.js?v=20260518p"></script>
+  <script src="feat-picker.js?v=20260518p"></script>
+  <script src="item-picker.js?v=20260518p"></script>
+  <script src="domain-picker.js?v=20260518p"></script>
+  <script src="maneuver-picker.js?v=20260518p"></script>
+  <script src="power-picker.js?v=20260518p"></script>
+  <script src="mystery-picker.js?v=20260518p"></script>
+  <script src="soulmeld-picker.js?v=20260518p"></script>
+  <script src="vestige-picker.js?v=20260518p"></script>
+  <script src="invocation-picker.js?v=20260518p"></script>
+  <script src="special-ability-picker.js?v=20260518p"></script>
+  <script src="errata-badge.js?v=20260518p"></script>
+  <script src="lookup.js?v=20260518p"></script>
+  <script src="book-filter-ui.js?v=20260518p"></script>
   <!-- Play-feel test suite (browser-side). Self-gates on `?playfeel=1`
        in the URL; otherwise this is a near-zero-cost no-op. See
        tests/playfeel-suite.js for the scenario list. -->
-  <script src="tests/playfeel-suite.js?v=20260518o"></script>
+  <script src="tests/playfeel-suite.js?v=20260518p"></script>
 </body>
 </html>

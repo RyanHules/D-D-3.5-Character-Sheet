@@ -1426,6 +1426,10 @@ test('companion: every relevant class feature has metadata or explicit exclusion
     // don't grant or advance one.
     'Arachne/Spidereyes (Su)',           // perception through familiar's eyes
     'Dweomerkeeper/Bonus Feats',         // metamagic/item-creation picks
+    // 2026-05-18 MoF extraction: Mystic Wanderer's "Familiar" is a
+    // flavor reference to the wanderer's bonded animal — does not
+    // grant or advance a wizard/sorcerer familiar mechanically.
+    'Mystic Wanderer/Familiar',
   ]);
 
   const rows = execAll(db,
