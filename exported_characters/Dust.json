@@ -196,9 +196,9 @@
       "hasSkillBonuses": false
     },
     {
-      "name": "Bag of Holding (Type Ii)",
-      "weight": "25",
-      "special": "Holds 500 lb./70 cu. ft. in extradimensional space.",
+      "name": "Bag of Infinite Silver Caltrops +1",
+      "weight": "",
+      "special": "1/day, Silver +1 Caltrops",
       "slot": "",
       "worn": true,
       "isProtective": false,
@@ -207,9 +207,20 @@
       "hasSkillBonuses": false
     },
     {
-      "name": "Bag of Infinite Silver Caltrops +1",
-      "weight": "",
-      "special": "1/day, Silver +1 Caltrops",
+      "name": "Bag of Holding (Type I)",
+      "weight": "15",
+      "special": "Holds 250 lb./30 cu. ft. in extradimensional space.",
+      "slot": "",
+      "worn": true,
+      "isProtective": false,
+      "hasAbilityBonuses": false,
+      "acBonuses": [],
+      "hasSkillBonuses": false
+    },
+    {
+      "name": "Urn of Infinite Haboob",
+      "weight": "15",
+      "special": "At will Haboob",
       "slot": "",
       "worn": true,
       "isProtective": false,
@@ -260,17 +271,12 @@
       "name": "Prot from Arrows Scroll",
       "location": "",
       "weight": ""
-    },
-    {
-      "name": "Urn of Sand",
-      "location": "",
-      "weight": "15"
     }
   ],
   "possessions-notes": "",
   "money-cp": "",
   "money-sp": "",
-  "money-gp": "960",
+  "money-gp": "",
   "money-pp": "",
   "casters": [
     {
