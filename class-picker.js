@@ -825,6 +825,9 @@
     });
 
     // 5. Hook into Character save/load for multiclass state persistence.
+    // (Already installed at module load — see bottom of file. Calling
+    // again is safe — installPersistenceHooks early-returns when the
+    // hook is already in place.)
     installPersistenceHooks();
 
     // 6. Render the chip-list area now so the UA-fractional toggle is
@@ -1496,6 +1499,10 @@
         out._multiclass = pickedClasses.map(e => ({
           className: e.className, level: e.level,
           classId:   e.classId,   version: e.version,
+          // `source` round-trip is the brittle-id escape hatch — see
+          // applyToSheet comment. entry.id renumbers on DB rebuild,
+          // so loadData looks up by name+source first.
+          source:    e.source,
           advancesTypes:   e.advancesTypes,
           advancesLevels:  e.advancesLevels,
           advancesTargets: e.advancesTargets,
@@ -1540,23 +1547,61 @@
       useFractional = !!(data && data._fractionalBaseBonus);
       if (data && Array.isArray(data._multiclass)) {
         for (const stub of data._multiclass) {
-          const cls = stub.classId
-            ? DB.queryOne(
-                "SELECT id AS class_id, name AS class, version, "
-                + "json_extract(data, '$.bab_progression')  AS bab_progression, "
-                + "json_extract(data, '$.fort_progression') AS fort_progression, "
-                + "json_extract(data, '$.ref_progression')  AS ref_progression, "
-                + "json_extract(data, '$.will_progression') AS will_progression "
-                + "FROM entry WHERE id = ? AND type IN ('class','prc')",
-                [stub.classId]
-              )
-            : null;
-          if (!cls) continue;
+          // Resolve by name+source FIRST. entry.id renumbers on every
+          // DB rebuild (auto-increment shifts when new entries land),
+          // so an old save's classId can resolve to the wrong class
+          // (silent prog swap) or fail the type filter and drop the
+          // entry entirely (silent class removal). Name+source is
+          // stable across rebuilds; id is the last-resort fallback.
+          //
+          // If resolution fails entirely (DB not loaded yet, unknown
+          // homebrew name, or a class we no longer ship), preserve
+          // the stub data as an `_unhydrated` entry so the chip
+          // still renders and a later save round-trips the stub
+          // forward. A DB.ready handler retries hydration so the
+          // race-on-page-load case eventually fills prog in.
+          const cls = resolveMulticlassStub(stub);
+          if (!cls) {
+            // Preserve the stub so save doesn't drop it. prog is
+            // missing — recalc is skipped per the existing
+            // "saved BAB/saves are authoritative" rule.
+            pickedClasses.push({
+              className: stub.className,
+              level: stub.level,
+              classId: stub.classId,
+              source: stub.source,
+              version: stub.version,
+              prog: { bab: null, fort: null, ref: null, will: null },
+              _unhydrated: true,
+              advancesTypes:   stub.advancesTypes   || undefined,
+              advancesLevels:  stub.advancesLevels  || undefined,
+              advancesTargets: stub.advancesTargets || undefined,
+              perLevelChoice:         stub.perLevelChoice         || undefined,
+              advancingLevels:        stub.advancingLevels        || undefined,
+              autoAdvanceLowerLevels: stub.autoAdvanceLowerLevels || undefined,
+              requiresStyles:         stub.requiresStyles         || undefined,
+              allowsMultiAdvance:     stub.allowsMultiAdvance     || undefined,
+              advancementSlots:       stub.advancementSlots       || undefined,
+              maneuverAdvancesLevels:  stub.maneuverAdvancesLevels  || undefined,
+              maneuverAdvancesTarget:  stub.maneuverAdvancesTarget  || undefined,
+              maneuverAdvancingLevels: stub.maneuverAdvancingLevels || undefined,
+              maneuverDisciplines:     stub.maneuverDisciplines     || undefined,
+              invocationAdvancesLevels:  stub.invocationAdvancesLevels  || undefined,
+              invocationAdvancesTarget:  stub.invocationAdvancesTarget  || undefined,
+              invocationAdvancingLevels: stub.invocationAdvancingLevels || undefined,
+              mysteryAdvancesLevels:  stub.mysteryAdvancesLevels  || undefined,
+              mysteryAdvancesTarget:  stub.mysteryAdvancesTarget  || undefined,
+              mysteryAdvancingLevels: stub.mysteryAdvancingLevels || undefined,
+              monsterExt: stub.monsterExt || undefined,
+            });
+            continue;
+          }
           pickedClasses.push({
-            className: stub.className,
+            className: cls.class || stub.className,
             level: stub.level,
-            classId: stub.classId,
-            version: stub.version || cls.version,
+            classId: cls.class_id,
+            source: cls.source || stub.source,
+            version: cls.version || stub.version,
             prog: {
               bab:  cls.bab_progression,
               fort: cls.fort_progression,
@@ -1633,6 +1678,123 @@
       }
       return ret;
     };
+  }
+
+  // Resolve a saved `_multiclass` stub against the current DB. Tries
+  // (name + source + version) first, then (name + version), then
+  // (name + any), then the saved classId as a last resort. Returns
+  // null when no candidate is found OR the DB isn't loaded yet — the
+  // caller preserves the stub as an `_unhydrated` entry in either
+  // case so the chip still renders and a later save round-trips the
+  // data forward.
+  function resolveMulticlassStub(stub) {
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return null;
+    if (!stub) return null;
+    const name = stub.className;
+    // Name + source + version (most specific — picks the exact entry
+    // even when the same class name appears in multiple books).
+    if (name && stub.source && stub.version) {
+      const r = DB.queryOne(
+        "SELECT id AS class_id, name AS class, version, source, "
+        + "json_extract(data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(data, '$.will_progression') AS will_progression "
+        + "FROM entry WHERE name = ? COLLATE NOCASE AND source = ? "
+        + "AND version = ? AND type IN ('class','prc') LIMIT 1",
+        [name, stub.source, stub.version]);
+      if (r) return r;
+    }
+    // Name + version (handles source rename without changing version).
+    if (name && stub.version) {
+      const r = DB.queryOne(
+        "SELECT id AS class_id, name AS class, version, source, "
+        + "json_extract(data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(data, '$.will_progression') AS will_progression "
+        + "FROM entry e LEFT JOIN book b ON b.name = e.source "
+        + "WHERE name = ? COLLATE NOCASE AND version = ? "
+        + "AND type IN ('class','prc') "
+        + "ORDER BY b.publication_date DESC LIMIT 1",
+        [name, stub.version]);
+      if (r) return r;
+    }
+    // Name only (any version, prefer 3.5 + newest source).
+    if (name) {
+      const r = DB.queryOne(
+        "SELECT id AS class_id, name AS class, version, source, "
+        + "json_extract(data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(data, '$.will_progression') AS will_progression "
+        + "FROM entry e LEFT JOIN book b ON b.name = e.source "
+        + "WHERE name = ? COLLATE NOCASE AND type IN ('class','prc') "
+        + "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
+        + "         b.publication_date DESC LIMIT 1",
+        [name]);
+      if (r) return r;
+    }
+    // Last resort: the saved id (brittle — entry.id renumbers on
+    // every DB rebuild, so this can resolve to the WRONG class).
+    // Guarded by a type+name check so an id that now points to a
+    // completely different class drops through to the unhydrated
+    // fallback rather than silently swapping.
+    if (stub.classId) {
+      const r = DB.queryOne(
+        "SELECT id AS class_id, name AS class, version, source, "
+        + "json_extract(data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(data, '$.will_progression') AS will_progression "
+        + "FROM entry WHERE id = ? AND type IN ('class','prc')",
+        [stub.classId]);
+      // Only honor the id-based hit if its name matches the stub's
+      // (case-insensitive) — protects against id reassignment.
+      if (r && (!name || r.class.toLowerCase() === name.toLowerCase())) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  // Re-hydrate any `_unhydrated` entries once the DB becomes ready.
+  // Covers the race where the user loads a character (via the saved-
+  // characters dropdown or a JSON import) before DB.ready resolves —
+  // the load preserved the stub data; this fills in prog so a
+  // subsequent recalc has the right BAB / save progressions.
+  function rehydrateUnhydratedClasses() {
+    if (typeof DB === 'undefined' || !DB.isLoaded()) return;
+    let changed = 0;
+    for (let i = 0; i < pickedClasses.length; i++) {
+      const e = pickedClasses[i];
+      if (!e._unhydrated) continue;
+      const cls = resolveMulticlassStub({
+        className: e.className, level: e.level,
+        classId: e.classId, source: e.source, version: e.version,
+      });
+      if (!cls) continue;
+      pickedClasses[i] = Object.assign({}, e, {
+        className: cls.class || e.className,
+        classId:   cls.class_id,
+        source:    cls.source || e.source,
+        version:   cls.version || e.version,
+        prog: {
+          bab:  cls.bab_progression,
+          fort: cls.fort_progression,
+          ref:  cls.ref_progression,
+          will: cls.will_progression,
+        },
+        _unhydrated: false,
+      });
+      delete pickedClasses[i]._unhydrated;
+      changed++;
+    }
+    if (changed) {
+      console.log(`[class-picker] re-hydrated ${changed} class entr` +
+                  `${changed === 1 ? 'y' : 'ies'} after DB ready`);
+      renderClassList();
+    }
   }
 
   function lookupClass(typedName) {
@@ -2715,6 +2877,13 @@
       className: cls.class,
       level: level,
       classId: cls.class_id,
+      // `source` is the brittle-id escape hatch on save/load round-trip.
+      // entry.id renumbers on every DB rebuild (rebuilds insert/move
+      // entries → auto-increment shifts), so an old save's classId can
+      // resolve to the WRONG class (e.g. id 2404 was Sha'ir before
+      // the 2026-05-18 Gen+template rebuild, is Mountebank after).
+      // loadData looks up by name+source first, then version, then id.
+      source: cls.source,
       version: cls.version,
       prog: {
         bab:  cls.bab_progression,
@@ -3661,8 +3830,27 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // Install persistence hooks IMMEDIATELY at module load (not after
+  // DB.ready). character.js loads before class-picker.js per the
+  // index.html script order, so `Character` is defined here. Without
+  // this early install, a user loading a saved character before
+  // DB.ready resolves would hit the ORIGINAL Character.loadData
+  // (which ignores `_multiclass` entirely) — pickedClasses stays
+  // empty, the chip list never renders, and a subsequent save
+  // permanently wipes the saved multiclass array.
+  installPersistenceHooks();
+
   DB.ready.then((db) => {
-    if (db) init();
+    if (db) {
+      init();
+      // If a character was loaded BEFORE DB.ready resolved (race on
+      // page open + immediate dropdown click), any classes in the
+      // save's `_multiclass` array are currently sitting in
+      // pickedClasses as _unhydrated stubs. Fill in prog now that
+      // the DB is available so the chip list still works and a
+      // subsequent recalc has correct progressions.
+      rehydrateUnhydratedClasses();
+    }
   });
 
   // Expose for testing + integration with future Character module wrappers.

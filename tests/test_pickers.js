@@ -2072,6 +2072,98 @@ test('save: class-picker persists data-from-class markers', () => {
     'onto the matching elements after class-state rehydration.');
 });
 
+test('save: class-picker resolves _multiclass by name (not brittle id)', () => {
+  // Regression guard for the 2026-05-18 fix. entry.id renumbers on
+  // every full DB rebuild (auto-increment shifts when new entries
+  // land), so saves done before a rebuild had classId values that
+  // either resolved to the WRONG class (silent prog swap, e.g.
+  // id 2404 was Sha'ir before the Gen+template rebuild, became
+  // Mountebank after) OR failed the type filter and silently
+  // dropped the entry entirely (PrCs vanishing from the chip list
+  // while remaining in the Build Timeline). The fix: collectData
+  // also saves `source`, and loadData looks up by name+source FIRST,
+  // falling back to id only when name-based resolution fails.
+  const src = readSource('class-picker.js');
+  // collectData side: source field must be in the _multiclass stub.
+  const collectIdx = src.indexOf('out._multiclass = pickedClasses.map');
+  assert(collectIdx > 0,
+    'class-picker.js: out._multiclass = pickedClasses.map(...) site ' +
+    'is missing; collectData refactored without updating this test.');
+  const collectBlock = src.slice(collectIdx, collectIdx + 1500);
+  assert(/source:\s*e\.source/.test(collectBlock),
+    'class-picker.js: collectData does not write `source: e.source` ' +
+    'into the _multiclass stub. Without source, name lookup on load ' +
+    'cannot disambiguate same-name classes across books, and a DB ' +
+    'rebuild that shifts entry.id will silently swap or drop classes.');
+  // applyToSheet side: the in-memory entry must carry source for
+  // collectData to spread.
+  assert(/source:\s*cls\.source/.test(src),
+    'class-picker.js: applyToSheet does not stash cls.source on the ' +
+    'pickedClasses entry. Without it, e.source is undefined and ' +
+    'collectData writes a useless null source field.');
+  // loadData side: a name-based resolver must run BEFORE the id-only
+  // path. Look for the resolver function + a name+source+version query.
+  assert(/function resolveMulticlassStub\s*\(/.test(src),
+    'class-picker.js: resolveMulticlassStub helper is missing — the ' +
+    'name-first resolution path was reverted.');
+  assert(/WHERE name = \?\s*COLLATE NOCASE\s+AND source = \?/.test(src),
+    'class-picker.js: resolveMulticlassStub does not query by ' +
+    'name+source. Brittle-id-only resolution would re-introduce the ' +
+    'silent class drop / wrong-class swap bug.');
+  // Stub preservation: when resolution fails entirely (DB not ready
+  // OR unknown homebrew name), the entry must still be pushed so a
+  // subsequent save round-trips the data forward. Without this, the
+  // PrC silently vanishes on first load and is gone forever once the
+  // user re-saves.
+  assert(/_unhydrated:\s*true/.test(src),
+    'class-picker.js: loadData does not preserve unresolved stubs as ' +
+    '_unhydrated entries. Without this, race-loading before DB.ready ' +
+    'OR a stale id permanently wipes the class on the next save.');
+  // Re-hydration: a DB.ready handler must retry resolution.
+  assert(/function rehydrateUnhydratedClasses\s*\(/.test(src),
+    'class-picker.js: rehydrateUnhydratedClasses is missing — the ' +
+    'DB.ready re-resolution path is not wired, so race-loaded ' +
+    'classes never get their prog filled in.');
+  assert(/rehydrateUnhydratedClasses\(\)/.test(src.slice(src.indexOf('DB.ready'))),
+    'class-picker.js: DB.ready handler does not call ' +
+    'rehydrateUnhydratedClasses — race-loaded classes never recover.');
+});
+
+test('save: class-picker installs persistence hooks at module load', () => {
+  // Regression guard for the 2026-05-18 race-condition fix. Pre-fix,
+  // installPersistenceHooks() was called from inside init(), which
+  // ran on DB.ready. A user clicking Load BEFORE DB.ready resolved
+  // would hit the ORIGINAL Character.loadData (no monkey-patch),
+  // which ignores _multiclass entirely. The next save would then
+  // permanently wipe the saved multiclass array.
+  //
+  // The fix moves the install OUT of init() to module-load time
+  // (character.js is loaded before class-picker.js in index.html,
+  // so `Character` is defined when this IIFE runs).
+  const src = readSource('class-picker.js');
+  // The bottom-of-file installPersistenceHooks() call (after the IIFE
+  // body, alongside the DB.ready handler) must exist.
+  const dbReadyIdx = src.lastIndexOf('DB.ready.then');
+  assert(dbReadyIdx > 0, 'class-picker.js: DB.ready handler missing');
+  const tail = src.slice(0, dbReadyIdx);
+  // installPersistenceHooks must appear outside any function definition
+  // — i.e., as a bare call at module scope. The simplest check is
+  // that the SECOND-TO-LAST installPersistenceHooks() invocation
+  // (skipping the init-internal "already-installed safe call")
+  // appears at module level above the IIFE close.
+  const installCount = (tail.match(/installPersistenceHooks\(\)/g) || []).length;
+  // Definitions don't count — `function installPersistenceHooks(`.
+  // We expect AT LEAST 2 invocations: the early-install at module
+  // scope + the (safe re-call) inside init(). Used to be just 1
+  // (only inside init).
+  assert(installCount >= 2,
+    `class-picker.js: installPersistenceHooks() must be called at ` +
+    `module load (not only inside init() after DB.ready) so the ` +
+    `Character.loadData monkey-patch is in place even if the user ` +
+    `loads a character before DB.ready resolves. Found only ` +
+    `${installCount} invocation(s).`);
+});
+
 test('rebuild-killer: money weight counted in character.js load calc', () => {
   // Pre-2026-05-17 character.js summed gear + armor + shield but
   // skipped money. equipment.js wrote the (money-inclusive) total to
