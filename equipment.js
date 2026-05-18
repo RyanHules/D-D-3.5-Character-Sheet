@@ -96,6 +96,12 @@ const Equipment = (function () {
     nameInput.addEventListener("input", () => syncSlot(div));
     div.querySelector(".mi-worn")?.addEventListener("change", () => syncSlot(div));
 
+    // Live weight recalculation when the user edits a magic item's
+    // weight. Without this, editing .mi-weight needs a separate
+    // recalc trigger (tab switch, save/load, etc.) to update the
+    // total — easy to miss.
+    div.querySelector(".mi-weight")?.addEventListener("input", recalcWeight);
+
     // Wire add AC bonus button
     div.querySelector(".mi-btn-add-ac").addEventListener("click", () => addACBonus(div));
 
@@ -187,6 +193,9 @@ const Equipment = (function () {
       }
     }
     entry.remove();
+    // Removing a magic item drops its weight from the total — recalc
+    // so the displayed Total Weight + load category catch up.
+    recalcWeight();
   }
 
   let magicItemIdCounter = 0;
@@ -485,6 +494,13 @@ const Equipment = (function () {
     });
     totalWeight += parseFloat($("#armor-weight").value) || 0;
     totalWeight += parseFloat($("#shield-weight").value) || 0;
+    // Magic items: every .magic-item-entry has its own weight input.
+    // Pre-2026-05-18, only #gear-body + armor + shield contributed —
+    // a +5 plate cloak (5 lb) and other magic items were silently
+    // dropped from encumbrance.
+    $$("#magic-items-container .magic-item-entry").forEach((entry) => {
+      totalWeight += parseFloat(entry.querySelector(".mi-weight")?.value) || 0;
+    });
     // Coin weight: per PHB, 50 coins of any type weigh 1 lb.
     const coinCount = ["money-cp", "money-sp", "money-gp", "money-pp"]
       .reduce((sum, id) => sum + (parseInt($(`#${id}`)?.value) || 0), 0);

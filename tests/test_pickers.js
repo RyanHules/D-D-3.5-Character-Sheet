@@ -2090,6 +2090,41 @@ test('rebuild-killer: money weight counted in character.js load calc', () => {
     'missing — PHB says 50 coins of any type weigh 1 lb.');
 });
 
+test('rebuild-killer: magic-item weight counted in both weight calcs', () => {
+  // Pre-2026-05-18, equipment.js#recalcWeight + character.js's
+  // mirror summed gear + armor + shield + coins but skipped the
+  // .mi-weight inputs on .magic-item-entry rows. A +5 plate cloak
+  // (5 lb) or other worn magic items silently dropped off the load
+  // — the displayed Total Weight + the load-category penalty BOTH
+  // ignored them. Both calcs must scan #magic-items-container.
+  for (const file of ['equipment.js', 'character.js']) {
+    const src = readSource(file);
+    assert(/#magic-items-container.*\.magic-item-entry/.test(src) ||
+           /magic-items-container[^]*magic-item-entry/.test(src),
+      `${file}: weight calc does not sum .mi-weight inputs from ` +
+      `#magic-items-container — magic-item weight silently drops off ` +
+      `encumbrance.`);
+    assert(/\.mi-weight/.test(src),
+      `${file}: no .mi-weight selector in source — magic-item ` +
+      `weight column is not consulted by the weight calc.`);
+  }
+  // Live recalc trigger on edit: the .mi-weight input listener must
+  // be wired so editing weight live-updates Total Weight (matches
+  // the .gear-weight pattern).
+  const eq = readSource('equipment.js');
+  assert(/\.mi-weight[^]{0,80}addEventListener\(['"]input['"]\s*,\s*recalcWeight/
+         .test(eq),
+    'equipment.js: .mi-weight input is not wired to recalcWeight — ' +
+    'editing weight requires a manual recalc to update Total Weight.');
+  // Remove path: removeMagicItem must also trigger recalc, otherwise
+  // deleting a magic item leaves its weight in the displayed total.
+  assert(/entry\.remove\(\);\s*\n[^\n]*recalcWeight\(\)/.test(eq) ||
+         /entry\.remove\(\);[\s\S]{0,200}recalcWeight\(\)/.test(eq),
+    'equipment.js: removeMagicItem does not call recalcWeight after ' +
+    'removing the entry — the deleted item\'s weight stays on the ' +
+    'displayed total.');
+});
+
 test('rebuild-killer: spellcasting panel has Extra Slots column', () => {
   // Editable per-level column for slots granted by feats / items /
   // irregular PrCs. Distinct from `bonus` (auto-filled from ability

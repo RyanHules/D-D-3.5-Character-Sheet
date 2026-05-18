@@ -78,6 +78,14 @@ const Character = (function () {
     });
     totalWeight += parseFloat($("#armor-weight").value) || 0;
     totalWeight += parseFloat($("#shield-weight").value) || 0;
+    // Magic items: every .magic-item-entry has its own weight input.
+    // Same gap as the coin-weight fix below — encumbrance ignored
+    // magic-item weight entirely until 2026-05-18 (a +5 plate cloak
+    // and other worn magic items silently dropped off the load).
+    // Mirrors equipment.js#recalcWeight's same line.
+    $$("#magic-items-container .magic-item-entry").forEach((entry) => {
+      totalWeight += parseFloat(entry.querySelector(".mi-weight")?.value) || 0;
+    });
     // Coin weight — per PHB, 50 coins of any type weigh 1 lb. Without
     // this the load category ignored money entirely (gear summary
     // showed it, but the displayed total + encumbrance penalty used a
