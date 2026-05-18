@@ -1706,16 +1706,24 @@
       if (r) return r;
     }
     // Name + version (handles source rename without changing version).
+    // NOTE: must qualify `name` and `version` with `e.` here — the
+    // LEFT JOIN on `book b ON b.name = e.source` makes bare `name`
+    // ambiguous (book table has its own `name` column). This bug was
+    // introduced in the 2026-05-18 brittle-id fix and surfaced when
+    // a saved character with `_multiclass` was loaded, throwing a
+    // "ambiguous column name: name" exception that aborted the rest
+    // of Character.loadData mid-load (so the rest of the sheet
+    // appeared blank).
     if (name && stub.version) {
       const r = DB.queryOne(
-        "SELECT id AS class_id, name AS class, version, source, "
-        + "json_extract(data, '$.bab_progression')  AS bab_progression, "
-        + "json_extract(data, '$.fort_progression') AS fort_progression, "
-        + "json_extract(data, '$.ref_progression')  AS ref_progression, "
-        + "json_extract(data, '$.will_progression') AS will_progression "
+        "SELECT e.id AS class_id, e.name AS class, e.version, e.source, "
+        + "json_extract(e.data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(e.data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(e.data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(e.data, '$.will_progression') AS will_progression "
         + "FROM entry e LEFT JOIN book b ON b.name = e.source "
-        + "WHERE name = ? COLLATE NOCASE AND version = ? "
-        + "AND type IN ('class','prc') "
+        + "WHERE e.name = ? COLLATE NOCASE AND e.version = ? "
+        + "AND e.type IN ('class','prc') "
         + "ORDER BY b.publication_date DESC LIMIT 1",
         [name, stub.version]);
       if (r) return r;
@@ -1723,13 +1731,13 @@
     // Name only (any version, prefer 3.5 + newest source).
     if (name) {
       const r = DB.queryOne(
-        "SELECT id AS class_id, name AS class, version, source, "
-        + "json_extract(data, '$.bab_progression')  AS bab_progression, "
-        + "json_extract(data, '$.fort_progression') AS fort_progression, "
-        + "json_extract(data, '$.ref_progression')  AS ref_progression, "
-        + "json_extract(data, '$.will_progression') AS will_progression "
+        "SELECT e.id AS class_id, e.name AS class, e.version, e.source, "
+        + "json_extract(e.data, '$.bab_progression')  AS bab_progression, "
+        + "json_extract(e.data, '$.fort_progression') AS fort_progression, "
+        + "json_extract(e.data, '$.ref_progression')  AS ref_progression, "
+        + "json_extract(e.data, '$.will_progression') AS will_progression "
         + "FROM entry e LEFT JOIN book b ON b.name = e.source "
-        + "WHERE name = ? COLLATE NOCASE AND type IN ('class','prc') "
+        + "WHERE e.name = ? COLLATE NOCASE AND e.type IN ('class','prc') "
         + "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, "
         + "         b.publication_date DESC LIMIT 1",
         [name]);

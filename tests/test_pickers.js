@@ -2143,6 +2143,72 @@ test('save: class-picker resolves _multiclass by name (not brittle id)', () => {
     'rehydrateUnhydratedClasses — race-loaded classes never recover.');
 });
 
+test("save: resolveMulticlassStub LEFT-JOIN queries qualify `e.` columns", (db) => {
+  // Regression guard for the 2026-05-18 bug. The name+version and
+  // name-only fallback queries in resolveMulticlassStub use
+  // `FROM entry e LEFT JOIN book b ON b.name = e.source`. Both
+  // tables have a `name` column; the original brittle-id fix wrote
+  // a bare `WHERE name = ?` which is ambiguous and throws
+  // "ambiguous column name: name" at the SQL layer. The exception
+  // propagated through Character.loadData and aborted the rest of
+  // the load mid-iteration — the user sees "most of the sheet is
+  // blank" after loading any character that has a `_multiclass`
+  // stub. This guard asserts the queries qualify both `name` AND
+  // `version` with the `e.` table alias.
+  const src = readSource('class-picker.js');
+  // Pull out the resolveMulticlassStub function body.
+  const body = extractFunctionBody(src, 'resolveMulticlassStub');
+  assert(body, "Couldn't extract resolveMulticlassStub body");
+  // For each LEFT JOIN block, the WHERE / ORDER BY must qualify
+  // `name` and `version` with `e.` — bare references throw at the
+  // SQL layer.
+  const leftJoinSegments = [];
+  let idx = 0;
+  while ((idx = body.indexOf('LEFT JOIN book', idx)) !== -1) {
+    // Capture the next ~400 chars after this LEFT JOIN as one query.
+    leftJoinSegments.push(body.slice(idx, idx + 500));
+    idx += 1;
+  }
+  assert(leftJoinSegments.length >= 2,
+    'resolveMulticlassStub should have AT LEAST 2 LEFT JOIN queries ' +
+    '(name+version and name-only fallbacks); found ' +
+    leftJoinSegments.length);
+  for (let i = 0; i < leftJoinSegments.length; i++) {
+    const seg = leftJoinSegments[i];
+    // Disallow bare `WHERE name` (the bug).
+    assert(!/WHERE\s+name\s+=/.test(seg),
+      `LEFT JOIN query #${i+1} in resolveMulticlassStub has a bare ` +
+      "`WHERE name = ?` which is ambiguous (both entry and book " +
+      "tables have a `name` column). Qualify as `e.name = ?` to " +
+      "avoid the 2026-05-18 \"ambiguous column name: name\" " +
+      "exception that blanks out the rest of the load. " +
+      "Segment: " + seg.replace(/\s+/g, ' ').slice(0, 200));
+    // Also disallow bare `AND version` for symmetry (book has no
+    // version column today, but if it ever does we'd hit the same
+    // class of bug).
+    assert(!/AND\s+version\s+=/.test(seg),
+      `LEFT JOIN query #${i+1}: bare \`AND version = ?\` should be ` +
+      "qualified `e.version = ?` for future-proofing against book-" +
+      "table schema additions.");
+  }
+
+  // Live SQL exec: actually run an analogous query against the DB
+  // and verify it doesn't throw. Uses a known class name + version.
+  // This catches the failure mode even if the regex above misses
+  // some clever new ambiguity.
+  const liveRows = execAll(db,
+    "SELECT e.id AS class_id, e.name AS class, e.version, e.source, " +
+    "json_extract(e.data, '$.bab_progression') AS bab_progression " +
+    "FROM entry e LEFT JOIN book b ON b.name = e.source " +
+    "WHERE e.name = ? COLLATE NOCASE AND e.version = ? " +
+    "AND e.type IN ('class','prc') " +
+    "ORDER BY b.publication_date DESC LIMIT 1",
+    ['Wizard', '3.5']);
+  assert(liveRows.length >= 1,
+    "Live SQL exec of the resolveMulticlassStub name+version query " +
+    "shape should return at least the PHB Wizard row");
+});
+
 test('save: class-picker installs persistence hooks at module load', () => {
   // Regression guard for the 2026-05-18 race-condition fix. Pre-fix,
   // installPersistenceHooks() was called from inside init(), which
