@@ -1412,6 +1412,12 @@ test('companion: every relevant class feature has metadata or explicit exclusion
     // familiar to the flux adept") — false positive on the
     // KEYWORDS regex.
     'Flux Adept/Taste of Truth (Ex)',
+    // 2026-05-18 FaP extraction. Arachne/Familiar (Su) and
+    // Arachne/Spider Mount (Sp) ARE companion-granting and have
+    // metadata; the two listed below mention companion keywords but
+    // don't grant or advance one.
+    'Arachne/Spidereyes (Su)',           // perception through familiar's eyes
+    'Dweomerkeeper/Bonus Feats',         // metamagic/item-creation picks
   ]);
 
   const rows = execAll(db,
