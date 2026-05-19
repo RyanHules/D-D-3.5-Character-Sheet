@@ -34,24 +34,48 @@
       + "CASE version WHEN '3.5' THEN 0 ELSE 1 END"
     );
     domainIndex = new Map();
+    // First pass: the source-recency winner becomes the primary entry
+    // (carrying name + source + id for the info-panel header).
+    //
+    // Second pass: backfill missing fields from older printings of the
+    // same domain name. PGtF intentionally ships ~22 PHB-standard
+    // domains as deity-list-only "redirect" entries — they document
+    // which deities grant the domain in Faerûn but rely on the picker
+    // to merge in the PHB version's granted_power + spell list. Past
+    // implementations took the first hit wholesale, which left
+    // Sha'ir / cleric panels showing deities-only with no spell list.
     for (const r of rows) {
       if (window.BookFilter && !window.BookFilter.allowsSource(r.source)) continue;
       const key = (r.name || '').toLowerCase();
-      if (domainIndex.has(key)) continue;  // first hit wins (3.5 preferred)
       let spells = null, deities = null;
       try { spells = r.spells_json ? JSON.parse(r.spells_json) : null; }
       catch (e) { /* ignore */ }
       try { deities = r.deities_json ? JSON.parse(r.deities_json) : null; }
       catch (e) { /* ignore */ }
-      domainIndex.set(key, {
-        id: r.domain_id,
-        name: r.name,
-        source: r.source,
-        version: r.version,
-        granted_power: r.granted_power || '',
-        spells: spells,    // dict {1: "Detect Secret Doors", ...} or null
-        deities: deities,  // list of deity names or null
-      });
+      if (!domainIndex.has(key)) {
+        // First hit — record as the primary.
+        domainIndex.set(key, {
+          id: r.domain_id,
+          name: r.name,
+          source: r.source,
+          version: r.version,
+          granted_power: r.granted_power || '',
+          spells: spells,
+          deities: deities,
+        });
+      } else {
+        // Backfill any field the primary entry lacks.
+        const existing = domainIndex.get(key);
+        if (!existing.granted_power && r.granted_power) {
+          existing.granted_power = r.granted_power;
+        }
+        if (!existing.spells && spells) {
+          existing.spells = spells;
+        }
+        if ((!existing.deities || !existing.deities.length) && deities) {
+          existing.deities = deities;
+        }
+      }
     }
     console.log(`[domain-picker] indexed ${domainIndex.size} domains`);
   }

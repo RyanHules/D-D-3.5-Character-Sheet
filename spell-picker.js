@@ -329,7 +329,9 @@
         </div>
         <div class="field field-sm" style="width:5rem">
           <label>Level</label>
-          <input type="number" class="sp-level" min="0" max="9" value="0">
+          <input type="text" class="sp-level" value=""
+                 placeholder="0-9 or <=N"
+                 title="Exact level (e.g. 3) or range (<=3, >=2, <5).&#10;Leave empty for all levels.">
         </div>
         <div class="field" style="flex:1 1 8rem;min-width:7rem">
           <label>Tag</label>
@@ -363,6 +365,9 @@
         <span class="sp-mm-options" style="display:inline-flex;flex-wrap:wrap;gap:0.5rem"></span>
         <span class="sp-mm-effective" style="margin-left:0.5rem;opacity:0.85"></span>
       </div>
+      <div class="sp-results"
+           style="display:none;margin-top:0.5rem;font-size:0.85em">
+      </div>
       <div class="sp-info"
            style="display:none;font-size:0.85em;color:#ccc;margin-top:0.4rem">
       </div>
@@ -388,37 +393,116 @@
     let currentSpells = []; // last filter result, by lowercase name
     let currentByName = new Map();
 
+    // Parse the level filter expression. Supports:
+    //   ""           → no level constraint
+    //   "3"          → exact level 3
+    //   "<=3" / "≤3" → level ≤ 3 (cantrips through 3)
+    //   "<3"         → level < 3 (cantrips, 1st, 2nd)
+    //   ">=2" / "≥2" → level ≥ 2
+    //   ">2"         → level > 2
+    // Returns {min, max} both inclusive, OR null for no constraint.
+    // The level-X-and-below feature is what the user asks for most often
+    // ("show me all Cleric spells level 3 and under so I can pick which
+    // to memorize") so we support it as a first-class input format.
+    function parseLevelFilter(raw) {
+      const s = String(raw || '').trim().replace(/\s+/g, '');
+      if (!s) return null;
+      // Match operator + number. Recognize Unicode ≤ ≥ for power users.
+      const m = s.match(/^(<=|>=|<|>|≤|≥|=)?\s*(\d{1,2})$/);
+      if (!m) return null;
+      const op = m[1] || '=';
+      const n = parseInt(m[2], 10);
+      if (isNaN(n)) return null;
+      switch (op) {
+        case '<':  return { min: 0, max: n - 1 };
+        case '<=': case '≤': return { min: 0, max: n };
+        case '>':  return { min: n + 1, max: 9 };
+        case '>=': case '≥': return { min: n, max: 9 };
+        case '=':  default:  return { min: n, max: n };
+      }
+    }
+
     function refreshSpellList() {
       const cls = normalizeClass(classInput.value);
-      const lvl = parseInt(levelInput.value, 10);
+      const lvlFilter = parseLevelFilter(levelInput.value);
       const tag = tagSelect.value;
       const tagSet = tag ? spellTagIndex.get(tag) : null;
       datalist.innerHTML = '';
       currentSpells = [];
       currentByName = new Map();
-      if (!cls || !canonical.has(cls) || isNaN(lvl) || lvl < 0) {
-        // No class+level filter set — fall back to the global
-        // #spell-options datalist (built once in
-        // buildGlobalSpellDatalist) so autocomplete still works
-        // when the user types a spell name directly. Matches the
-        // UX of the other pickers (race, feat, item) which always
-        // suggest from the full DB.
+      // If neither class nor level nor tag is set, fall back to the
+      // global #spell-options datalist (full DB autocomplete) — matches
+      // the UX of the other pickers and lets a user type a spell name
+      // directly without first narrowing.
+      const haveFilter = (cls && canonical.has(cls)) || lvlFilter || tagSet;
+      if (!haveFilter) {
         spellInput.setAttribute('list', 'spell-options');
         const globalDl = document.getElementById('spell-options');
         const total = globalDl ? globalDl.children.length : 0;
         spellInput.placeholder = total
-          ? `(${total} spells — set class + level to narrow)`
+          ? `(${total} spells — set class / level / tag to narrow)`
           : '(pick class + level first)';
+        renderResults();
         updateInfoPanel();
         return;
       }
       // Filter is set — use the per-instance filtered datalist.
       spellInput.setAttribute('list', dlId);
-      currentSpells = spellsFor(cls, lvl);
+      // Build the candidate list. Class+level path uses spellsFor (fast,
+      // indexed via spell_class_level). Class-only / level-only / tag-only
+      // paths union across all (class, level) rows passing the filter.
+      let candidates = [];
+      if (cls && canonical.has(cls) && lvlFilter && lvlFilter.min === lvlFilter.max) {
+        // Exact level + class — the indexed fast path.
+        candidates = spellsFor(cls, lvlFilter.min);
+      } else if (cls && canonical.has(cls)) {
+        // Class set but level is a range or absent — union the per-level
+        // results across the filter range (or 0..9 if absent).
+        const lo = lvlFilter ? lvlFilter.min : 0;
+        const hi = lvlFilter ? lvlFilter.max : 9;
+        const seenIds = new Set();
+        for (let l = lo; l <= hi; l++) {
+          for (const s of spellsFor(cls, l)) {
+            if (seenIds.has(s.spell_id)) continue;
+            seenIds.add(s.spell_id);
+            candidates.push(s);
+          }
+        }
+      } else if (lvlFilter) {
+        // No class set, but level (or range) is — query all spells with
+        // any class-level mapping in range. Spell may appear multiple
+        // times if it has multiple class entries; the case-insensitive
+        // dedup below collapses those.
+        candidates = DB.query(
+          "SELECT DISTINCT e.id AS spell_id, e.name, e.school, e.version, " +
+          "       e.source, b.publication_date " +
+          "FROM entry e JOIN spell_class_level scl ON e.id = scl.entry_id " +
+          "LEFT JOIN book b ON b.name = e.source " +
+          "WHERE e.type = 'spell' AND scl.level BETWEEN ? AND ? " +
+          "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+          "         b.publication_date DESC, e.name COLLATE NOCASE",
+          [lvlFilter.min, lvlFilter.max]
+        );
+      } else if (tagSet) {
+        // Tag only — pull every spell with that tag (no level filter).
+        // tagSet is a Set of spell entry IDs, so query by id.
+        const ids = Array.from(tagSet);
+        if (ids.length) {
+          const placeholders = ids.map(() => '?').join(',');
+          candidates = DB.query(
+            "SELECT e.id AS spell_id, e.name, e.school, e.version, " +
+            "       e.source, b.publication_date " +
+            "FROM entry e LEFT JOIN book b ON b.name = e.source " +
+            `WHERE e.type = 'spell' AND e.id IN (${placeholders}) ` +
+            "ORDER BY CASE e.version WHEN '3.5' THEN 0 ELSE 1 END, " +
+            "         b.publication_date DESC, e.name COLLATE NOCASE",
+            ids
+          );
+        }
+      }
+      currentSpells = candidates;
       // Dedupe by case-insensitive name; prefer 3.5 over 3.0 since the
-      // ORDER BY in spellsFor puts 3.5 rows first, so the FIRST entry
-      // for each name is the canonical (3.5) form. Also apply the
-      // tag filter and book-filter if set.
+      // ORDER BY in spellsFor puts 3.5 rows first. Apply tag + book filters.
       for (const s of currentSpells) {
         if (tagSet && !tagSet.has(s.spell_id)) continue;
         if (window.BookFilter && !window.BookFilter.allowsSource(s.source)) continue;
@@ -432,11 +516,57 @@
       }
       const n = currentByName.size;
       const suffix = tag ? ` (tag:${tag})` : '';
+      const lvlLabel = lvlFilter
+        ? (lvlFilter.min === lvlFilter.max
+            ? `${lvlFilter.min}`
+            : (lvlFilter.min === 0 ? `≤${lvlFilter.max}`
+                : (lvlFilter.max === 9 ? `≥${lvlFilter.min}`
+                    : `${lvlFilter.min}-${lvlFilter.max}`)))
+        : 'any';
+      const clsLabel = (cls && canonical.has(cls)) ? cls : 'any';
       spellInput.placeholder =
         n
-          ? `${n} ${cls} ${lvl} spell${n === 1 ? '' : 's'}${suffix}`
-          : `(no ${cls} ${lvl} spells${suffix})`;
+          ? `${n} ${clsLabel} ${lvlLabel} spell${n === 1 ? '' : 's'}${suffix}`
+          : `(no ${clsLabel} ${lvlLabel} spells${suffix})`;
+      renderResults();
       updateInfoPanel();
+    }
+
+    // Render the current matches as a clickable result list below the
+    // search row. Without this, the user gets only the datalist
+    // autocomplete (which requires typing); the result list shows
+    // everything matching the filter even before they type. The user
+    // can click a result to load it into the spell input + info panel.
+    function renderResults() {
+      const resultsEl = picker.querySelector('.sp-results');
+      if (!resultsEl) return;
+      const names = Array.from(currentByName.keys())
+        .map(k => currentByName.get(k).name)
+        .sort((a, b) => a.localeCompare(b));
+      if (names.length === 0) {
+        resultsEl.style.display = 'none';
+        resultsEl.innerHTML = '';
+        return;
+      }
+      // Cap at 100 to keep the DOM lean. The full count is shown in the
+      // header so the user knows there's more if they narrow further.
+      const cap = 100;
+      const shown = names.slice(0, cap);
+      const truncated = names.length > cap;
+      const chipStyle = 'display:inline-block;padding:0.18rem 0.5rem;' +
+        'margin:0.12rem;border:1px solid rgba(255,255,255,0.18);' +
+        'border-radius:3px;background:rgba(255,255,255,0.04);' +
+        'color:#cde;cursor:pointer;font-size:0.85em;line-height:1.2;' +
+        'font-family:inherit';
+      const chips = shown.map(n =>
+        `<button type="button" class="sp-result-chip" style="${chipStyle}" ` +
+        `data-name="${escapeHtml(n)}">${escapeHtml(n)}</button>`
+      ).join('');
+      const header = truncated
+        ? `<div style="opacity:0.7;margin-bottom:0.25rem">Showing ${cap} of ${names.length} matches — narrow the filter to see more</div>`
+        : `<div style="opacity:0.7;margin-bottom:0.25rem">${names.length} match${names.length === 1 ? '' : 'es'}</div>`;
+      resultsEl.innerHTML = header + `<div>${chips}</div>`;
+      resultsEl.style.display = 'block';
     }
 
     function updateInfoPanel() {
@@ -486,6 +616,17 @@
     tagSelect.addEventListener('change', refreshSpellList);
     spellInput.addEventListener('input', updateInfoPanel);
     spellInput.addEventListener('change', updateInfoPanel);
+
+    // Result-chip clicks: fill the spell input + show the info panel.
+    // Event-delegated so chips re-rendered on every refreshSpellList
+    // still wire up. The chip carries the spell name in data-name.
+    picker.addEventListener('click', (ev) => {
+      const chip = ev.target.closest('.sp-result-chip');
+      if (!chip) return;
+      spellInput.value = chip.dataset.name || chip.textContent;
+      updateInfoPanel();
+      spellInput.focus();
+    });
 
     // ---- Class auto-detect from caster notes -----------------------
     // The class-picker prefills each spellcasting panel's

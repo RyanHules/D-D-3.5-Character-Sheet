@@ -81,7 +81,7 @@
         <div class="lookup-search-row">
           <input id="lookup-input" type="text" autocomplete="off"
                  spellcheck="false"
-                 placeholder="Search anything — feat, spell, rule, item, …">
+                 placeholder="Search anything — feat, spell, rule, item, tag:metamagic, @source:DMG …">
           <button type="button" class="lookup-close" data-close="1"
                   aria-label="Close (Esc)">×</button>
         </div>
@@ -1000,13 +1000,30 @@
     //    80 — prefix match
     //    60 — word-boundary contains match
     //    40 — anywhere contains
-    //    20 — searchKey contains (tag/type/source fallback)
+    //    35 — exact tag match (typing "metamagic" surfaces all
+    //         entries tagged metamagic, even if the name doesn't
+    //         contain the word). Placed below name-contains so
+    //         entries with the word in their NAME still rank higher
+    //         than entries with the word only as a tag.
+    //    25 — partial tag match (q appears inside a tag name, e.g.
+    //         "mind" matching "mind-affecting"; or a tag contains q)
+    //    20 — searchKey contains (type/source fallback)
     //    10 — bodyKey contains (description/benefit/effect full-text)
     if (entry.nameKey === q) return 100;
     if (entry.nameKey.startsWith(q)) return 80;
     // Word boundary: " " + q must appear, OR nameKey starts with q.
     if ((' ' + entry.nameKey).includes(' ' + q)) return 60;
     if (entry.nameKey.includes(q)) return 40;
+    // Tag matches — exact tag wins over partial tag. Tag names are
+    // already lowercased + dash-joined ("mind-affecting") so the
+    // squashed q ("mindaffecting" or "mind") needs to be checked
+    // against tag names with their dashes intact.
+    for (const tag of entry.tags) {
+      if (tag === q) return 35;
+    }
+    for (const tag of entry.tags) {
+      if (tag.includes(q) || q.includes(tag)) return 25;
+    }
     if (entry.searchKey.includes(q)) return 20;
     // Body-text fallback — least specific. Skip for very short queries
     // (<3 chars) to avoid swamping results with noise.
