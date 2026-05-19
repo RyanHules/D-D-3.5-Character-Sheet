@@ -1537,6 +1537,47 @@ test('metamagic-preparer: spells.js wires the ✨ button on Known rows', () => {
     'spells.js missing the per-row ✨ visibility refresh helper.');
 });
 
+test('metamagic-preparer v2 Phase A: reduction-feat helpers exposed', () => {
+  // computeAdjustments + readReductionFeats handle Improved Metamagic
+  // (ELH), Arcane Thesis (PHB2), Easy Metamagic (PHB2/CMagic), and the
+  // Sanctum Spell contextual ±1 toggle.
+  const src = readSource('metamagic-preparer.js');
+  for (const fn of ['readReductionFeats', 'computeAdjustments']) {
+    assert(src.includes(fn),
+      `metamagic-preparer.js must export ${fn} for v2 Phase A.`);
+  }
+  // The Sanctum-context dropdown must exist in the rendered HTML.
+  assert(src.includes('sc-mm-sanctum-ctx'),
+    'metamagic-preparer.js missing the Sanctum-context dropdown markup.');
+  // Per-feat min of +1 (RAW for IM/Arcane Thesis/Easy MM).
+  assert(/Math\.max\(1,/.test(src),
+    'metamagic-preparer.js must clamp reduced cost to min +1 per RAW.');
+});
+
+test('metamagic-preparer v2 Phase B: Sudden* daily tracking exposed', () => {
+  // resetAllDailyUses + markFeatUsed + isFeatUsedToday + the
+  // [Used today] marker convention.
+  const src = readSource('metamagic-preparer.js');
+  for (const fn of ['isFeatUsedToday', 'markFeatUsed',
+                    'unmarkFeatUsed', 'resetAllDailyUses']) {
+    assert(src.includes(fn),
+      `metamagic-preparer.js must export ${fn} for v2 Phase B.`);
+  }
+  // The [Used today] marker convention must be regex-detected
+  // (not a plain string match — case-insensitive).
+  assert(/\[\s*used\s+today\s*\]/i.test(src) || src.includes('used\\s+today'),
+    'metamagic-preparer.js must recognize the [Used today] marker.');
+  // spells.js must wire the trackers section (Quickened-this-round +
+  // daily-reset button) into the Metamagic Reference details.
+  const spellsSrc = readSource('spells.js');
+  assert(spellsSrc.includes('sc-quickened-this-round'),
+    'spells.js missing the Quickened-this-round counter element.');
+  assert(spellsSrc.includes('sc-mm-reset-daily'),
+    'spells.js missing the Reset Sudden* Daily Uses button.');
+  assert(spellsSrc.includes('quickenedThisRound'),
+    'spells.js must persist quickenedThisRound via collectData.');
+});
+
 test('metamagic: level_adjustment values are integer 0-9 or "variable"', (db) => {
   const rows = execAll(db,
     "SELECT name, " +

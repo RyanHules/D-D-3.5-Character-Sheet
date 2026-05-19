@@ -246,6 +246,32 @@ const Spells = (function () {
             <span class="sc-mm-ref-count" style="opacity:0.6"></span>
           </summary>
           <div class="sc-mm-ref-body" style="margin-top:0.4rem;font-size:0.85em;color:#ccd"></div>
+          <!-- v2 Phase B: round + day usage trackers. Surfaced inside
+               the Reference panel so they share visibility with the
+               feat list. The two counters are independent: the round
+               counter is a free-form int (player updates each turn),
+               and the daily-reset button strips "[Used today]"
+               markers from all Sudden* feats. -->
+          <div class="sc-mm-trackers" style="display:none;
+               margin-top:0.5rem;padding-top:0.4rem;
+               border-top:1px solid rgba(255,255,255,0.08);
+               font-size:0.85em;color:#ccd;
+               display:flex;flex-wrap:wrap;gap:1rem;align-items:center">
+            <label style="display:flex;align-items:center;gap:0.4rem">
+              Quickened this round:
+              <input type="number" class="sc-quickened-this-round"
+                     min="0" max="9" value="${data.quickenedThisRound || 0}"
+                     style="width:3rem">
+              <button class="btn-feat-info sc-quickened-reset"
+                      title="Reset to 0 (start of next round)">
+                ↻
+              </button>
+            </label>
+            <button class="btn-feat-info sc-mm-reset-daily" style="font-size:0.85em"
+                    title="Strip [Used today] marker from every Sudden* feat. Use after a long rest.">
+              Reset Sudden* daily uses
+            </button>
+          </div>
         </details>
         <div class="spell-header">
           <div class="field field-sm"><label>Caster Level</label><input type="number" class="sc-caster-level" min="1" value="${data.casterLevel || ""}"></div>
@@ -701,6 +727,34 @@ const Spells = (function () {
       };
       knownToggle.addEventListener("change", applyKnown);
       applyKnown();
+    }
+
+    // v2 Phase B trackers: Quickened-this-round reset + Sudden* daily
+    // reset. Both live inside the Metamagic Reference details panel.
+    const qReset = panel.querySelector(".sc-quickened-reset");
+    if (qReset) {
+      qReset.addEventListener("click", (e) => {
+        e.preventDefault();
+        const counter = panel.querySelector(".sc-quickened-this-round");
+        if (counter) {
+          counter.value = "0";
+          counter.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
+    }
+    const dailyReset = panel.querySelector(".sc-mm-reset-daily");
+    if (dailyReset) {
+      dailyReset.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (!window.MetamagicPreparer) return;
+        const n = MetamagicPreparer.resetAllDailyUses();
+        // Tiny inline confirmation that fades.
+        const orig = dailyReset.textContent;
+        dailyReset.textContent = n > 0
+          ? `↻ Reset ${n} feat${n === 1 ? "" : "s"}`
+          : "↻ No Sudden* uses to reset";
+        setTimeout(() => { dailyReset.textContent = orig; }, 2000);
+      });
     }
 
     // Wire prohibited schools add/remove
@@ -1424,6 +1478,11 @@ const Spells = (function () {
       if (type === "spellcasting") {
         caster.casterLevel = panel.querySelector(".sc-caster-level")?.value || "";
         caster.ability = panel.querySelector(".sc-ability").value;
+        // v2 Phase B: quickened-spells-this-round runtime counter.
+        // Persisted so it survives a save/reload mid-combat, but
+        // it's the player's responsibility to reset each round
+        // (or click the ↻ button next to the field).
+        caster.quickenedThisRound = panel.querySelector(".sc-quickened-this-round")?.value || "0";
         // Optional bonus-spell ability override (Favored Soul / Spirit
         // Shaman). Empty string means "use the main spellcasting
         // ability" (the common case); see recalc().
@@ -1712,6 +1771,13 @@ const Spells = (function () {
       if (!name) continue;
       const meta = lookupMetamagicFromDB(name);
       if (meta) mmEntries.push({ name, meta });
+    }
+
+    // v2 Phase B trackers section: only show when the character has
+    // ≥1 metamagic feat (otherwise nothing to track).
+    const trackers = panel.querySelector(".sc-mm-trackers");
+    if (trackers) {
+      trackers.style.display = mmEntries.length ? "flex" : "none";
     }
 
     if (!mmEntries.length) {

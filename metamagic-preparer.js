@@ -107,6 +107,244 @@
     return readCharacterMetamagicFeats().length > 0;
   }
 
+  // -- v2 Phase B: Daily-use tracking for Sudden* feats ---------------
+  //
+  // The Sudden Empower / Sudden Maximize / Sudden Quicken / etc. feats
+  // (CArc) are 1/day "free metamagic" charges — they apply the
+  // metamagic at +0 slot cost. Catalog already has them at
+  // `level_adjustment: 0`; this layer tracks whether the daily charge
+  // has been spent.
+  //
+  // Marker convention: append "[Used today]" (case-insensitive) on a
+  // new line in the feat-entry textarea. Persists via the Feats tab's
+  // existing serialization. A "Reset daily uses" button (added next
+  // to the metamagic-reference panel header) strips the marker from
+  // all Sudden* feats.
+
+  const SUDDEN_FEAT_RE = /^Sudden\s+\w+$/i;
+
+  // Returns true iff the feat-entry text contains the "used today"
+  // marker.
+  function isFeatUsedToday(rawText) {
+    return /\[\s*used\s+today\s*\]/i.test(rawText || "");
+  }
+
+  // Find the feat-entry textarea for a given feat name. Returns null
+  // if no matching entry exists.
+  function findFeatEntry(featName) {
+    const featInputs = document.querySelectorAll(
+      "#feats-container .feat-entry");
+    const target = String(featName || "").trim().toLowerCase();
+    for (const el of featInputs) {
+      const raw = String(el.value || "").trim();
+      if (!raw) continue;
+      const firstLine = raw.split(/\r?\n/)[0].trim();
+      const name = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      if (name.toLowerCase() === target) return el;
+    }
+    return null;
+  }
+
+  // Mark a feat as used today (appends "[Used today]" if not already
+  // present). Returns true if a change was made.
+  function markFeatUsed(featName) {
+    const el = findFeatEntry(featName);
+    if (!el) return false;
+    if (isFeatUsedToday(el.value)) return false;
+    const cur = el.value.replace(/\s+$/, "");
+    el.value = cur + "\n[Used today]";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
+  // Unmark a feat (removes any "[Used today]" lines).
+  function unmarkFeatUsed(featName) {
+    const el = findFeatEntry(featName);
+    if (!el) return false;
+    if (!isFeatUsedToday(el.value)) return false;
+    el.value = el.value
+      .split(/\r?\n/)
+      .filter(line => !/^\s*\[\s*used\s+today\s*\]\s*$/i.test(line))
+      .join("\n");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
+  // Reset all Sudden* feats (strip "[Used today]" from each). Useful
+  // as a "new day" / long-rest button. Returns the count of feats
+  // affected.
+  function resetAllDailyUses() {
+    const featInputs = document.querySelectorAll(
+      "#feats-container .feat-entry");
+    let n = 0;
+    for (const el of featInputs) {
+      const raw = String(el.value || "").trim();
+      if (!raw) continue;
+      const firstLine = raw.split(/\r?\n/)[0].trim();
+      const name = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      if (SUDDEN_FEAT_RE.test(name) && isFeatUsedToday(el.value)) {
+        el.value = el.value
+          .split(/\r?\n/)
+          .filter(line => !/^\s*\[\s*used\s+today\s*\]\s*$/i.test(line))
+          .join("\n");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        n++;
+      }
+    }
+    return n;
+  }
+
+  // -- v2: Reduction-feat detection -----------------------------------
+  //
+  // Scan the entire Feats tab (not just metamagic feats) for cost
+  // reducers and reduction-config notes. Returns:
+  //
+  //   {
+  //     improvedMetamagic: bool,            // ELH "all metamagic -1"
+  //     arcaneThesisSpells: [str, ...],     // PHB2 — one per "Arcane Thesis" feat
+  //     easyMetamagicFeats: [str, ...],     // PHB2 — one per "Easy Metamagic" feat
+  //   }
+  //
+  // Configuration lives in the additional lines of the feat entry:
+  //   Arcane Thesis
+  //   Thesis spell: Fireball
+  //
+  //   Easy Metamagic
+  //   Reduces: Maximize Spell
+  //
+  // The first line is the feat name; subsequent lines are scanned for
+  // `Thesis spell:` and `Reduces:` (case-insensitive). If a config
+  // line is missing, the slot stays unset (the picker surfaces a hint
+  // pointing the user at the Feats tab).
+  function readReductionFeats() {
+    const out = {
+      improvedMetamagic: false,
+      arcaneThesisSpells: [],
+      easyMetamagicFeats: [],
+    };
+    const featInputs = document.querySelectorAll(
+      "#feats-container .feat-entry");
+    for (const el of featInputs) {
+      const raw = String(el.value || "").trim();
+      if (!raw) continue;
+      const lines = raw.split(/\r?\n/);
+      const firstLine = lines[0].trim();
+      // Strip trailing parenthetical from the feat name for matching.
+      const name = firstLine.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      const rest = lines.slice(1).join("\n");
+      if (/^improved metamagic$/i.test(name)) {
+        out.improvedMetamagic = true;
+      } else if (/^arcane thesis$/i.test(name)) {
+        const m = rest.match(/thesis\s*spell\s*:\s*(.+?)(?:\r?\n|$)/i);
+        out.arcaneThesisSpells.push(m ? m[1].trim() : "");
+      } else if (/^easy metamagic$/i.test(name)) {
+        const m = rest.match(/reduces?\s*:\s*(.+?)(?:\r?\n|$)/i);
+        out.easyMetamagicFeats.push(m ? m[1].trim() : "");
+      }
+    }
+    return out;
+  }
+
+  // Compute the effective per-feat adjustment after applying all
+  // reduction sources. Returns:
+  //
+  //   {
+  //     featAdjustments: Map<featName, { base, reduced, reasons:[str,...] }>,
+  //     baseLevelFloor: int  // the lowest the spell's effective level
+  //                          // can go (Arcane Thesis: not below
+  //                          // baseLevel; otherwise no floor beyond
+  //                          // each feat's per-feat min)
+  //     warnings: [str, ...]
+  //   }
+  //
+  // `feats` = list of {name, meta} for the metamagic feats CURRENTLY
+  // selected in the picker. `spellName` is the base spell being cast.
+  // `sanctumInSanctum` is the user's contextual toggle for Sanctum
+  // Spell (default false — out of sanctum = +1).
+  function computeAdjustments(feats, spellName, sanctumInSanctum) {
+    const reductions = readReductionFeats();
+    const map = new Map();
+    const warnings = [];
+
+    const isThesisSpell = reductions.arcaneThesisSpells
+      .some(s => s && s.toLowerCase() === String(spellName || "").toLowerCase());
+
+    for (const f of feats) {
+      const baseAdj = (f.meta.levelAdjustment === "variable")
+        ? "variable"
+        : (typeof f.meta.levelAdjustment === "number"
+          ? f.meta.levelAdjustment
+          : 0);
+      const reasons = [];
+      let adj = baseAdj;
+
+      // Sanctum Spell special case: ±1 depending on context. Override
+      // the catalog's "variable" with the resolved value here so the
+      // picker doesn't ask for a target level on Sanctum.
+      if (f.name === "Sanctum Spell") {
+        adj = sanctumInSanctum ? 0 : 1;
+        reasons.push(sanctumInSanctum ? "in sanctum (+0)" : "out of sanctum (+1)");
+      }
+
+      // Numeric reductions stack additively, but the per-feat minimum
+      // remains +1 if the feat's NORMAL cost is +1 or more (per
+      // Improved Metamagic / Arcane Thesis / Easy Metamagic RAW).
+      if (typeof adj === "number" && adj > 0) {
+        const origAdj = adj;
+        let reduction = 0;
+
+        if (reductions.improvedMetamagic) {
+          reduction += 1;
+          reasons.push("Improved Metamagic (-1)");
+        }
+        if (isThesisSpell) {
+          reduction += 1;
+          reasons.push("Arcane Thesis (-1)");
+        }
+        const easyHit = reductions.easyMetamagicFeats
+          .some(t => t && t.toLowerCase() === f.name.toLowerCase());
+        if (easyHit) {
+          reduction += 1;
+          reasons.push("Easy Metamagic (-1)");
+        }
+
+        // Apply with per-feat min of +1 (RAW: cost cannot drop below
+        // +1 for any feat whose normal cost is +1 or more).
+        const reduced = Math.max(1, origAdj - reduction);
+        adj = reduced;
+      }
+      // For +0 feats (Energy Substitution, Sudden* etc.), reductions
+      // don't apply — the cost is already 0.
+
+      map.set(f.name, { base: baseAdj, reduced: adj, reasons });
+    }
+
+    // Surface unconfigured reduction feats so the user knows to set
+    // them up on the Feats tab.
+    const unconfiguredThesis = reductions.arcaneThesisSpells
+      .filter(s => !s).length;
+    if (unconfiguredThesis > 0) {
+      warnings.push(
+        `${unconfiguredThesis} Arcane Thesis feat${unconfiguredThesis === 1 ? "" : "s"} has no configured spell. ` +
+        `On the Feats tab, add a 2nd line under Arcane Thesis: "Thesis spell: <SpellName>".`);
+    }
+    const unconfiguredEasy = reductions.easyMetamagicFeats
+      .filter(s => !s).length;
+    if (unconfiguredEasy > 0) {
+      warnings.push(
+        `${unconfiguredEasy} Easy Metamagic feat${unconfiguredEasy === 1 ? "" : "s"} has no configured target. ` +
+        `On the Feats tab, add a 2nd line: "Reduces: <Metamagic Feat>".`);
+    }
+
+    return {
+      featAdjustments: map,
+      isThesisSpell,
+      improvedMetamagic: reductions.improvedMetamagic,
+      easyTargets: reductions.easyMetamagicFeats.filter(Boolean),
+      warnings,
+    };
+  }
+
   // Escape for HTML attribute values (mirrors spells.js helper).
   function esc(s) {
     return String(s || "")
@@ -153,7 +391,16 @@
       `<span style="opacity:0.7">(base level ${esc(baseLvlLabel)})</span>` +
       `</div>`;
 
-    // -- One row per feat.
+    // -- One row per feat. Three control-shape variants:
+    //   - Heighten / Improved Heighten: checkbox + target-level input
+    //     (variableTarget — sets the effective level directly)
+    //   - Sanctum Spell: checkbox + Sanctum-context dropdown
+    //     (variable, but resolved to +0 / +1 from a toggle, not a
+    //     target level)
+    //   - Everything else: checkbox only (numeric or +0 adjustment)
+    //
+    // Sudden* feats also render their daily-use status (badge + a
+    // "Mark used" / "Reset" toggle button).
     html += `<div class="sc-mm-feat-list" style="display:flex;flex-direction:column;gap:0.3rem;margin-bottom:0.5rem">`;
     for (let i = 0; i < feats.length; i++) {
       const f = feats[i];
@@ -166,20 +413,51 @@
       const action = f.meta.actionTypeMod
         ? ` <span style="opacity:0.7">[${esc(f.meta.actionTypeMod)}]</span>`
         : "";
-      const isVar = (adj === "variable");
+      const isHeighten = (f.name === "Heighten Spell"
+        || f.name === "Improved Heighten Spell");
+      const isSanctum = (f.name === "Sanctum Spell");
+      const isSudden = SUDDEN_FEAT_RE.test(f.name);
+      const isTargetVar = isHeighten;  // only Heighten gets the target-level input
       const id = `mm-${Math.random().toString(36).slice(2, 9)}`;
+      // Sudden* daily-use status, read at picker-build time.
+      const suddenEntry = isSudden ? findFeatEntry(f.name) : null;
+      const usedToday = suddenEntry ? isFeatUsedToday(suddenEntry.value) : false;
       html +=
         `<label class="sc-mm-feat" data-feat="${esc(f.name)}" data-adj="${esc(adj)}" ` +
-        `style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">` +
+        `data-is-heighten="${isHeighten ? 1 : 0}" ` +
+        `data-is-sanctum="${isSanctum ? 1 : 0}" ` +
+        `data-is-sudden="${isSudden ? 1 : 0}" ` +
+        `data-used-today="${usedToday ? 1 : 0}" ` +
+        `style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;flex-wrap:wrap` +
+        (usedToday ? ";opacity:0.55" : "") + `">` +
         `<input type="checkbox" class="sc-mm-feat-cb" id="${id}">` +
-        `<span style="flex:1"><b>${esc(f.name)}</b> ` +
-        `<span style="opacity:0.8">${adjLabel}</span>${action}` +
+        `<span style="flex:1;min-width:8rem"><b>${esc(f.name)}</b> ` +
+        `<span class="sc-mm-feat-adj" style="opacity:0.8">${adjLabel}</span>${action}` +
+        (isSudden
+          ? ` <span class="sc-mm-sudden-status" style="font-size:0.85em;` +
+            (usedToday ? `color:#c98">✗ used today` : `color:#9c9">✓ available`) +
+            `</span>`
+          : "") +
         (f.meta.effect ? ` <span style="opacity:0.65">— ${esc(f.meta.effect)}</span>` : "") +
         `</span>` +
-        (isVar
+        (isTargetVar
           ? `<input type="number" class="sc-mm-var-target" min="${baseLevel+1}" max="9" ` +
             `placeholder="lvl" title="Target spell level for Heighten" ` +
             `style="width:3.5rem;display:none" disabled>`
+          : "") +
+        (isSanctum
+          ? `<select class="sc-mm-sanctum-ctx" style="display:none" disabled ` +
+            `title="Sanctum Spell: +0 inside, +1 outside">` +
+            `<option value="out">out of sanctum (+1)</option>` +
+            `<option value="in">in sanctum (+0)</option>` +
+            `</select>`
+          : "") +
+        (isSudden
+          ? ` <button type="button" class="sc-mm-sudden-toggle" ` +
+            `style="font-size:0.8em;padding:0.1rem 0.4rem" ` +
+            `title="Toggle whether this 1/day charge has been spent today">` +
+            (usedToday ? "Reset" : "Mark used") +
+            `</button>`
           : "") +
         `</label>`;
     }
@@ -215,61 +493,83 @@
     const warnEl = box.querySelector(".sc-mm-warning");
 
     function recompute() {
-      let totalAdj = 0;
-      let heightenTarget = null;  // explicit override of effective level
       const adjectives = [];
       const warnings = [];
-      let zeroAdjOnly = true;
+      let heightenTarget = null;
 
+      // -- Pass 1: collect selected feats + show/hide their sub-inputs.
+      const selected = [];
       cbs.forEach((cb) => {
         const label = cb.closest(".sc-mm-feat");
         const featName = label.dataset.feat;
-        const adjRaw = label.dataset.adj;
-        const isVar = adjRaw === "variable";
+        const isHeighten = label.dataset.isHeighten === "1";
+        const isSanctum = label.dataset.isSanctum === "1";
         const varInput = label.querySelector(".sc-mm-var-target");
+        const ctxSel = label.querySelector(".sc-mm-sanctum-ctx");
 
         if (varInput) {
           varInput.style.display = cb.checked ? "" : "none";
           varInput.disabled = !cb.checked;
         }
+        if (ctxSel) {
+          ctxSel.style.display = cb.checked ? "" : "none";
+          ctxSel.disabled = !cb.checked;
+        }
 
         if (!cb.checked) return;
-
-        if (isVar) {
-          // Heighten / Sanctum: variable target level.
-          const target = parseInt(varInput?.value, 10);
-          if (!isNaN(target) && target >= baseLevel) {
-            // Heighten only — sets the effective level directly.
-            if (featName === "Heighten Spell" || featName === "Improved Heighten Spell") {
-              heightenTarget = target;
-              adjectives.push(`${ADJECTIVE[featName] || "Heightened"} to ${target}`);
-              zeroAdjOnly = false;
-            } else if (featName === "Sanctum Spell") {
-              // Sanctum: ±1 contextual. UI doesn't model in/out
-              // of sanctum yet (v2 follow-up); default to +1.
-              totalAdj += 1;
-              adjectives.push(ADJECTIVE[featName] || "Sanctum");
-              zeroAdjOnly = false;
-              warnings.push("Sanctum Spell defaults to +1 (out-of-sanctum). Toggle the +0/+1 manually if you're in your sanctum — v2 will track this contextually.");
-            } else {
-              // Generic variable: prompt user.
-              warnings.push(`${featName} has a variable adjustment — fill in the target level.`);
-            }
-          } else {
-            warnings.push(`${featName} needs a target level.`);
-          }
-        } else {
-          const n = parseInt(adjRaw, 10);
-          if (!isNaN(n)) {
-            totalAdj += n;
-            if (n !== 0) zeroAdjOnly = false;
-            const adj = adjectiveFor(featName);
-            adjectives.push(adj || `(${featName})`);
-          }
-        }
+        // Find the meta entry from the closure-scope `feats` list.
+        const featEntry = feats.find(f => f.name === featName);
+        if (!featEntry) return;
+        selected.push({
+          name: featName,
+          meta: featEntry.meta,
+          isHeighten,
+          isSanctum,
+          target: varInput ? parseInt(varInput.value, 10) : null,
+          sanctumIn: ctxSel ? (ctxSel.value === "in") : false,
+        });
       });
 
-      // Compute effective level.
+      // -- Pass 2: compute Sanctum context (any-checked feat that IS
+      // Sanctum). Used as input to computeAdjustments().
+      const sanctumPick = selected.find(s => s.isSanctum);
+      const sanctumInSanctum = sanctumPick ? sanctumPick.sanctumIn : false;
+
+      // -- Pass 3: run the reductions pipeline to get per-feat
+      // adjusted costs. This handles Improved Metamagic, Arcane
+      // Thesis, Easy Metamagic, and Sanctum Spell context resolution.
+      const adjResult = computeAdjustments(
+        selected.map(s => ({ name: s.name, meta: s.meta })),
+        name,
+        sanctumInSanctum
+      );
+      for (const w of adjResult.warnings) warnings.push(w);
+
+      // -- Pass 4: walk selected feats and accumulate effective level
+      // + adjectives. Heighten gets special treatment (sets level
+      // directly rather than adding).
+      let totalAdj = 0;
+      for (const s of selected) {
+        if (s.isHeighten) {
+          if (!isNaN(s.target) && s.target >= baseLevel) {
+            heightenTarget = s.target;
+            adjectives.push(`${ADJECTIVE[s.name] || "Heightened"} to ${s.target}`);
+          } else {
+            warnings.push(`${s.name} needs a target level.`);
+          }
+          continue;
+        }
+        // Use the reduced adjustment from computeAdjustments.
+        const info = adjResult.featAdjustments.get(s.name);
+        const reduced = info ? info.reduced : s.meta.levelAdjustment;
+        if (typeof reduced === "number") {
+          totalAdj += reduced;
+        }
+        const adj = adjectiveFor(s.name);
+        adjectives.push(adj || `(${s.name})`);
+      }
+
+      // -- Pass 5: compute effective level + name.
       let effLvl;
       if (heightenTarget !== null) {
         effLvl = heightenTarget + totalAdj;
@@ -277,23 +577,88 @@
         effLvl = baseLevel + totalAdj;
       }
 
-      // Update summary.
+      // Update per-feat adjustment labels in the picker to show the
+      // reduced cost when reductions apply.
+      cbs.forEach((cb) => {
+        const label = cb.closest(".sc-mm-feat");
+        const featName = label.dataset.feat;
+        const adjEl = label.querySelector(".sc-mm-feat-adj");
+        if (!adjEl) return;
+        const info = adjResult.featAdjustments.get(featName);
+        if (cb.checked && info && info.reasons.length) {
+          const base = info.base;
+          const reduced = info.reduced;
+          if (typeof base === "number" && typeof reduced === "number" && base !== reduced) {
+            adjEl.innerHTML =
+              `<s style="opacity:0.5">+${base}</s> ` +
+              `<b style="color:#a8d8a8">+${reduced}</b> ` +
+              `<span style="opacity:0.6;font-size:0.85em">(${esc(info.reasons.join(", "))})</span>`;
+          } else if (info.reasons.length) {
+            // Sanctum-only case (no numeric reduction, but reason).
+            adjEl.innerHTML =
+              `<b>+${reduced}</b> ` +
+              `<span style="opacity:0.6;font-size:0.85em">(${esc(info.reasons.join(", "))})</span>`;
+          } else {
+            const lvl = typeof reduced === "number"
+              ? (reduced === 0 ? "+0" : `+${reduced}`)
+              : esc(String(reduced));
+            adjEl.textContent = lvl;
+          }
+        } else {
+          // Restore static label when unchecked.
+          const adj = label.dataset.adj;
+          const lvl = (adj === "variable")
+            ? "variable"
+            : (isNaN(parseInt(adj, 10))
+              ? "?"
+              : (parseInt(adj, 10) === 0 ? "+0" : `+${parseInt(adj, 10)}`));
+          adjEl.textContent = lvl;
+        }
+      });
+
       const lvlLabel = (effLvl === 0) ? "0 (cantrip)" : String(effLvl);
       effLvlEl.textContent = lvlLabel;
       effLvlEl.style.color = (effLvl > 9) ? "#e88" : "";
 
-      // Build the modified name.
       let modName = name;
-      if (adjectives.length) {
-        modName = adjectives.join(" ") + " " + name;
-      }
+      if (adjectives.length) modName = adjectives.join(" ") + " " + name;
       effNameEl.textContent = "→ " + modName;
       box.dataset.modName = modName;
       box.dataset.effLevel = String(effLvl);
 
-      // Warning surface.
       if (effLvl > 9) {
         warnings.push("Effective level exceeds 9 — no standard spell slot can hold this. (Epic Spellcasting / Improved Spell Capacity needed.)");
+      }
+      if (adjResult.isThesisSpell && selected.some(s => !s.isHeighten)) {
+        warnings.push(`Arcane Thesis active on "${name}" — each metamagic costs 1 less (min +1).`);
+      }
+
+      // -- Sudden* daily-use warnings + Quicken round limit.
+      for (const s of selected) {
+        if (SUDDEN_FEAT_RE.test(s.name)) {
+          const entry = findFeatEntry(s.name);
+          if (entry && isFeatUsedToday(entry.value)) {
+            warnings.push(
+              `${s.name} has already been used today. Use the Reset button next to the feat once you long-rest, or pick the underlying metamagic (Empower / Maximize / Quicken / etc.) and pay the slot cost.`);
+          }
+        }
+      }
+
+      // Quicken: if checked AND the panel's "Quickened this round"
+      // counter is > 0, warn. Same for Sudden Quicken (since both
+      // produce a quickened spell that uses up the swift action).
+      const isQuickenLike = selected.some(s =>
+        s.name === "Quicken Spell"
+        || s.name === "Sudden Quicken"
+        || s.name === "Automatic Quicken Spell");
+      if (isQuickenLike) {
+        const counter = panel.querySelector(".sc-quickened-this-round");
+        const used = counter ? parseInt(counter.value, 10) : 0;
+        if (!isNaN(used) && used > 0) {
+          warnings.push(
+            `${used} quickened spell${used === 1 ? "" : "s"} already cast this round. ` +
+            `Quicken Spell limits you to ONE quickened spell per round (any source).`);
+        }
       }
       if (warnings.length) {
         warnEl.style.display = "";
@@ -308,6 +673,41 @@
     cbs.forEach((cb) => cb.addEventListener("change", recompute));
     box.querySelectorAll(".sc-mm-var-target").forEach((inp) => {
       inp.addEventListener("input", recompute);
+    });
+    box.querySelectorAll(".sc-mm-sanctum-ctx").forEach((sel) => {
+      sel.addEventListener("change", recompute);
+    });
+    // Sudden* "Mark used" / "Reset" toggle.
+    box.querySelectorAll(".sc-mm-sudden-toggle").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const label = btn.closest(".sc-mm-feat");
+        if (!label) return;
+        const featName = label.dataset.feat;
+        const wasUsed = label.dataset.usedToday === "1";
+        if (wasUsed) {
+          unmarkFeatUsed(featName);
+          label.dataset.usedToday = "0";
+          label.style.opacity = "";
+          btn.textContent = "Mark used";
+          const status = label.querySelector(".sc-mm-sudden-status");
+          if (status) {
+            status.style.color = "#9c9";
+            status.textContent = "✓ available";
+          }
+        } else {
+          markFeatUsed(featName);
+          label.dataset.usedToday = "1";
+          label.style.opacity = "0.55";
+          btn.textContent = "Reset";
+          const status = label.querySelector(".sc-mm-sudden-status");
+          if (status) {
+            status.style.color = "#c98";
+            status.textContent = "✗ used today";
+          }
+        }
+        recompute();
+      });
     });
 
     box.querySelector(".sc-mm-cancel").addEventListener("click", () => {
@@ -333,6 +733,17 @@
         warnEl.innerHTML = `⚠ No Prepared textarea found for level ${effLvl}. Add a spell level above level ${effLvl} first.`;
         return;
       }
+      // Auto-mark any Sudden* feats that were ticked as used. Only
+      // mark feats not already marked — and skip the auto-mark if
+      // the user explicitly opted out by deselecting them after a
+      // warning.
+      box.querySelectorAll(".sc-mm-feat").forEach((label) => {
+        if (label.dataset.isSudden !== "1") return;
+        const cb = label.querySelector(".sc-mm-feat-cb");
+        if (!cb || !cb.checked) return;
+        if (label.dataset.usedToday === "1") return;  // already used
+        markFeatUsed(label.dataset.feat);
+      });
       const cur = ta.value;
       ta.value = cur ? cur.replace(/\s+$/, "") + "\n" + modName : modName;
       ta.dispatchEvent(new Event("input", { bubbles: true }));
@@ -351,5 +762,13 @@
     characterHasAnyMetamagic,
     readCharacterMetamagicFeats,
     adjectiveFor,
+    // v2 Phase A helpers:
+    readReductionFeats,
+    computeAdjustments,
+    // v2 Phase B helpers (daily-use tracking for Sudden* feats):
+    isFeatUsedToday,
+    markFeatUsed,
+    unmarkFeatUsed,
+    resetAllDailyUses,
   };
 })();
