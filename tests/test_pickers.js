@@ -1590,6 +1590,65 @@ test('metamagic-preparer v2 Phase A: reduction-feat helpers exposed', () => {
     'metamagic-preparer.js must clamp reduced cost to min +1 per RAW.');
 });
 
+test('item-familiar: module loads + exposes Companion-integration API', () => {
+  // Item Familiar (UA pp.170-173) — companion-tab Type option that
+  // swaps to a different panel layout. Guard the integration contract:
+  //   - item-familiar.js exists + assigns window.ItemFamiliar
+  //   - exposes the integration helpers (buildHTML, wirePanel,
+  //     collectData, loadData) + the auto-apply hooks
+  //     (getAllSkillBonuses, getAllSpellSlotBonuses, getXpMultiplier)
+  //   - companion.js branches on ItemFamiliar.isItemFamiliarType()
+  //   - module-loader includes item-familiar.js BEFORE companion.js
+  const src = readSource('item-familiar.js');
+  assert(/window\.ItemFamiliar\s*=/.test(src),
+    'item-familiar.js must assign to window.ItemFamiliar.');
+  for (const fn of ['isItemFamiliarType', 'buildHTML', 'wirePanel',
+                    'collectData', 'loadData', 'recalc',
+                    'getAllSkillBonuses', 'getAllSpellSlotBonuses',
+                    'getXpMultiplier']) {
+    assert(src.includes(fn),
+      `item-familiar.js missing ${fn} in public API.`);
+  }
+  // Rules constants from UA must be present.
+  assert(src.includes('SAPIENCE_LEVEL'),
+    'item-familiar.js must expose SAPIENCE_LEVEL.');
+  assert(src.includes('SKILL_BONUS_PER_RANKS'),
+    'item-familiar.js must expose SKILL_BONUS_PER_RANKS.');
+
+  // companion.js must branch on ItemFamiliar.isItemFamiliarType.
+  const comp = readSource('companion.js');
+  assert(comp.includes('ItemFamiliar.isItemFamiliarType'),
+    'companion.js must branch on ItemFamiliar.isItemFamiliarType.');
+  assert(/['"]item_familiar['"]/.test(comp),
+    'companion.js must include the item_familiar Type option.');
+  assert(comp.includes('ItemFamiliar.buildHTML'),
+    'companion.js must delegate rendering to ItemFamiliar.buildHTML.');
+  assert(comp.includes('ItemFamiliar.collectData'),
+    'companion.js must delegate collectData to ItemFamiliar.');
+
+  // Auto-apply hooks: skills.js, spells.js, character.js must read
+  // from the item-familiar getters.
+  const skills = readSource('skills.js');
+  assert(skills.includes('ItemFamiliar.getAllSkillBonuses'),
+    'skills.js must apply item-familiar skill bonuses.');
+  const spells = readSource('spells.js');
+  assert(spells.includes('ItemFamiliar.getAllSpellSlotBonuses'),
+    'spells.js must apply item-familiar bonus spell slots.');
+  const character = readSource('character.js');
+  assert(character.includes('ItemFamiliar.getXpMultiplier'),
+    'character.js must apply item-familiar XP multiplier.');
+
+  // Module-loader order: item-familiar.js must load before companion.js
+  // since companion.js's render branches on ItemFamiliar.
+  const html = readSource('index.html');
+  const ifIdx = html.indexOf("'item-familiar.js'");
+  const compIdx = html.indexOf("'companion.js'");
+  assert(ifIdx > 0 && compIdx > 0,
+    'index.html module loader missing item-familiar.js or companion.js.');
+  assert(ifIdx < compIdx,
+    'item-familiar.js must load BEFORE companion.js in the module loader.');
+});
+
 test('metamagic-preparer v2 Phase C-a: per-class reductions table exposed', () => {
   // CLASS_REDUCTIONS table with Incantatrix at minimum. Future PrCs
   // get added here; the table is exposed on the public API so a
@@ -2132,7 +2191,7 @@ test('audit: no window.X guards on top-level const modules', () => {
   // as window.X). Add any new explicit-window-assignment modules here.
   const ON_WINDOW = new Set([
     'DB', 'ClassPicker', 'ErrataBadge', 'Lookup', 'MetamagicCatalog',
-    'MetamagicPreparer',
+    'MetamagicPreparer', 'ItemFamiliar',
     // Built-in / non-module references that should never trigger:
     'document', 'requestAnimationFrame', 'localStorage', 'location',
   ]);

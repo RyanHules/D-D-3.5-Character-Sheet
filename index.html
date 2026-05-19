@@ -25,7 +25,7 @@
        AFTER parse — for late-loaded scripts.)
        ==================================================================== -->
   <script>
-    window.CACHE_VERSION = '20260519g';
+    window.CACHE_VERSION = '20260519h';
     document.write(
       '<link rel="stylesheet" href="styles.css?v=' + CACHE_VERSION + '">'
     );
@@ -676,7 +676,13 @@
       // -- Core UI modules: per-tab + coordinator.
       'data.js', 'skills.js', 'character.js', 'equipment.js',
       'shadowcaster.js', 'spells.js', 'metamagic-preparer.js',
-      'feats.js', 'companion.js', 'class-features.js', 'conditions.js',
+      // item-familiar.js must load BEFORE companion.js — companion's
+      // buildCompanionHTML / wireCompanion / collectData branch on
+      // `ItemFamiliar.isItemFamiliarType()`. Loading order matters
+      // (the branch uses `typeof ItemFamiliar !== "undefined"` for
+      // safety, but we should still load it first).
+      'feats.js', 'item-familiar.js', 'companion.js',
+      'class-features.js', 'conditions.js',
       'feat-prereqs.js', 'character-history.js', 'build-timeline.js',
       'audit.js', 'app.js',
       // -- D&D 3.5 database (sql.js + dnd35.db). Purely additive:

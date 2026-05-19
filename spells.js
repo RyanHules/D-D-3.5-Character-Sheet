@@ -1415,10 +1415,32 @@ const Spells = (function () {
     // Get arcane spell failure from character tab
     const spellFail = int($("#arcane-spell-failure")?.value);
 
+    // Item Familiar bonus spell slots (UA p.171): collect once per
+    // recalc since the same global pool applies to all panels (matched
+    // by panel-label substring). Each invested slot of level N grants
+    // a bonus slot of level N-2 in the same class.
+    const allIfamBonuses = (typeof ItemFamiliar !== "undefined"
+      && ItemFamiliar.getAllSpellSlotBonuses)
+      ? ItemFamiliar.getAllSpellSlotBonuses() : [];
+
     // Spellcasting sub-tabs
     $$("[data-caster-type='spellcasting']").forEach((panel) => {
       const ability = panel.querySelector(".sc-ability")?.value || "";
       const abilityMod = ability && abilityModFn ? abilityModFn(ability) : 0;
+      // Match this panel's class name against the item-familiar
+      // invested-slot rows. Liberal: panel-tab-label or notes
+      // containing the class name (case-insensitive substring) hits.
+      const idx = (panel.id || "").replace(/^caster-/, "");
+      const tabBtn = document.querySelector(`.inner-tab[data-caster-idx="${idx}"]`);
+      const panelLabel = (tabBtn ? tabBtn.textContent.replace("×","").trim() : "").toLowerCase();
+      const panelNotes = (panel.querySelector(".caster-notes")?.value || "").toLowerCase();
+      const panelIdentity = panelLabel + " " + panelNotes;
+      const ifamBonusesByLevel = {};
+      for (const b of allIfamBonuses) {
+        if (panelIdentity.includes(b.class.toLowerCase())) {
+          ifamBonusesByLevel[b.bonusLevel] = (ifamBonusesByLevel[b.bonusLevel] || 0) + 1;
+        }
+      }
       // M-dual (2026-05-16): bonus spells per day can come from a
       // DIFFERENT ability than spell DCs for a handful of classes —
       // Favored Soul (CHA bonus / WIS DC) and Spirit Shaman (WIS
@@ -1494,7 +1516,10 @@ const Spells = (function () {
         // Wizard L4 access starts at class level 7.
         const baseCastable = (perDay + domain + specialist) > 0;
         const effectiveBonus = baseCastable ? bonus : 0;
-        const totalSlots = perDay + effectiveBonus + domain + specialist + extra;
+        // Item Familiar bonus slots (UA p.171). Stack with the regular
+        // pool — the user can use them like any other slot.
+        const ifamBonus = ifamBonusesByLevel[i] || 0;
+        const totalSlots = perDay + effectiveBonus + domain + specialist + extra + ifamBonus;
         const remaining = totalSlots - used;
         const el = panel.querySelector(`.sc-remain[data-lvl="${i}"]`);
         if (el) {

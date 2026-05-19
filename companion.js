@@ -72,6 +72,13 @@ const Companion = (function () {
   // Build companion panel HTML
   // ============================================================
   function buildCompanionHTML(idx, d = {}) {
+    // Item Familiar (UA pp.170-173): delegate to the item-familiar
+    // module — entirely different layout (no creature stat block;
+    // item identity + investment tables + sapience block instead).
+    if (typeof ItemFamiliar !== "undefined"
+        && ItemFamiliar.isItemFamiliarType(d.compType)) {
+      return ItemFamiliar.buildHTML(idx, d);
+    }
     const mods = ["STR","DEX","CON","INT","WIS","CHA"].map((ab) => {
       const sc = int(d[`comp-${ab.toLowerCase()}-score`]);
       const boost = d[`comp-${ab.toLowerCase()}-boost`] || "";
@@ -92,6 +99,7 @@ const Companion = (function () {
         <option value="familiar"${d.compType === "familiar" ? " selected" : ""}>Familiar</option>
         <option value="cohort"${d.compType === "cohort" ? " selected" : ""}>Cohort</option>
         <option value="psicrystal"${d.compType === "psicrystal" ? " selected" : ""}>Psicrystal</option>
+        <option value="item_familiar"${d.compType === "item_familiar" ? " selected" : ""}>Item Familiar</option>
         <option value="other"${d.compType === "other" ? " selected" : ""}>Other</option>
       </select></div>
       <div class="field"><label>Size</label><select class="comp-size">
@@ -213,6 +221,34 @@ const Companion = (function () {
   // Wire all interactions for a companion panel
   // ============================================================
   function wireCompanion(idx, panel, d = {}) {
+    // Item Familiar (UA pp.170-173): completely different mechanic.
+    // Delegate to the item-familiar module + tag the panel so
+    // ItemFamiliar.getAllItemFamiliarPanels() can find it for the
+    // auto-apply hooks.
+    if (typeof ItemFamiliar !== "undefined"
+        && ItemFamiliar.isItemFamiliarType(d.compType)) {
+      panel.dataset.compTypeActive = "item_familiar";
+      ItemFamiliar.wirePanel(idx, panel, d);
+      // Wire the comp-type selector so toggling AWAY from item_familiar
+      // triggers a panel re-render via the existing dispatch below.
+      const compTypeSel = panel.querySelector(".comp-type");
+      if (compTypeSel) {
+        compTypeSel.addEventListener("change", (ev) => {
+          if (compTypeSel.value !== "item_familiar") {
+            // Re-render: swap to the creature-companion layout.
+            const newData = { ...d, compType: compTypeSel.value };
+            panel.dataset.compTypeActive = "";
+            panel.innerHTML = buildCompanionHTML(idx, newData);
+            wireCompanion(idx, panel, newData);
+          }
+        });
+      }
+      return;
+    }
+    // For creature-style companions, mark the dataset too so the
+    // active-type registry is consistent.
+    panel.dataset.compTypeActive = d.compType || "animal";
+
     // Recalc on any input
     panel.addEventListener("input", () => recalcCompanion(panel));
     panel.addEventListener("change", () => recalcCompanion(panel));
@@ -226,6 +262,15 @@ const Companion = (function () {
     if (compTypeSel) {
       compTypeSel.addEventListener("change", (ev) => {
         if (ev.isTrusted) compTypeSel.dataset.userSet = "1";
+        // Item Familiar: swap to the dedicated layout when the value
+        // changes to "item_familiar" (user-trusted OR programmatic —
+        // the layout swap is idempotent + safe either way).
+        if (compTypeSel.value === "item_familiar"
+            && typeof ItemFamiliar !== "undefined") {
+          const newData = { ...d, compType: "item_familiar" };
+          panel.innerHTML = buildCompanionHTML(idx, newData);
+          wireCompanion(idx, panel, newData);
+        }
       });
       // If we're loading an existing companion that had a non-default
       // type stored, treat that as user-set so we don't clobber it.
@@ -1639,6 +1684,17 @@ const Companion = (function () {
       const idx = btn.dataset.compIdx;
       const panel = $(`#companion-${idx}`);
       if (!panel) return;
+      // Item Familiar: delegate to the item-familiar module.
+      // (Its collectData returns a self-contained dict; we tack the
+      // tab `name` on top.)
+      const compTypeCur = panel.querySelector(".comp-type")?.value || "";
+      if (compTypeCur === "item_familiar"
+          && typeof ItemFamiliar !== "undefined") {
+        const ifamData = ItemFamiliar.collectData(panel);
+        ifamData.name = btn.textContent.replace("×", "").trim();
+        companions.push(ifamData);
+        return;
+      }
       const d = {};
       d.name = btn.textContent.replace("×", "").trim();
       d.compName = panel.querySelector(".comp-name")?.value || "";
@@ -1710,6 +1766,7 @@ const Companion = (function () {
       "Familiar":         "familiar",
       "Cohort":           "cohort",
       "Psicrystal":       "psicrystal",
+      "Item Familiar":    "item_familiar",
       "Other":            "other",
     };
     return TEXT_TO_KEY[v] || v;

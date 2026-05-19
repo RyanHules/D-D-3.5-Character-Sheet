@@ -208,6 +208,13 @@ const Skills = (function () {
   function recalc(getAbilityMod) {
     const acPenalty = int($("#armor-check-penalty").value);
     const equipSkillBonuses = (typeof Equipment !== "undefined" && Equipment.getSkillBonuses) ? Equipment.getSkillBonuses() : {};
+    // Item-familiar bonuses (UA pp.170-171): each invested-skill-rank
+    // group grants +1 bonuses that can be applied to any skill,
+    // bypassing the max-ranks cap. Returns a {skill_name_lower:
+    // bonus_total} map.
+    const itemFamiliarSkillBonuses = (typeof ItemFamiliar !== "undefined"
+      && ItemFamiliar.getAllSkillBonuses)
+      ? ItemFamiliar.getAllSkillBonuses() : {};
 
     // First pass: gather all skill ranks for synergy calculation
     const rankMap = {};
@@ -298,8 +305,10 @@ const Skills = (function () {
 
       // Equipment skill bonuses (from worn magic items)
       const equipBonus = equipSkillBonuses[skillName] || 0;
+      // Item Familiar skill bonuses (lowercased lookup).
+      const ifamBonus = itemFamiliarSkillBonuses[(skillName || "").toLowerCase()] || 0;
 
-      const total = abilityMod + ranks + misc + penalty + synergyBonus + equipBonus;
+      const total = abilityMod + ranks + misc + penalty + synergyBonus + equipBonus + ifamBonus;
       const abilityModEl = row.querySelector(".skill-ability-mod");
       if (abilityModEl) abilityModEl.textContent = fmt(abilityMod);
       const totalEl = row.querySelector(".skill-total");
@@ -314,17 +323,21 @@ const Skills = (function () {
         totalEl.textContent = (trainedOnly && ranks === 0) ? "NR" : fmt(total);
       }
 
-      // Show synergy info badges (unconditional only)
+      // Show synergy info badges (unconditional only). Append an
+      // item-familiar badge when an applicable bonus is in play.
       const synInfoEl = row.querySelector(".synergy-info");
       if (synInfoEl) {
-        if (unconditional.length > 0) {
-          const badges = unconditional.map(s =>
-            `<span class="synergy-badge" title="${s.from}: +${s.bonus}">+${s.bonus} ${s.from}</span>`
-          ).join("");
-          synInfoEl.innerHTML = badges;
-        } else {
-          synInfoEl.innerHTML = "";
+        const badges = [];
+        for (const s of unconditional) {
+          badges.push(`<span class="synergy-badge" title="${s.from}: +${s.bonus}">+${s.bonus} ${s.from}</span>`);
         }
+        if (ifamBonus > 0) {
+          badges.push(
+            `<span class="synergy-badge" style="background:rgba(180,140,230,0.15);border-color:rgba(180,140,230,0.5)" ` +
+            `title="Item familiar bonus (UA): bypass max-ranks cap">` +
+            `+${ifamBonus} item familiar</span>`);
+        }
+        synInfoEl.innerHTML = badges.join("");
       }
 
       // Auto-populate situational synergies into the skill's notes

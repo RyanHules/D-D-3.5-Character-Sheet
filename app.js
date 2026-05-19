@@ -527,6 +527,9 @@
 
   // Conditions-changed event → re-aggregate bonuses + recalc.
   document.addEventListener("conditions-changed", recalcAll);
+  // Item-familiar-changed: skill bonuses / bonus slots / XP multiplier
+  // can shift, so refresh every tab's recalcs.
+  document.addEventListener("item-familiar-changed", recalcAll);
 
   updateCharacterSelect();
   recalcAll();
