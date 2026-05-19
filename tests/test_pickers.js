@@ -1494,6 +1494,49 @@ test('metamagic: every Metamagic feat has level_adjustment', (db) => {
     `the regex extractor in extract_level_adjustment() picks them up.`);
 });
 
+test('metamagic-preparer: module exposes expected public API', () => {
+  // Static smoke test — verifies the v1-followup metamagic-preparer
+  // module loads, declares its window assignment, and provides the
+  // expected helpers. The runtime UI behavior (popover render,
+  // checkbox->level math, prepared-textarea write) is exercised by
+  // the playfeel suite, not here.
+  const src = readSource('metamagic-preparer.js');
+  assert(/window\.MetamagicPreparer\s*=/.test(src),
+    'metamagic-preparer.js must assign to window.MetamagicPreparer.');
+  for (const fn of ['open', 'characterHasAnyMetamagic',
+                    'readCharacterMetamagicFeats', 'adjectiveFor']) {
+    assert(src.includes(`${fn}`),
+      `metamagic-preparer.js missing ${fn} in public API.`);
+  }
+  // Sanity-check the past-participle map: every PHB metamagic feat
+  // (the 8 base + Heighten) must have an adjective.
+  for (const feat of ['Empower Spell', 'Maximize Spell', 'Quicken Spell',
+                      'Extend Spell', 'Silent Spell', 'Still Spell',
+                      'Enlarge Spell', 'Widen Spell', 'Heighten Spell']) {
+    assert(src.includes(`"${feat}":`),
+      `metamagic-preparer.js ADJECTIVE map missing "${feat}".`);
+  }
+  // Spells.js must export lookupMetamagicFromDB so the preparer can
+  // share the DB-first / catalog-fallback lookup.
+  const spellsSrc = readSource('spells.js');
+  assert(/lookupMetamagicFromDB[\s,}]/.test(spellsSrc.split('return {').pop() || ''),
+    'spells.js public API must export lookupMetamagicFromDB.');
+});
+
+test('metamagic-preparer: spells.js wires the ✨ button on Known rows', () => {
+  // Regression guard for the v1 follow-up wiring. The button must:
+  //   - exist in createKnownRow's row.innerHTML
+  //   - have a click listener that calls MetamagicPreparer.open
+  //   - be conditionally shown via refreshKnownRowMetamagicVis
+  const src = readSource('spells.js');
+  assert(src.includes('sc-known-mm'),
+    'spells.js missing sc-known-mm button class.');
+  assert(src.includes('MetamagicPreparer.open'),
+    'spells.js must invoke MetamagicPreparer.open from the ✨ click handler.');
+  assert(src.includes('refreshKnownRowMetamagicVis'),
+    'spells.js missing the per-row ✨ visibility refresh helper.');
+});
+
 test('metamagic: level_adjustment values are integer 0-9 or "variable"', (db) => {
   const rows = execAll(db,
     "SELECT name, " +
@@ -1970,6 +2013,7 @@ test('audit: no window.X guards on top-level const modules', () => {
   // as window.X). Add any new explicit-window-assignment modules here.
   const ON_WINDOW = new Set([
     'DB', 'ClassPicker', 'ErrataBadge', 'Lookup', 'MetamagicCatalog',
+    'MetamagicPreparer',
     // Built-in / non-module references that should never trigger:
     'document', 'requestAnimationFrame', 'localStorage', 'location',
   ]);

@@ -52,6 +52,8 @@ const Spells = (function () {
       wireLevelTabs(panel);
       wireSpecialistDomainToggles(panel);
       refreshMetamagicReference(panel);
+      // Sync ✨ button visibility for any rows created during build.
+      refreshAllKnownRowMetamagicVis();
     } else if (type === "psionics") {
       panel.innerHTML = notesHTML + buildPsionicsHTML(idx, data);
       container.appendChild(panel);
@@ -380,11 +382,18 @@ const Spells = (function () {
           )} — doesn't count toward Known cap">★</span>`
         : '') +
       `<button class="btn-feat-info sc-known-info" title="Show rules">ⓘ</button>` +
+      // ✨ Metamagic-preparer button: opens an inline picker that
+      // lets the player apply metamagic feats while copying the
+      // spell to Prepared. Shown only when the character has at
+      // least one metamagic feat (refreshKnownRowMetamagicVis below).
+      `<button class="btn-feat-info sc-known-mm" title="Prepare with metamagic" ` +
+      `style="display:none">&#10024;</button>` +
       `<button class="btn-feat-info sc-known-to-prep" title="Copy to Prepared">&rarr;</button>` +
       `<button class="btn-remove sc-known-remove" title="Remove">X</button>`;
     listEl.appendChild(row);
     const nameInput = row.querySelector(".sc-known-name");
     const infoBtn   = row.querySelector(".sc-known-info");
+    const mmBtn     = row.querySelector(".sc-known-mm");
     const prepBtn   = row.querySelector(".sc-known-to-prep");
     const rmBtn     = row.querySelector(".sc-known-remove");
     const panel = listEl.closest(".inner-tab-content");
@@ -398,7 +407,18 @@ const Spells = (function () {
       updateKnownCount(panel, lvl);
     });
     infoBtn.addEventListener("click", () => toggleKnownRules(row, nameInput.value));
+    mmBtn.addEventListener("click", () => {
+      if (!window.MetamagicPreparer) return;
+      MetamagicPreparer.open({
+        panel,
+        anchorRow: row,
+        baseLevel: lvl,
+        spellName: nameInput.value,
+      });
+    });
     prepBtn.addEventListener("click", () => copyKnownToPrepared(panel, lvl, nameInput.value));
+    // Show/hide ✨ based on current metamagic-feat availability.
+    refreshKnownRowMetamagicVis(row);
     rmBtn.addEventListener("click", () => {
       row.remove();
       updateKnownCount(panel, lvl);
@@ -414,6 +434,35 @@ const Spells = (function () {
     return String(s || "")
       .replace(/&/g, "&amp;").replace(/"/g, "&quot;")
       .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Show / hide the ✨ button on a single Known row based on whether
+  // the character currently has any metamagic feats. Idempotent — safe
+  // to call repeatedly (e.g. on Feats-tab edits and on row creation).
+  function refreshKnownRowMetamagicVis(row) {
+    if (!row) return;
+    const btn = row.querySelector(".sc-known-mm");
+    if (!btn) return;
+    const hasMM = window.MetamagicPreparer
+      && MetamagicPreparer.characterHasAnyMetamagic();
+    btn.style.display = hasMM ? "" : "none";
+    // If the character lost all metamagic feats while a picker was
+    // open on this row, close the stale picker.
+    if (!hasMM) {
+      const open = row.querySelector(".sc-mm-prep");
+      if (open) {
+        open.remove();
+        btn.classList.remove("active");
+      }
+    }
+  }
+
+  // Refresh ✨ visibility across every Known row in every spellcasting
+  // panel. Called from the existing Feats-tab live-refresh listener
+  // (see refreshMetamagicReference, line ~1707).
+  function refreshAllKnownRowMetamagicVis() {
+    document.querySelectorAll(".sc-known-row")
+      .forEach(refreshKnownRowMetamagicVis);
   }
 
   // Update the "(N / cap)" header counter. Cap comes from the slots
@@ -1708,6 +1757,9 @@ const Spells = (function () {
     if (e.target?.closest?.("#tab-feats")) {
       document.querySelectorAll("[data-caster-type='spellcasting']")
         .forEach(refreshMetamagicReference);
+      // Also refresh the per-row ✨ button visibility — gaining or
+      // losing a metamagic feat should immediately toggle it.
+      refreshAllKnownRowMetamagicVis();
     }
   });
   // Also refresh whenever the panel notes change (since the
@@ -1728,5 +1780,10 @@ const Spells = (function () {
     collectData,
     loadData,
     addKnownSpell,
+    // Exposed for metamagic-preparer.js (lets the preparer reuse the
+    // same DB-first / catalog-fallback lookup that the Reference panel
+    // uses, so the two stay in lockstep).
+    lookupMetamagicFromDB,
+    refreshMetamagicReference,
   };
 })();

@@ -1683,6 +1683,29 @@ textarea {
   /* Inherits from .feat-rules, but force full-row wrap. */
   flex: 1 1 100%;
 }
+/* ✨ metamagic-preparer button on Known rows. Same shape as .ⓘ /
+   ⨯ but with a slightly more saturated tint so it reads as a
+   "spell-modifier" affordance, not a generic info button. */
+.sc-known-row .sc-known-mm {
+  flex-shrink: 0;
+  padding: 0.2rem 0.45rem;
+  line-height: 1;
+}
+.sc-known-row .sc-known-mm.active {
+  background: rgba(180, 150, 230, 0.25);
+  border-color: rgba(180, 150, 230, 0.6);
+}
+.sc-mm-prep .sc-mm-feat {
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+}
+.sc-mm-prep .sc-mm-feat:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.sc-mm-prep .sc-mm-eff-lvl {
+  font-size: 1.1em;
+  color: #eef;
+}
 .sc-known-count {
   font-size: 0.8em;
   color: var(--text-muted);
