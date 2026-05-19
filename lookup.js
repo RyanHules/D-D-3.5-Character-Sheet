@@ -44,6 +44,11 @@
   const typeCounts = new Map();
   // Set of active type filters (empty = no filter).
   const activeTypes = new Set();
+  // Lowercase book abbreviation → lowercase full book name. Used by the
+  // @source:DMG / source:DMG filter to match against entries that carry
+  // the full source string ("Dungeon Master's Guide"). Without this,
+  // typing the abbreviation never matches; populated in buildIndex.
+  let bookAbbrevMap = new Map();
 
   // The 8 chips shown by default; everything else is grouped under
   // a "More…" expander. Order is tuned for player-facing utility.
@@ -880,6 +885,20 @@
       if (!tagsById.has(r.entry_id)) tagsById.set(r.entry_id, new Set());
       tagsById.get(r.entry_id).add(r.tag);
     }
+    // Build an abbreviation→full-name map so @source:DMG matches
+    // entries whose source is "Dungeon Master's Guide" (and similar).
+    // Without this, the user-natural query @source:DMG fails because
+    // entry.source carries the full book name, not the abbreviation.
+    const bookRows = DB.query("SELECT name, abbreviation FROM book");
+    bookAbbrevMap = new Map();   // lowercase abbrev → lowercase full name
+    for (const b of bookRows) {
+      if (b.abbreviation) {
+        bookAbbrevMap.set(
+          b.abbreviation.toLowerCase(),
+          (b.name || '').toLowerCase()
+        );
+      }
+    }
     typeCounts.clear();
     entries = rows.map(r => {
       const nameKey = squash(r.name);
@@ -987,7 +1006,15 @@
       const src = (entry.source || '').toLowerCase();
       let ok = false;
       for (const s of parsed.sources) {
+        // Direct substring match against the full source string handles
+        // "@source:dungeon" / "@source:realms" / etc.
         if (src.includes(s)) { ok = true; break; }
+        // Abbreviation match: @source:DMG should match entries whose
+        // source is "Dungeon Master's Guide". The bookAbbrevMap is
+        // {dmg: "dungeon master's guide", ...}. If `s` resolves to a
+        // book name AND entry.source matches that name, it's a hit.
+        const fullName = bookAbbrevMap.get(s);
+        if (fullName && src === fullName) { ok = true; break; }
       }
       if (!ok) return 0;
     }
@@ -998,32 +1025,36 @@
     // Tiered scoring on the name:
     //   100 — exact match
     //    80 — prefix match
-    //    60 — word-boundary contains match
-    //    40 — anywhere contains
-    //    35 — exact tag match (typing "metamagic" surfaces all
+    //    65 — exact tag match (typing "metamagic" surfaces all
     //         entries tagged metamagic, even if the name doesn't
-    //         contain the word). Placed below name-contains so
-    //         entries with the word in their NAME still rank higher
-    //         than entries with the word only as a tag.
-    //    25 — partial tag match (q appears inside a tag name, e.g.
-    //         "mind" matching "mind-affecting"; or a tag contains q)
+    //         contain the word). Placed between word-boundary
+    //         (60) and prefix (80) — an entry tagged X is more
+    //         relevant than a name-substring hit when the user is
+    //         clearly searching for a tag.
+    //    60 — word-boundary contains match in name
+    //    50 — partial tag match (q is a prefix or substring of a
+    //         tag name, e.g. "fighter" matching "fighter-bonus";
+    //         or a tag's name contains q). Above name-contains so
+    //         the dozens of fighter-bonus feats surface before
+    //         random entries whose name happens to contain
+    //         "fighter".
+    //    40 — anywhere contains in name
     //    20 — searchKey contains (type/source fallback)
     //    10 — bodyKey contains (description/benefit/effect full-text)
     if (entry.nameKey === q) return 100;
     if (entry.nameKey.startsWith(q)) return 80;
+    for (const tag of entry.tags) {
+      if (tag === q) return 65;
+    }
     // Word boundary: " " + q must appear, OR nameKey starts with q.
     if ((' ' + entry.nameKey).includes(' ' + q)) return 60;
+    // Partial tag matches — tag-name prefix or substring of q.
+    // Tag names use dashes ("fighter-bonus"); the bare q is alphanumeric
+    // ("fighter"), so use raw includes both directions.
+    for (const tag of entry.tags) {
+      if (tag.startsWith(q + '-') || tag.includes(q) || q.includes(tag)) return 50;
+    }
     if (entry.nameKey.includes(q)) return 40;
-    // Tag matches — exact tag wins over partial tag. Tag names are
-    // already lowercased + dash-joined ("mind-affecting") so the
-    // squashed q ("mindaffecting" or "mind") needs to be checked
-    // against tag names with their dashes intact.
-    for (const tag of entry.tags) {
-      if (tag === q) return 35;
-    }
-    for (const tag of entry.tags) {
-      if (tag.includes(q) || q.includes(tag)) return 25;
-    }
     if (entry.searchKey.includes(q)) return 20;
     // Body-text fallback — least specific. Skip for very short queries
     // (<3 chars) to avoid swamping results with noise.
