@@ -1637,6 +1637,16 @@ test('item-familiar: module loads + exposes Companion-integration API', () => {
   const character = readSource('character.js');
   assert(character.includes('ItemFamiliar.getXpMultiplier'),
     'character.js must apply item-familiar XP multiplier.');
+  // Weight contribution: equipment.js must include item-familiar
+  // weight in carry-weight aggregation. The bonded item is still
+  // a physical object the character has to carry.
+  const equip = readSource('equipment.js');
+  assert(equip.includes('ItemFamiliar.getTotalWeight'),
+    'equipment.js recalcWeight must include item-familiar weight.');
+  assert(src.includes('ifam-item-weight'),
+    'item-familiar.js panel must include a weight input field.');
+  assert(src.includes('getTotalWeight'),
+    'item-familiar.js must expose getTotalWeight.');
 
   // Module-loader order: item-familiar.js must load before companion.js
   // since companion.js's render branches on ItemFamiliar.

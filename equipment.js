@@ -501,6 +501,13 @@ const Equipment = (function () {
     $$("#magic-items-container .magic-item-entry").forEach((entry) => {
       totalWeight += parseFloat(entry.querySelector(".mi-weight")?.value) || 0;
     });
+    // Item Familiars: the bonded item is still a physical object that
+    // the character has to carry. Aggregates across all item-familiar
+    // panels, filtered by carried + not-lost status (a lost item
+    // familiar weighs 0 against the master since it's not on them).
+    if (typeof ItemFamiliar !== "undefined" && ItemFamiliar.getTotalWeight) {
+      totalWeight += ItemFamiliar.getTotalWeight();
+    }
     // Coin weight: per PHB, 50 coins of any type weigh 1 lb.
     const coinCount = ["money-cp", "money-sp", "money-gp", "money-pp"]
       .reduce((sum, id) => sum + (parseInt($(`#${id}`)?.value) || 0), 0);

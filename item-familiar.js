@@ -131,6 +131,11 @@
                  value="${esc(d.ifamItemPrice || "")}"
                  title="Must be ≥2,000 gp (UA p.170).">
         </div>
+        <div class="field field-sm"><label>Weight (lb)</label>
+          <input type="number" class="ifam-item-weight" min="0" step="0.1"
+                 value="${esc(d.ifamItemWeight ?? "")}"
+                 title="Item still has weight — it has to be carried like any other piece of gear. Counts toward the carry-weight total on the Equipment tab.">
+        </div>
         <div class="field"><label>Alignment</label>
           <input type="text" class="ifam-alignment"
                  value="${esc(d.ifamAlignment || "")}"
@@ -436,6 +441,7 @@
        || e.target.classList.contains("ifam-sapience-wis")
        || e.target.classList.contains("ifam-sapience-cha")
        || e.target.classList.contains("ifam-item-price")
+       || e.target.classList.contains("ifam-item-weight")
        || e.target.classList.contains("ifam-life-invested")
        || e.target.classList.contains("ifam-lost")
        || e.target.classList.contains("ifam-carried")
@@ -444,6 +450,14 @@
         // Cross-tab refreshes: skills.js + spells.js + character.js
         // need to know we changed.
         notifyItemFamiliarChanged();
+        // Encumbrance: the weight, carried-status, and lost-status
+        // toggles all affect the carry weight on the Equipment tab.
+        if ((e.target.classList.contains("ifam-item-weight")
+          || e.target.classList.contains("ifam-carried")
+          || e.target.classList.contains("ifam-lost"))
+          && typeof Equipment !== "undefined" && Equipment.recalcWeight) {
+          Equipment.recalcWeight();
+        }
       }
     });
     // First pass.
@@ -580,6 +594,7 @@
       compName: panel.querySelector(".comp-name")?.value || "",
       ifamItemName: panel.querySelector(".ifam-item-name")?.value || "",
       ifamItemPrice: int(panel.querySelector(".ifam-item-price")?.value),
+      ifamItemWeight: parseFloat(panel.querySelector(".ifam-item-weight")?.value) || 0,
       ifamItemNotes: panel.querySelector(".ifam-item-notes")?.value || "",
       ifamAlignment: panel.querySelector(".ifam-alignment")?.value || "",
       ifamCarried: panel.querySelector(".ifam-carried")?.checked,
@@ -661,6 +676,22 @@
     return out;
   }
 
+  // Total weight from all item-familiar panels. Even a "lost" item
+  // familiar contributes 0 weight (it's not on the character), so
+  // the carried-vs-lost filter applies. Equipment.recalcWeight()
+  // calls this and folds the total into encumbrance.
+  function getTotalWeight() {
+    let total = 0;
+    getAllItemFamiliarPanels().forEach(panel => {
+      const lost = panel.querySelector(".ifam-lost")?.checked === true;
+      const carried = panel.querySelector(".ifam-carried")?.checked !== false;
+      if (lost || !carried) return;
+      const w = parseFloat(panel.querySelector(".ifam-item-weight")?.value) || 0;
+      total += w;
+    });
+    return total;
+  }
+
   // XP multiplier from item familiars with Life Energy invested.
   // Stacks multiplicatively if the character has multiple item
   // familiars with Life Energy (rare but possible per UA — though
@@ -740,6 +771,7 @@
     getAllSkillBonuses,
     getAllSpellSlotBonuses,
     getXpMultiplier,
+    getTotalWeight,
     onItemFamiliarChanged,
     notifyItemFamiliarChanged,
     // Surfaced rules constants — let tests verify.
