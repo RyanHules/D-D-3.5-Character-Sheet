@@ -106,7 +106,7 @@
     {
       "className": "Durthan",
       "level": 3,
-      "classId": 15843,
+      "classId": 16013,
       "version": "3.5",
       "source": "Unapproachable East",
       "advancesTypes": [
@@ -120,7 +120,7 @@
     {
       "className": "Sand Shaper",
       "level": 1,
-      "classId": 12959,
+      "classId": 13007,
       "version": "3.5",
       "source": "Sandstorm"
     }
@@ -135,8 +135,8 @@
   "armor-speed": "",
   "armor-weight": "",
   "armor-special": "Force effect, applies to incorporeal",
-  "shield-name": "",
-  "shield-ac-bonus": "0",
+  "shield-name": "Shield",
+  "shield-ac-bonus": "4",
   "shield-weight": "",
   "shield-check-pen": "0",
   "shield-spell-fail": "0",
@@ -359,7 +359,7 @@
         "Arcane Mark",
         "Mending"
       ],
-      "prepared-0": "",
+      "preparedList-0": [],
       "known-1": "5",
       "perDay-1": "4",
       "bonus-1": "2",
@@ -407,7 +407,7 @@
           "source": "Sand Shaper — Desert Insight"
         }
       ],
-      "prepared-1": "",
+      "preparedList-1": [],
       "domain-1": "",
       "specialist-1": "",
       "known-2": "3",
@@ -455,7 +455,7 @@
           "source": "Sand Shaper — Desert Insight"
         }
       ],
-      "prepared-2": "",
+      "preparedList-2": [],
       "domain-2": "",
       "specialist-2": "",
       "known-3": "2",
@@ -517,7 +517,7 @@
           "source": "Sand Shaper — Desert Insight"
         }
       ],
-      "prepared-3": "",
+      "preparedList-3": [],
       "domain-3": "",
       "specialist-3": "",
       "known-4": "",
@@ -534,7 +534,7 @@
         "Wither",
         "Divine:"
       ],
-      "prepared-4": "",
+      "preparedList-4": [],
       "domain-4": "",
       "specialist-4": "",
       "known-5": "",
@@ -553,7 +553,7 @@
         "Transmute Stone to Sand",
         "Divine:"
       ],
-      "prepared-5": "",
+      "preparedList-5": [],
       "domain-5": "",
       "specialist-5": "",
       "known-6": "",
@@ -570,7 +570,7 @@
         "Summon Desert Ally VI",
         "Divine:"
       ],
-      "prepared-6": "",
+      "preparedList-6": [],
       "domain-6": "",
       "specialist-6": "",
       "known-7": "",
@@ -585,7 +585,7 @@
         "Summon Desert Ally VII",
         "Divine:"
       ],
-      "prepared-7": "",
+      "preparedList-7": [],
       "domain-7": "",
       "specialist-7": "",
       "known-8": "",
@@ -600,7 +600,7 @@
         "Whirlwind",
         "Divine:"
       ],
-      "prepared-8": "",
+      "preparedList-8": [],
       "domain-8": "",
       "specialist-8": "",
       "known-9": "",
@@ -614,7 +614,7 @@
         "Summon Desert Ally IX",
         "Divine:"
       ],
-      "prepared-9": "",
+      "preparedList-9": [],
       "domain-9": "",
       "specialist-9": ""
     }
@@ -850,7 +850,7 @@
       "compType": "item_familiar",
       "compName": "",
       "ifamItemName": "Jar of Infinite Haboob",
-      "ifamItemPrice": 0,
+      "ifamItemPrice": 5000,
       "ifamItemWeight": 15,
       "ifamItemNotes": "Haboob at will (Use-activated)",
       "ifamAlignment": "",
@@ -873,6 +873,10 @@
         {
           "skill": "Survival",
           "ranks": 5
+        },
+        {
+          "skill": "Knowledge (Durthan Area)",
+          "ranks": 2
         }
       ],
       "skillBonusesApplied": [
