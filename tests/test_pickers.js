@@ -1438,6 +1438,14 @@ test('companion: every relevant class feature has metadata or explicit exclusion
     // "Leadership" feature buffs the Leadership feat's LCL bonus —
     // doesn't grant/advance a companion/mount/familiar itself.
     'Legendary Captain/Leadership',
+    // 2026-05-19 Dungeonscape extraction: Beast Heart Adept's
+    // "Alternative Monstrous Companion" just adds higher-HD
+    // creature options to the existing bond, doesn't grant a new
+    // one. "Bound to a Dungeon" is the Dungeon Lord's
+    // restriction clause (PrC powers turn off outside the bound
+    // dungeon), not a companion-granting feature.
+    'Beast Heart Adept/Alternative Monstrous Companion',
+    'Dungeon Lord/Bound to a Dungeon',
   ]);
 
   const rows = execAll(db,
