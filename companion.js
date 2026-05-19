@@ -233,6 +233,11 @@ const Companion = (function () {
       // triggers a panel re-render via the existing dispatch below.
       const compTypeSel = panel.querySelector(".comp-type");
       if (compTypeSel) {
+        // CRITICAL: stamp userSet so the global `classes-changed`
+        // listener (line ~1856) doesn't silently bump comp-type back
+        // to the auto-default when classes are added / removed. The
+        // user explicitly picked item_familiar; don't override.
+        compTypeSel.dataset.userSet = "1";
         compTypeSel.addEventListener("change", (ev) => {
           if (compTypeSel.value !== "item_familiar") {
             // Re-render: swap to the creature-companion layout.

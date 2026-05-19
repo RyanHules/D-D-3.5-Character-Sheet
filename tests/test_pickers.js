@@ -1657,6 +1657,17 @@ test('item-familiar: module loads + exposes Companion-integration API', () => {
   assert(src.includes('ifam-slot-auto'),
     'item-familiar.js panel must include the ↻ re-sync button on slot rows.');
 
+  // Regression guard for the 2026-05-19 bug: changing classes (e.g.
+  // adding/removing a class level via class-picker) was silently
+  // bumping the comp-type away from item_familiar back to the
+  // class-default (animal/familiar/cohort) because companion.js's
+  // classes-changed handler auto-defaults the dropdown when
+  // `dataset.userSet` isn't stamped. The item-familiar wire path
+  // must stamp `userSet="1"` to lock the choice.
+  assert(/ItemFamiliar\.isItemFamiliarType[\s\S]{0,800}userSet/.test(comp),
+    'companion.js item-familiar branch must stamp dataset.userSet on the comp-type select ' +
+    '(otherwise classes-changed silently bumps it back to a creature companion).');
+
   // Module-loader order: item-familiar.js must load before companion.js
   // since companion.js's render branches on ItemFamiliar.
   const html = readSource('index.html');
