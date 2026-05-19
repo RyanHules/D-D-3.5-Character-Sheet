@@ -1698,27 +1698,68 @@ test('metamagic-preparer v2 Phase C-a: per-class reductions table exposed', () =
     'metamagic-preparer.js computeAdjustments must apply class reductions.');
 });
 
-test('metamagic-preparer v2 Phase C-b: prepared-line parse + render helpers', () => {
-  // parsePreparedLine + renderPreparedLine inverse-round-trip the
-  // textarea representation of a prepared spell. Used by the
-  // "Edit metamagic on a prepared spell" affordance.
+test('metamagic-preparer v2 Phase C: prepared-line parse + render helpers', () => {
+  // parsePreparedLine + renderPreparedLine survive from C-b — they
+  // power the legacy `prepared-${i}` string migration in loadData
+  // (textarea-format saves → structured rows on load).
   const src = readSource('metamagic-preparer.js');
   for (const fn of ['parsePreparedLine', 'renderPreparedLine']) {
     assert(src.includes(fn),
-      `metamagic-preparer.js must export ${fn} for v2 Phase C-b.`);
+      `metamagic-preparer.js must export ${fn} for v2 Phase C.`);
   }
-  // spells.js must render the "Edit metamagic on a prepared spell"
-  // button + the per-level visibility refresh helper.
-  const spellsSrc = readSource('spells.js');
-  assert(spellsSrc.includes('sc-edit-prepared-mm'),
-    'spells.js missing the Edit-metamagic-on-prepared button.');
-  assert(spellsSrc.includes('refreshEditPreparedMMVisibility'),
-    'spells.js missing refreshEditPreparedMMVisibility helper.');
-  assert(spellsSrc.includes('openPreparedEditPicker'),
-    'spells.js missing openPreparedEditPicker interstitial.');
-  // The preparer must accept prepopulate + onPrepare opts.
+  // The preparer must accept prepopulate + onPrepare opts (the Edit
+  // affordance reopens the picker pre-populated from the row's data).
   assert(/prepopulate/.test(src) && /onPrepare/.test(src),
     'metamagic-preparer.js open() must accept prepopulate + onPrepare opts.');
+});
+
+test('metamagic v2 Phase C structural restructure: Prepared is a structured row list', () => {
+  // v2 Phase C (2026-05-19) replaced the per-level Prepared textarea
+  // with a structured row list (mirroring the Known column). Each row
+  // carries its metamagic state in data-* attributes so the ✏ button
+  // can reopen the preparer pre-populated.
+  const spellsSrc = readSource('spells.js');
+  // No more .sc-spell-prepared textarea references.
+  assert(!/\.sc-spell-prepared/.test(spellsSrc),
+    'spells.js must not reference the obsolete .sc-spell-prepared ' +
+    'textarea — Prepared is now a structured row list.');
+  // Structured-row scaffold: list container + add button + per-row
+  // builder + public addPreparedSpell API.
+  for (const needle of ['sc-prepared-list', 'sc-add-prepared',
+                        'sc-prepared-row', 'createPreparedRow',
+                        'addPreparedSpell', 'openEditMetamagicOnRow']) {
+    assert(spellsSrc.includes(needle),
+      `spells.js missing v2 Phase C symbol: ${needle}`);
+  }
+  // Row state lives in data-* attributes — verify the names match
+  // what the preparer's edit path reads back.
+  for (const needle of ['data-metamagic', 'dataset.base',
+                        'dataset.metamagic', 'dataset.sanctumIn',
+                        'dataset.heightenTarget']) {
+    assert(spellsSrc.includes(needle),
+      `spells.js Prepared row missing data attribute: ${needle}`);
+  }
+  // Save round-trip uses preparedList-${i} arrays (new) with legacy
+  // prepared-${i} string fallback in loadData.
+  assert(/preparedList-\$\{i\}/.test(spellsSrc),
+    'spells.js must persist Prepared as a `preparedList-${i}` array.');
+  assert(/prepared-\$\{i\}/.test(spellsSrc),
+    'spells.js loadData must still accept the legacy `prepared-${i}` ' +
+    'string for one-shot migration.');
+  // The MetamagicPreparer must call Spells.addPreparedSpell on save
+  // so the structured row keeps its picker state.
+  const prepSrc = readSource('metamagic-preparer.js');
+  assert(/Spells\.addPreparedSpell/.test(prepSrc),
+    'metamagic-preparer.js must call Spells.addPreparedSpell to ' +
+    'write structured rows (not textarea lines).');
+  // The dead refreshEditPreparedMMVisibility / openPreparedEditPicker
+  // helpers must be gone — the ✏ button is per-row now.
+  assert(!/refreshEditPreparedMMVisibility/.test(spellsSrc),
+    'spells.js must drop refreshEditPreparedMMVisibility — the ' +
+    '✏ Edit button now lives directly on each .sc-prepared-row.');
+  assert(!/openPreparedEditPicker/.test(spellsSrc),
+    'spells.js must drop openPreparedEditPicker — use ' +
+    'openEditMetamagicOnRow on the structured row instead.');
 });
 
 test('metamagic-preparer v2 Phase B: Sudden* daily tracking exposed', () => {

@@ -9,9 +9,12 @@
 //     spellName,       // the raw spell name (e.g. "Fireball")
 //   });
 //
-// When the user clicks "Prepare", the modified spell line is appended
-// to the correct level's `.sc-spell-prepared` textarea (i.e. base +
-// total adjustments). The popover closes itself.
+// When the user clicks "Prepare", the modified spell is added as a
+// structured row in the correct level's `.sc-prepared-list` (i.e.
+// base + total adjustments), via Spells.addPreparedSpell. The popover
+// closes itself. v2 Phase C structural-restructure (2026-05-19)
+// switched from textarea append to structured row writes so per-row
+// metamagic state survives the round-trip.
 //
 // Heighten Spell is treated specially: it offers a target-level input
 // instead of a flat adjustment. Energy Substitution and similar "0
@@ -965,11 +968,18 @@
         return;
       }
 
-      // Append to the target level's Prepared textarea.
-      const ta = panel.querySelector(`.sc-spell-prepared[data-lvl="${effLvl}"]`);
-      if (!ta) {
+      // v2 Phase C structural-restructure: Prepared is no longer a
+      // textarea. Build a structured row via Spells.addPreparedSpell
+      // so the row's metamagic state is preserved for later editing.
+      if (typeof Spells === "undefined" || !Spells.addPreparedSpell) {
         warnEl.style.display = "";
-        warnEl.innerHTML = `⚠ No Prepared textarea found for level ${effLvl}. Add a spell level above level ${effLvl} first.`;
+        warnEl.innerHTML = "⚠ Spells module not ready; cannot prepare.";
+        return;
+      }
+      const listEl = panel.querySelector(`.sc-prepared-list[data-lvl="${effLvl}"]`);
+      if (!listEl) {
+        warnEl.style.display = "";
+        warnEl.innerHTML = `⚠ No Prepared list found for level ${effLvl}. Add a spell level above level ${effLvl} first.`;
         return;
       }
       // Auto-mark any Sudden* feats that were ticked as used. Only
@@ -983,9 +993,35 @@
         if (label.dataset.usedToday === "1") return;  // already used
         markFeatUsed(label.dataset.feat);
       });
-      const cur = ta.value;
-      ta.value = cur ? cur.replace(/\s+$/, "") + "\n" + modName : modName;
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      // Collect the active metamagic state from the picker for the
+      // structured row's dataset payload. Heighten / Sanctum carry
+      // additional per-row inputs.
+      const activeMM = [];
+      let heightenTarget = null;
+      let sanctumIn = false;
+      box.querySelectorAll(".sc-mm-feat").forEach((label) => {
+        const cb = label.querySelector(".sc-mm-feat-cb");
+        if (!cb || !cb.checked) return;
+        const featName = label.dataset.feat;
+        if (!featName) return;
+        activeMM.push(featName);
+        if (label.dataset.isHeighten === "1") {
+          const ht = label.querySelector(".sc-mm-var-target");
+          const v = ht ? parseInt(ht.value, 10) : NaN;
+          if (!isNaN(v)) heightenTarget = v;
+        }
+        if (label.dataset.isSanctum === "1") {
+          const dir = label.querySelector(".sc-mm-sanctum-ctx");
+          if (dir && dir.value === "in") sanctumIn = true;
+        }
+      });
+      Spells.addPreparedSpell(panel, effLvl, {
+        baseName: name,
+        metamagic: activeMM,
+        heightenTarget,
+        sanctumIn,
+        used: false,
+      });
       box.remove();
       const btn = anchorRow.querySelector(".sc-known-mm");
       if (btn) btn.classList.remove("active");

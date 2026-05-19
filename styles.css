@@ -1724,6 +1724,38 @@ textarea {
 .sc-prepared-count.sc-prepared-under { color: #c8a14a; }
 .sc-prepared-count.sc-prepared-over  { color: var(--danger); font-weight: bold; }
 
+/* === Prepared list structured rows (v2 Phase C, 2026-05-19) === */
+.sc-prepared-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.sc-prepared-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.sc-prepared-row .sc-prep-name {
+  flex: 1;
+  min-width: 8rem;
+}
+.sc-prepared-row .btn-feat-info,
+.sc-prepared-row .btn-remove {
+  flex-shrink: 0;
+  padding: 0.2rem 0.45rem;
+  line-height: 1;
+}
+/* Used-spell rows visually dim — same convention as a checked "used" box. */
+.sc-prepared-row .sc-prep-used:checked ~ .sc-prep-name {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.sc-prep-rules {
+  /* Inherits from .feat-rules, but force full-row wrap. */
+  flex: 1 1 100%;
+}
+
 /* Toggle the entire Known column off when Show Spells Known is unchecked. */
 .sc-no-known .sc-known-col { display: none; }
 /* When Known is hidden, Prepared takes the full panel width. */

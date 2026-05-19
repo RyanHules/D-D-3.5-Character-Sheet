@@ -12,7 +12,7 @@
 //   .sp-level    (input number)     — spell level 0..9 (or higher)
 //   .sp-spell    (input + datalist) — spell name autocomplete (filtered)
 //   .sp-add-known (button)          — append to .sc-spell-text[data-lvl=N]
-//   .sp-add-prep  (button)          — append to .sc-spell-prepared[data-lvl=N]
+//   .sp-add-prep  (button)          — add a row to .sc-prepared-list[data-lvl=N]
 //   .sp-info     (div)              — school, components, range, …
 //
 // The class column in `spell_class_level` is messy: a mix of full names
@@ -812,19 +812,52 @@
         flash(`Added "${name}" to L${baseLvl} Known.`, '#7a9');
         return;
       }
-      // Prepared path — apply any active metamagic. Route to the
-      // effective-level Prepared textarea with a bracketed suffix.
+      // Prepared path — apply any active metamagic. v2 Phase C
+      // structural restructure (2026-05-19): route through
+      // Spells.addPreparedSpell so the resulting row carries its
+      // metamagic state for later edit/round-trip.
       const r = effectiveMetamagic(baseLvl);
       const lvl = r.parts.length > 0 ? r.effectiveLevel : baseLvl;
-      const target = panel.querySelector(`.sc-spell-prepared[data-lvl="${lvl}"]`);
-      if (!target) {
+      const listEl = panel.querySelector(`.sc-prepared-list[data-lvl="${lvl}"]`);
+      if (!listEl) {
         flash(`No level ${lvl} Prepared list — try Add Spell Level first.`, '#a66');
         return;
+      }
+      if (typeof Spells !== 'undefined' &&
+          typeof Spells.addPreparedSpell === 'function') {
+        // Build the metamagic-state payload from the checked feats.
+        // Heighten target maps from the picker's per-feat target input;
+        // Sanctum direction isn't surfaced in the spell-picker (it has
+        // no in/out toggle), so default to false (out-of-sanctum = +1).
+        const metamagic = r.parts.map(p => p.name);
+        let heightenTarget = null;
+        for (const cb of mmOpts.querySelectorAll('.sp-mm-check')) {
+          if (!cb.checked) continue;
+          const meta = lookupMetamagic(cb.dataset.feat);
+          if (meta && meta.variableTarget) {
+            const num = mmOpts.querySelector(
+              `.sp-mm-target[data-feat="${cb.dataset.feat}"]`);
+            const t = parseInt(num?.value, 10);
+            if (!isNaN(t)) heightenTarget = t;
+          }
+        }
+        Spells.addPreparedSpell(panel, lvl, {
+          baseName: name, metamagic, heightenTarget,
+          sanctumIn: false, used: false,
+        });
+      } else {
+        // Fallback for the unlikely case Spells.addPreparedSpell isn't
+        // available yet — append a row directly.
+        const row = document.createElement('div');
+        row.className = 'sc-prepared-row';
+        row.innerHTML =
+          `<input type="checkbox" class="sc-prep-used">` +
+          `<input type="text" class="sc-prep-name" value="${name}">`;
+        listEl.appendChild(row);
       }
       const entry = r.suffixes.length
         ? `${name} [${r.suffixes.join(', ')}]`
         : name;
-      appendLine(target, entry);
       flash(
         r.suffixes.length
           ? `Added "${entry}" to L${lvl} Prepared.`

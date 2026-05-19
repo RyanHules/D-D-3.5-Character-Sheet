@@ -111,10 +111,17 @@ const Audit = (function () {
           if (r.dataset.freebie === '1') freebieCount++;
           else knownCount++;
         }
-        const prepText = panel.querySelector(
-          `.sc-spell-prepared[data-lvl="${i}"]`)?.value || '';
-        const preparedCount = prepText.split(/\r?\n/)
-          .filter(l => l.trim()).length;
+        // v2 Phase C structural-restructure (2026-05-19): Prepared
+        // is a list of structured rows now, not a textarea. Count
+        // rows whose name input is non-empty.
+        const prepRows = panel.querySelectorAll(
+          `.sc-prepared-list[data-lvl="${i}"] .sc-prepared-row`);
+        let preparedCount = 0;
+        for (const r of prepRows) {
+          if ((r.querySelector('.sc-prep-name')?.value || '').trim()) {
+            preparedCount++;
+          }
+        }
         c.levels.push({ level: i, total, used, cap, knownCount, preparedCount });
       }
       s.casters.push(c);
