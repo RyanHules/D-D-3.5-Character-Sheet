@@ -16,7 +16,7 @@
   "char-hair": "None",
   "char-skin": "Light Brown",
   "char-campaign": "",
-  "char-xp": "",
+  "char-xp": "21275",
   "char-speed": "30 (L), 10 (B)",
   "damage-reduction": "",
   "str-score": "14",
@@ -62,7 +62,7 @@
   "fort-magic": "0",
   "fort-misc": "1",
   "fort-temp": "0",
-  "ref-base": "4",
+  "ref-base": "2",
   "ref-magic": "0",
   "ref-misc": "1",
   "ref-temp": "0",
@@ -72,7 +72,7 @@
   "will-temp": "0",
   "save-conditional": "",
   "init-misc": "0",
-  "bab-1": "4",
+  "bab-1": "3",
   "grapple-misc": "0",
   "spell-resistance": "",
   "attacks": [
@@ -99,8 +99,30 @@
     {
       "className": "Sha'ir",
       "level": 3,
-      "classId": 2404,
-      "version": "3.5"
+      "classId": 2649,
+      "version": "3.5",
+      "source": "Dragon Compendium, Volume I"
+    },
+    {
+      "className": "Durthan",
+      "level": 3,
+      "classId": 15843,
+      "version": "3.5",
+      "source": "Unapproachable East",
+      "advancesTypes": [
+        "arcane"
+      ],
+      "advancesLevels": 3,
+      "advancesTargets": [
+        "Sha'ir"
+      ]
+    },
+    {
+      "className": "Sand Shaper",
+      "level": 1,
+      "classId": 12959,
+      "version": "3.5",
+      "source": "Sandstorm"
     }
   ],
   "_fractionalBaseBonus": true,
@@ -216,17 +238,6 @@
       "hasAbilityBonuses": false,
       "acBonuses": [],
       "hasSkillBonuses": false
-    },
-    {
-      "name": "Urn of Infinite Haboob",
-      "weight": "15",
-      "special": "At will Haboob",
-      "slot": "",
-      "worn": true,
-      "isProtective": false,
-      "hasAbilityBonuses": false,
-      "acBonuses": [],
-      "hasSkillBonuses": false
     }
   ],
   "slotSoulmelds": {},
@@ -248,27 +259,27 @@
   "sm-base-capacity": "0",
   "gear": [
     {
-      "name": "Everlasting Rations",
-      "location": "",
-      "weight": "1"
-    },
-    {
-      "name": "Everfull Mug",
-      "location": "",
-      "weight": "1"
-    },
-    {
-      "name": "Spell Component Pouch",
-      "location": "",
-      "weight": "1"
-    },
-    {
-      "name": "CLW Pot x2",
+      "name": "Prot from Arrows Scroll",
       "location": "",
       "weight": ""
     },
     {
-      "name": "Prot from Arrows Scroll",
+      "name": "Everlasting Rations",
+      "location": "",
+      "weight": "2"
+    },
+    {
+      "name": "Everfull Mug",
+      "location": "",
+      "weight": ""
+    },
+    {
+      "name": "Spell Component Pouch",
+      "location": "",
+      "weight": "2"
+    },
+    {
+      "name": "Potion of Cure Light Wounds (2)",
       "location": "",
       "weight": ""
     }
@@ -285,8 +296,9 @@
       "notes": "Sha'ir",
       "casterLevel": "6",
       "ability": "CHA",
+      "quickenedThisRound": "0",
       "bonusAbility": "",
-      "conditional": "+1 CL in waste terrain or when carrying >=15 pounds of sand",
+      "conditional": "+1 CL in waste terrain or when carrying >=15 pounds of sand\n+1 CL for earth spells",
       "specialist": false,
       "showPrepared": true,
       "showKnown": true,
@@ -332,7 +344,7 @@
         }
       ],
       "maxLevel": 9,
-      "known-0": "",
+      "known-0": "8",
       "perDay-0": "5",
       "bonus-0": "",
       "extra-0": "",
@@ -348,7 +360,7 @@
         "Mending"
       ],
       "prepared-0": "",
-      "known-1": "",
+      "known-1": "5",
       "perDay-1": "4",
       "bonus-1": "2",
       "extra-1": "",
@@ -398,8 +410,8 @@
       "prepared-1": "",
       "domain-1": "",
       "specialist-1": "",
-      "known-2": "",
-      "perDay-2": "3",
+      "known-2": "3",
+      "perDay-2": "4",
       "bonus-2": "1",
       "extra-2": "",
       "used-2": "0",
@@ -446,8 +458,8 @@
       "prepared-2": "",
       "domain-2": "",
       "specialist-2": "",
-      "known-3": "",
-      "perDay-3": "1",
+      "known-3": "2",
+      "perDay-3": "3",
       "bonus-3": "1",
       "extra-3": "",
       "used-3": "0",
@@ -623,7 +635,6 @@
     "[Durthan 3] Telthor companion",
     "[Sand Shaper 1] Desert insight",
     "[Sand Shaper 1] dust magic",
-    "[Sand Shaper 1] sand shape",
     "Humanoid (Extraplanar): Native to the Elemental Plane of Earth. Gain extraplanar subtype when not on their home plane.",
     "Small size: +1 to AC, +1 on attack rolls, +4 on Hide checks. Smaller weapons; carrying limits 3/4 of a Medium creature.",
     "Breath Weapon (Su): 15-foot cone of rock shards and pebbles dealing 1d8 bludgeoning damage; Reflex DC 10 + 1/2 HD + Con mod for half. 1/day at 1st level, +1 use per 4 levels.",
@@ -634,7 +645,7 @@
     {
       "name": "Gen (Earth)",
       "compName": "Chikyuu",
-      "compType": "animal",
+      "compType": "familiar",
       "compSize": "Medium",
       "isFamiliar": true,
       "compMode": "manual",
@@ -747,9 +758,9 @@
       "compTricks": []
     },
     {
-      "name": "Companion",
+      "name": "Shark!",
       "compName": "Jesus Christ, Dude",
-      "compType": "animal",
+      "compType": "familiar",
       "compSize": "Medium",
       "isFamiliar": false,
       "compMode": "manual",
@@ -834,6 +845,55 @@
           "notes": ""
         }
       ]
+    },
+    {
+      "compType": "item_familiar",
+      "compName": "",
+      "ifamItemName": "Jar of Infinite Haboob",
+      "ifamItemPrice": 0,
+      "ifamItemWeight": 15,
+      "ifamItemNotes": "Haboob at will (Use-activated)",
+      "ifamAlignment": "",
+      "ifamCarried": true,
+      "ifamLost": false,
+      "lifeEnergyInvested": true,
+      "skillRanksInItem": [
+        {
+          "skill": "Diplomacy",
+          "ranks": 9
+        },
+        {
+          "skill": "Knowledge(Nature)",
+          "ranks": 5
+        },
+        {
+          "skill": "Spellcraft",
+          "ranks": 5
+        },
+        {
+          "skill": "Survival",
+          "ranks": 5
+        }
+      ],
+      "skillBonusesApplied": [
+        {
+          "skill": "Diplomacy",
+          "bonus": 8
+        }
+      ],
+      "spellSlotsInvested": [
+        {
+          "class": "Sha'ir",
+          "invested": 3
+        }
+      ],
+      "sapienceUnlocked": true,
+      "sapienceInt": 10,
+      "sapienceWis": 10,
+      "sapienceCha": 12,
+      "sapienceNotes": "",
+      "specialAbilities": [],
+      "name": "Item Familiar"
     }
   ],
   "turn-per-day": "",
@@ -854,7 +914,11 @@
     "history:prereq-unmet:1:Touchstone:skill:Knowledge (local) 8 ranks",
     "history:total-mismatch",
     "history:class-mismatch:Durthan",
-    "history:class-mismatch:Sand Shaper"
+    "history:class-mismatch:Sand Shaper",
+    "caster:known-full:Sha'ir:0",
+    "caster:known-full:Sha'ir:1",
+    "caster:known-full:Sha'ir:2",
+    "caster:known-full:Sha'ir:3"
   ],
   "history": [
     {
@@ -959,10 +1023,12 @@
   "_book_filter": [
     "BoED",
     "CAdv",
+    "CPsi",
     "CSco",
     "CWar",
     "DComp",
     "DMG",
+    "FRCS",
     "MIC",
     "MM",
     "MM2",
@@ -972,7 +1038,9 @@
     "SBG",
     "Sand",
     "ToB",
-    "UA"
+    "UA",
+    "Une",
+    "XPH"
   ],
   "skills": [
     {
@@ -1182,7 +1250,7 @@
       "type": "skill",
       "classSkill": true,
       "ranks": "0",
-      "misc": "0",
+      "misc": "2",
       "index": 28
     },
     {
@@ -1295,7 +1363,7 @@
       "type": "skill",
       "classSkill": true,
       "ranks": "0",
-      "misc": "0",
+      "misc": "2",
       "index": 39
     },
     {
