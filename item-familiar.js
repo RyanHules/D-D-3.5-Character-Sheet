@@ -178,12 +178,16 @@
       </summary>
       <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.3rem">
         <label class="mi-toggle"><input type="checkbox" class="ifam-life-invested"
-               ${d.lifeEnergyInvested ? "checked" : ""}
-               ${masterLevel > LIFE_ENERGY_MAX_LEVEL && !d.lifeEnergyInvested ? "disabled" : ""}>
+               ${d.lifeEnergyInvested ? "checked" : ""}>
           Invest life energy (+10% XP — current and future)
         </label>
-        ${masterLevel > LIFE_ENERGY_MAX_LEVEL && !d.lifeEnergyInvested ?
-          `<span style="color:#dba;font-size:0.85em">⚠ Life energy must be invested at master level ${LIFE_ENERGY_MAX_LEVEL} or lower. (Already at L${masterLevel}.)</span>` : ""}
+        <!-- Soft warning when out-of-range, BUT the box is never
+             disabled — retrofitting existing characters or DM-allowed
+             exceptions need to be possible without UI friction. -->
+        <span class="ifam-life-warn" style="color:#dba;font-size:0.85em;
+              ${masterLevel > LIFE_ENERGY_MAX_LEVEL && !d.lifeEnergyInvested ? '' : 'display:none'}">
+          ⚠ Life energy is normally invested at master level ${LIFE_ENERGY_MAX_LEVEL} or lower (UA p.170). The DM may allow exceptions.
+        </span>
         <span style="font-size:0.85em;opacity:0.75">
           Loss penalty: forfeit all bonus XP from the +10% + an extra 200 XP × master level.
         </span>
@@ -648,11 +652,19 @@
       }
     }
 
-    // Life energy status text.
+    // Life energy status text + soft-warn toggle. The warn surfaces
+    // when master > L6 AND not invested; hides once the player ticks
+    // the box (DM-permitted exception case) OR drops back to L≤6.
+    const lifeCb = panel.querySelector(".ifam-life-invested");
     const lifeStatus = panel.querySelector(".ifam-life-status");
+    const lifeWarn = panel.querySelector(".ifam-life-warn");
+    const checked = !!lifeCb?.checked;
     if (lifeStatus) {
-      const checked = panel.querySelector(".ifam-life-invested")?.checked;
       lifeStatus.textContent = checked ? "✓ invested (+10% XP)" : "";
+    }
+    if (lifeWarn) {
+      const showWarn = masterLevel > LIFE_ENERGY_MAX_LEVEL && !checked;
+      lifeWarn.style.display = showWarn ? "" : "none";
     }
   }
 
@@ -827,14 +839,9 @@
       // Special-abilities section visibility.
       const spcSec = panel.querySelector(".ifam-card-specials");
       if (spcSec) spcSec.style.display = showSpecials ? "" : "none";
-      // Life Energy: enable only if master ≤ L6 AND not already
-      // invested (per UA p.170 — you can't invest LE after L6).
-      const lifeCb = panel.querySelector(".ifam-life-invested");
-      if (lifeCb) {
-        const alreadyInvested = lifeCb.checked;
-        lifeCb.disabled = masterLevel > LIFE_ENERGY_MAX_LEVEL && !alreadyInvested;
-      }
-      // Refresh derived displays (XP penalty, special-slot count).
+      // Refresh derived displays (XP penalty, special-slot count,
+      // Life-Energy warning visibility). recalc() reads master level
+      // via getMasterLevel() so it picks up the new value too.
       recalc(panel);
     });
   }

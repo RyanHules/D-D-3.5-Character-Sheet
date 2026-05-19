@@ -241,7 +241,11 @@ const Companion = (function () {
         compTypeSel.addEventListener("change", (ev) => {
           if (compTypeSel.value !== "item_familiar") {
             // Re-render: swap to the creature-companion layout.
-            const newData = { ...d, compType: compTypeSel.value };
+            // Read CURRENT panel state (life energy ticked, slot
+            // invested, etc.) so any unsaved edits survive the swap
+            // back if the user toggles to item_familiar later.
+            const liveData = ItemFamiliar.collectData(panel);
+            const newData = { ...d, ...liveData, compType: compTypeSel.value };
             panel.dataset.compTypeActive = "";
             panel.innerHTML = buildCompanionHTML(idx, newData);
             wireCompanion(idx, panel, newData);
@@ -272,7 +276,16 @@ const Companion = (function () {
         // the layout swap is idempotent + safe either way).
         if (compTypeSel.value === "item_familiar"
             && typeof ItemFamiliar !== "undefined") {
-          const newData = { ...d, compType: "item_familiar" };
+          // Preserve the user's tab name from the current creature-side
+          // panel. Most other creature-only fields don't apply to item
+          // familiars, but the name is the one piece of metadata that's
+          // shared across both layouts.
+          const liveName = panel.querySelector(".comp-name")?.value;
+          const newData = {
+            ...d,
+            compType: "item_familiar",
+            ...(liveName !== undefined ? { compName: liveName } : {}),
+          };
           panel.innerHTML = buildCompanionHTML(idx, newData);
           wireCompanion(idx, panel, newData);
         }
