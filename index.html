@@ -6,7 +6,30 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <title>D&D 3.5 Character Sheet</title>
-  <link rel="stylesheet" href="styles.css?v=20260519f">
+  <!-- ====================================================================
+       Cache buster — single source of truth.
+
+       Bump this one string when any source file (.css / .js) changes,
+       and every script + stylesheet below picks it up automatically.
+       Both blocks (this <head> stylesheet emit + the <body>-end script
+       loader) read `window.CACHE_VERSION`.
+
+       The DB blob has its own DB_VERSION in database.js — that one is
+       intentionally decoupled, because the DB rebuilds independently
+       of the JS source and we don't want every JS edit to invalidate
+       the 23 MB SQLite blob.
+
+       document.write() is safe here: during the initial document
+       parse, the browser handles inserted <link>/<script> tags
+       synchronously, preserving load order. (It's only deprecated
+       AFTER parse — for late-loaded scripts.)
+       ==================================================================== -->
+  <script>
+    window.CACHE_VERSION = '20260519f';
+    document.write(
+      '<link rel="stylesheet" href="styles.css?v=' + CACHE_VERSION + '">'
+    );
+  </script>
 </head>
 <body>
   <header>
@@ -629,56 +652,58 @@
     </section>
   </div>
 
-  <script src="data.js?v=20260519f"></script>
-  <script src="skills.js?v=20260519f"></script>
-  <script src="character.js?v=20260519f"></script>
-  <script src="equipment.js?v=20260519f"></script>
-  <script src="shadowcaster.js?v=20260519f"></script>
-  <script src="spells.js?v=20260519f"></script>
-  <script src="metamagic-preparer.js?v=20260519f"></script>
-  <script src="feats.js?v=20260519f"></script>
-  <script src="companion.js?v=20260519f"></script>
-  <script src="class-features.js?v=20260519f"></script>
-  <script src="conditions.js?v=20260519f"></script>
-  <script src="feat-prereqs.js?v=20260519f"></script>
-  <script src="character-history.js?v=20260519f"></script>
-  <script src="build-timeline.js?v=20260519f"></script>
-  <script src="audit.js?v=20260519f"></script>
-  <script src="app.js?v=20260519f"></script>
+  <!-- ====================================================================
+       Module loader. Reads `window.CACHE_VERSION` (set in <head>) and
+       emits each module's <script> tag via document.write(), so the
+       browser still parses them in the original synchronous order
+       and every existing load-order assumption (data.js before
+       skills.js before character.js, sql-wasm.js before database.js,
+       book-filter.js before pickers, etc.) is preserved.
 
-  <!-- D&D 3.5 database (sql.js + dnd35.db). Purely additive: failing to
-       load these leaves the sheet operating in manual-entry mode. -->
-  <script src="vendor/sql-wasm.js?v=20260519f"></script>
-  <script src="database.js?v=20260519f"></script>
-  <!-- book-filter.js loads early so pickers can consult it during
-       their initial buildIndex; book-filter-ui.js loads at the END
-       (after lookup.js) so its header-button insertion can find
-       #lookup-trigger-btn and slot in immediately to its left. -->
-  <script src="book-filter.js?v=20260519f"></script>
-  <script src="race-picker.js?v=20260519f"></script>
-  <script src="deity-picker.js?v=20260519f"></script>
-  <script src="template-picker.js?v=20260519f"></script>
-  <script src="class-spell-additions.js?v=20260519f"></script>
-  <script src="class-variants.js?v=20260519f"></script>
-  <script src="class-picker.js?v=20260519f"></script>
-  <script src="metamagic-catalog.js?v=20260519f"></script>
-  <script src="spell-picker.js?v=20260519f"></script>
-  <script src="feat-picker.js?v=20260519f"></script>
-  <script src="item-picker.js?v=20260519f"></script>
-  <script src="domain-picker.js?v=20260519f"></script>
-  <script src="maneuver-picker.js?v=20260519f"></script>
-  <script src="power-picker.js?v=20260519f"></script>
-  <script src="mystery-picker.js?v=20260519f"></script>
-  <script src="soulmeld-picker.js?v=20260519f"></script>
-  <script src="vestige-picker.js?v=20260519f"></script>
-  <script src="invocation-picker.js?v=20260519f"></script>
-  <script src="special-ability-picker.js?v=20260519f"></script>
-  <script src="errata-badge.js?v=20260519f"></script>
-  <script src="lookup.js?v=20260519f"></script>
-  <script src="book-filter-ui.js?v=20260519f"></script>
-  <!-- Play-feel test suite (browser-side). Self-gates on `?playfeel=1`
-       in the URL; otherwise this is a near-zero-cost no-op. See
-       tests/playfeel-suite.js for the scenario list. -->
-  <script src="tests/playfeel-suite.js?v=20260519f"></script>
+       Order matters. Comments call out the structural groupings:
+         - Core UI modules (per-tab + coordinator)
+         - DB layer (sql.js + database.js)
+         - Pickers + universal lookup
+         - Play-feel test suite
+
+       Add a new file by inserting it at the right load-order slot
+       in the array below. There's no separate cache-buster bump
+       per file — the version is read from CACHE_VERSION in <head>.
+       ==================================================================== -->
+  <script>
+    const v = '?v=' + window.CACHE_VERSION;
+    const modules = [
+      // -- Core UI modules: per-tab + coordinator.
+      'data.js', 'skills.js', 'character.js', 'equipment.js',
+      'shadowcaster.js', 'spells.js', 'metamagic-preparer.js',
+      'feats.js', 'companion.js', 'class-features.js', 'conditions.js',
+      'feat-prereqs.js', 'character-history.js', 'build-timeline.js',
+      'audit.js', 'app.js',
+      // -- D&D 3.5 database (sql.js + dnd35.db). Purely additive:
+      // failing to load these leaves the sheet operating in manual-
+      // entry mode.
+      'vendor/sql-wasm.js', 'database.js',
+      // -- Pickers + universal lookup. book-filter.js loads early so
+      // pickers can consult it during their initial buildIndex;
+      // book-filter-ui.js loads at the END (after lookup.js) so its
+      // header-button insertion can find #lookup-trigger-btn and
+      // slot in immediately to its left.
+      'book-filter.js', 'race-picker.js', 'deity-picker.js',
+      'template-picker.js', 'class-spell-additions.js',
+      'class-variants.js', 'class-picker.js', 'metamagic-catalog.js',
+      'spell-picker.js', 'feat-picker.js', 'item-picker.js',
+      'domain-picker.js', 'maneuver-picker.js', 'power-picker.js',
+      'mystery-picker.js', 'soulmeld-picker.js', 'vestige-picker.js',
+      'invocation-picker.js', 'special-ability-picker.js',
+      'errata-badge.js', 'lookup.js', 'book-filter-ui.js',
+      // -- Play-feel test suite (browser-side). Self-gates on
+      // `?playfeel=1` in the URL; otherwise this is a near-zero-cost
+      // no-op. See tests/playfeel-suite.js for the scenario list.
+      'tests/playfeel-suite.js',
+    ];
+    for (const src of modules) {
+      document.write('<script src="' + src + v + '"><' + '/script>');
+    }
+  </script>
 </body>
 </html>

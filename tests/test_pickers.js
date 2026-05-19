@@ -677,6 +677,42 @@ test('class-variants: sub-level query returns matches via class or base_class', 
   }
 });
 
+test('cache buster: single CACHE_VERSION drives all script + stylesheet tags', () => {
+  // Regression guard for the 2026-05-19 unification. We don't want to
+  // drift back to ~42 hand-edited `?v=20260519f` strings sprinkled
+  // across index.html. The contract:
+  //   - index.html defines `window.CACHE_VERSION` in exactly ONE place
+  //   - The stylesheet + script tags are emitted via document.write()
+  //     reading from that constant
+  //   - No literal `?v=<string>` outside the CACHE_VERSION assignment
+  const html = readSource('index.html');
+
+  const versionAssigns = (html.match(/window\.CACHE_VERSION\s*=/g) || []).length;
+  assert(versionAssigns === 1,
+    `index.html must define window.CACHE_VERSION exactly once (found ${versionAssigns}).`);
+
+  // The loader uses document.write to emit each module's <script>.
+  assert(/document\.write\s*\([^)]*<script/i.test(html),
+    'index.html: module-loader document.write() emission is missing.');
+  assert(/document\.write\s*\([^)]*<link/i.test(html),
+    'index.html: stylesheet document.write() emission is missing.');
+
+  // Reject lingering manually-versioned tags. The new pattern
+  // computes ?v= at runtime from CACHE_VERSION; any literal
+  // `?v=<datestring>` in the file is a regression.
+  const literalVersionTags = html.match(/\?v=20\d{6}[a-z]?/g) || [];
+  assert(literalVersionTags.length === 0,
+    `index.html still contains ${literalVersionTags.length} hand-edited ?v= literals ` +
+    `(${literalVersionTags.slice(0, 3).join(', ')}…). Use CACHE_VERSION + document.write() instead.`);
+
+  // The module list should include the canonical core modules so
+  // the loader doesn't silently drop one. Spot-check three.
+  for (const m of ["'spells.js'", "'metamagic-preparer.js'", "'database.js'"]) {
+    assert(html.includes(m),
+      `index.html: module loader missing entry ${m}.`);
+  }
+});
+
 test('class-variants: appendToCustomizations integrates with ClassFeatures API', () => {
   // The "+ To Customizations" button targets the structured list on
   // the Class Features tab. Guard the wiring contract:
