@@ -25,7 +25,7 @@
        AFTER parse — for late-loaded scripts.)
        ==================================================================== -->
   <script>
-    window.CACHE_VERSION = '20260519v';
+    window.CACHE_VERSION = '20260519w';
     document.write(
       '<link rel="stylesheet" href="styles.css?v=' + CACHE_VERSION + '">'
     );
@@ -253,9 +253,13 @@
 
       <!-- Right Column: AC, Saves, Attacks -->
       <div class="column">
-        <!-- Armor Class -->
+        <!-- Defense Onion (formerly "Armor Class" — renamed 2026-05-19
+             to make room for the rest of the defensive layers (miss
+             chance from concealment, DR, ER, regeneration, etc.) that
+             an attack peels through before damage applies. ID prefixes
+             (#ac-*) preserved for save-file compatibility.) -->
         <section class="section">
-          <h2>Armor Class</h2>
+          <h2>Defense Onion</h2>
           <div class="ac-grid">
             <div class="ac-total">
               <label>AC Total</label>
@@ -276,6 +280,7 @@
             <div class="field"><label>Touch AC</label><span id="ac-touch" class="calc-field">10</span></div>
             <div class="field"><label>Flat-Footed AC</label><span id="ac-flatfooted" class="calc-field">10</span></div>
             <div class="field"><label>Spell Resistance</label><input type="number" id="spell-resistance" min="0"></div>
+            <div class="field" title="Percentage chance an incoming attack misses entirely (before the to-hit roll is compared to AC). Sources: concealment (20%), total concealment (50%), incorporeal (50% vs non-magic), blink (50%), mirror image, displacement (50%), etc. Stack via the highest single source — they don't add. Enter as a percentage (e.g. 20 for 20%) or as multiple sources separated by / (e.g. 50/20 → highest wins at 50)."><label>Miss Chance %</label><input type="text" id="ac-miss-chance" value="" class="misc-expr" placeholder="e.g. 20 or 50/20"></div>
           </div>
         </section>
 
