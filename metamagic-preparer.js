@@ -194,6 +194,131 @@
     return n;
   }
 
+  // -- v2 Phase C-b: Parse a prepared-spell line back into a structured
+  // record so the user can re-open the preparer to edit metamagic
+  // on an already-prepared spell. The textarea remains the source
+  // of truth — this is a pure parser over the inverse of the
+  // adjective-rendering format.
+  //
+  // Supported forms (matching the picker's renderer):
+  //   "Empowered Fireball"                  → { name: "Fireball", mm: ["Empower Spell"] }
+  //   "Empowered Maximized Fireball"        → { name: "Fireball", mm: ["Empower Spell", "Maximize Spell"] }
+  //   "Heightened to 5 Fireball"            → { name: "Fireball", mm: ["Heighten Spell"], heightenTarget: 5 }
+  //   "Sanctum Fireball"                    → { name: "Fireball", mm: ["Sanctum Spell"] } (context unknown, defaults out)
+  //   "[X] Empowered Fireball"              → as above, used: true
+  //   "Fireball"                            → { name: "Fireball", mm: [] }
+
+  // Lazy-built reverse map from adjective → feat name.
+  let _reverseAdjective = null;
+  function reverseAdjectiveMap() {
+    if (_reverseAdjective) return _reverseAdjective;
+    _reverseAdjective = new Map();
+    for (const [feat, adj] of Object.entries(ADJECTIVE)) {
+      _reverseAdjective.set(adj.toLowerCase(), feat);
+    }
+    return _reverseAdjective;
+  }
+
+  function parsePreparedLine(line) {
+    const raw = String(line || "").trim();
+    if (!raw) return null;
+
+    // Strip a leading "[X]" or "[x]" used-marker, capturing it.
+    let used = false;
+    let body = raw;
+    const usedM = body.match(/^\[\s*[xX]\s*\]\s*/);
+    if (usedM) {
+      used = true;
+      body = body.slice(usedM[0].length);
+    }
+
+    // Strip leading "// " comments — treat as a non-spell line.
+    if (body.startsWith("//")) return null;
+
+    const out = { name: body, metamagic: [], used, heightenTarget: null, sanctumIn: false };
+    const revMap = reverseAdjectiveMap();
+
+    // Heighten special-case: "Heightened to <N> <name>" / "Improved-Heightened to <N> <name>".
+    const heightenM = body.match(/^(Heightened|Improved-Heightened)\s+to\s+(\d+)\s+(.+)$/);
+    if (heightenM) {
+      const adj = heightenM[1].toLowerCase();
+      const featName = revMap.get(adj) || "Heighten Spell";
+      out.metamagic.push(featName);
+      out.heightenTarget = parseInt(heightenM[2], 10);
+      out.name = heightenM[3].trim();
+      body = out.name;
+    }
+
+    // Greedy prefix match: pull off adjectives one at a time while
+    // the leading token matches an entry in the reverse map.
+    // Stops at the first token that doesn't match — that token + rest
+    // becomes the base spell name.
+    let remaining = body;
+    while (true) {
+      // Peek the first whitespace-delimited token.
+      const tokenMatch = remaining.match(/^(\S+)(?:\s+(.*))?$/);
+      if (!tokenMatch) break;
+      const token = tokenMatch[1];
+      const rest = tokenMatch[2] || "";
+      const feat = revMap.get(token.toLowerCase());
+      if (!feat) break;
+      // Don't double-consume Heighten (already handled above).
+      if (feat === "Heighten Spell" || feat === "Improved Heighten Spell") break;
+      // Don't consume if this would leave no spell name behind.
+      if (!rest.trim()) break;
+      out.metamagic.push(feat);
+      remaining = rest;
+    }
+    out.name = remaining.trim();
+    return out;
+  }
+
+  // Re-render a parsed prepared record back into a textarea line.
+  // Inverse of parsePreparedLine. Preserves the "[X] " prefix on used
+  // entries and the heighten / sanctum forms used by the picker.
+  function renderPreparedLine(record) {
+    if (!record || !record.name) return "";
+    const adjectives = [];
+    for (const feat of record.metamagic || []) {
+      if (feat === "Heighten Spell" || feat === "Improved Heighten Spell") {
+        const baseAdj = ADJECTIVE[feat] || "Heightened";
+        adjectives.push(`${baseAdj} to ${record.heightenTarget}`);
+      } else {
+        adjectives.push(adjectiveFor(feat) || `(${feat})`);
+      }
+    }
+    const adjPrefix = adjectives.length ? adjectives.join(" ") + " " : "";
+    const usedPrefix = record.used ? "[X] " : "";
+    return usedPrefix + adjPrefix + record.name;
+  }
+
+  // -- v2 Phase C-a: Per-class metamagic-cost reductions --------------
+  //
+  // Some PrCs grant class features that reduce the slot-cost of every
+  // metamagic feat the character uses (e.g. Incantatrix's Improved
+  // Metamagic at level 8). Curated table keyed by class name;
+  // applies when the character's level in that class meets the
+  // `minLevel`. Reductions stack additively with feat reductions
+  // (Improved Metamagic feat, Arcane Thesis, Easy Metamagic), and
+  // each metamagic feat's cost still clamps to min +1 (RAW).
+  //
+  // Read from `ClassPicker.getState()` at compute time — the
+  // class-picker's applied-class chip list is the canonical source
+  // of truth for which classes (and at what levels) the character
+  // currently has.
+
+  const CLASS_REDUCTIONS = {
+    // Incantatrix (CArc → reprinted in MoF → reprinted in PGtF; all
+    // share name + level numbering). Improved Metamagic (Su) at L8:
+    // each metamagic feat's level increase is reduced by 1 (cannot
+    // reduce below +1 if base was ≥+1; +0 metamagic stays +0).
+    "Incantatrix": [
+      { minLevel: 8, kind: "all", amount: 1,
+        featureName: "Improved Metamagic (Su)",
+        description: "Incantatrix L8: -1 to every metamagic" },
+    ],
+  };
+
   // -- v2: Reduction-feat detection -----------------------------------
   //
   // Scan the entire Feats tab (not just metamagic feats) for cost
@@ -221,6 +346,11 @@
       improvedMetamagic: false,
       arcaneThesisSpells: [],
       easyMetamagicFeats: [],
+      // v2 Phase C-a: class-feature reductions sourced from the
+      // class-picker chip list. Shape: [{className, amount,
+      // description}, ...]. Each contributes `amount` to the per-feat
+      // reduction (stacking additively with the feat reductions).
+      classReductions: [],
     };
     const featInputs = document.querySelectorAll(
       "#feats-container .feat-entry");
@@ -240,6 +370,32 @@
       } else if (/^easy metamagic$/i.test(name)) {
         const m = rest.match(/reduces?\s*:\s*(.+?)(?:\r?\n|$)/i);
         out.easyMetamagicFeats.push(m ? m[1].trim() : "");
+      }
+    }
+
+    // -- Class-source reductions (Incantatrix Improved Metamagic, etc.).
+    // ClassPicker.getState() returns entries with field `className`
+    // (not `name`) — that's the canonical shape.
+    if (typeof window !== "undefined" && window.ClassPicker
+        && typeof window.ClassPicker.getState === "function") {
+      const applied = window.ClassPicker.getState();
+      for (const cls of applied) {
+        const clsName = cls.className || cls.name;
+        const rules = CLASS_REDUCTIONS[clsName];
+        if (!rules) continue;
+        for (const r of rules) {
+          if (r.kind === "all"
+              && typeof cls.level === "number"
+              && cls.level >= r.minLevel) {
+            out.classReductions.push({
+              className: clsName,
+              classLevel: cls.level,
+              amount: r.amount,
+              featureName: r.featureName,
+              description: r.description,
+            });
+          }
+        }
       }
     }
     return out;
@@ -307,6 +463,12 @@
           reduction += 1;
           reasons.push("Easy Metamagic (-1)");
         }
+        // v2 Phase C-a: class-feature reductions (Incantatrix etc.).
+        // All `kind: "all"` class reductions apply to every metamagic.
+        for (const cr of reductions.classReductions || []) {
+          reduction += cr.amount;
+          reasons.push(`${cr.className} ${cr.featureName} (-${cr.amount})`);
+        }
 
         // Apply with per-feat min of +1 (RAW: cost cannot drop below
         // +1 for any feat whose normal cost is +1 or more).
@@ -354,8 +516,21 @@
 
   // Open the picker as a child of `anchorRow`. If one is already open
   // on this row, close it (toggle behavior, same as the ⓘ panel).
+  //
+  // opts:
+  //   panel       — the spellcasting panel (required)
+  //   anchorRow   — the row to render under (required)
+  //   baseLevel   — the spell's level on this caster's list (required)
+  //   spellName   — the raw spell name (required)
+  //   prepopulate — optional: { metamagic:[feat,...], heightenTarget,
+  //                 sanctumIn } to pre-tick checkboxes. Used by the
+  //                 "Edit metamagic" affordance on prepared lines.
+  //   onPrepare   — optional: callback({modName, effLevel}) invoked
+  //                 instead of the default "append to prepared
+  //                 textarea" behavior. Used by edit mode to
+  //                 REPLACE a line.
   function open(opts) {
-    const { panel, anchorRow, baseLevel, spellName } = opts;
+    const { panel, anchorRow, baseLevel, spellName, prepopulate, onPrepare } = opts;
     if (!panel || !anchorRow) return;
     const name = String(spellName || "").trim();
     if (!name) return;
@@ -669,6 +844,42 @@
       }
     }
 
+    // -- v2 Phase C-b: Pre-populate from edit mode. When the caller
+    // passes a `prepopulate` payload (from the "Edit metamagic"
+    // affordance on a prepared spell), tick the corresponding
+    // checkboxes + fill the Heighten target + set Sanctum context.
+    if (prepopulate && Array.isArray(prepopulate.metamagic)) {
+      for (const featName of prepopulate.metamagic) {
+        const label = Array.from(box.querySelectorAll(".sc-mm-feat"))
+          .find(l => l.dataset.feat === featName);
+        if (!label) continue;
+        const cb = label.querySelector(".sc-mm-feat-cb");
+        if (cb) cb.checked = true;
+        if (featName === "Heighten Spell" || featName === "Improved Heighten Spell") {
+          const ti = label.querySelector(".sc-mm-var-target");
+          if (ti && prepopulate.heightenTarget) {
+            ti.value = String(prepopulate.heightenTarget);
+          }
+        }
+        if (featName === "Sanctum Spell") {
+          const sel = label.querySelector(".sc-mm-sanctum-ctx");
+          if (sel) sel.value = prepopulate.sanctumIn ? "in" : "out";
+        }
+      }
+      // Surface that we're in edit mode.
+      const summaryEl = box.querySelector(".sc-mm-summary");
+      if (summaryEl) {
+        summaryEl.insertAdjacentHTML(
+          "afterbegin",
+          `<span style="font-size:0.85em;color:#9bd;background:rgba(120,180,230,0.12);` +
+          `padding:0.1rem 0.4rem;border-radius:3px;margin-right:0.4rem">EDIT</span>`
+        );
+      }
+      // Re-label the Prepare button.
+      const prepBtn = box.querySelector(".sc-mm-prepare");
+      if (prepBtn) prepBtn.textContent = "Save changes";
+    }
+
     // Wire up listeners.
     cbs.forEach((cb) => cb.addEventListener("change", recompute));
     box.querySelectorAll(".sc-mm-var-target").forEach((inp) => {
@@ -726,6 +937,34 @@
         warnEl.innerHTML = "⚠ Effective level out of range; cannot auto-prepare. Adjust selections or apply manually.";
         return;
       }
+
+      // v2 Phase C-b: edit-mode callback. When the caller supplied
+      // an `onPrepare` callback, delegate to it instead of doing
+      // the default append-to-textarea behavior. This lets the
+      // "Edit metamagic" affordance REPLACE a line in place.
+      if (typeof onPrepare === "function") {
+        // Auto-mark Sudden* feats that were ticked (same as append
+        // mode — see comment block below).
+        box.querySelectorAll(".sc-mm-feat").forEach((label) => {
+          if (label.dataset.isSudden !== "1") return;
+          const cb = label.querySelector(".sc-mm-feat-cb");
+          if (!cb || !cb.checked) return;
+          if (label.dataset.usedToday === "1") return;
+          markFeatUsed(label.dataset.feat);
+        });
+        try {
+          onPrepare({ modName, effLevel: effLvl });
+        } catch (e) {
+          warnEl.style.display = "";
+          warnEl.innerHTML = "⚠ Edit failed: " + esc(String(e && e.message || e));
+          return;
+        }
+        box.remove();
+        const btn = anchorRow.querySelector(".sc-known-mm");
+        if (btn) btn.classList.remove("active");
+        return;
+      }
+
       // Append to the target level's Prepared textarea.
       const ta = panel.querySelector(`.sc-spell-prepared[data-lvl="${effLvl}"]`);
       if (!ta) {
@@ -770,5 +1009,12 @@
     markFeatUsed,
     unmarkFeatUsed,
     resetAllDailyUses,
+    // v2 Phase C-a: class-feature reduction table (exposed for
+    // tests + future "add a new PrC reduction" maintenance).
+    CLASS_REDUCTIONS,
+    // v2 Phase C-b: prepared-line parse + render helpers (used by
+    // the "Edit metamagic" affordance on prepared spells).
+    parsePreparedLine,
+    renderPreparedLine,
   };
 })();

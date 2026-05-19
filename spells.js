@@ -54,6 +54,8 @@ const Spells = (function () {
       refreshMetamagicReference(panel);
       // Sync ✨ button visibility for any rows created during build.
       refreshAllKnownRowMetamagicVis();
+      // v2 Phase C-b: sync "Edit metamagic on prepared" buttons.
+      refreshEditPreparedMMVisibility(panel);
     } else if (type === "psionics") {
       panel.innerHTML = notesHTML + buildPsionicsHTML(idx, data);
       container.appendChild(panel);
@@ -369,6 +371,16 @@ const Spells = (function () {
                   title="Prepared spells / total slots — shows when you're under or over-prepared."></span>
           </h3>
           <textarea class="sc-spell-prepared" data-lvl="${i}" rows="8" placeholder="Enter prepared ${lbl} spells. Mark used with [X]..."></textarea>
+          <!-- v2 Phase C-b: per-line "Edit metamagic" affordance.
+               Hidden until the character has at least one metamagic
+               feat AND the textarea has at least one line that parses
+               as a metamagic-prefixed spell. Click cycles through the
+               eligible lines and reopens the preparer pre-populated. -->
+          <button class="btn-add sc-edit-prepared-mm" data-lvl="${i}"
+                  style="display:none;margin-top:0.3rem;font-size:0.85em"
+                  title="Re-open the metamagic picker on a prepared spell to edit it. Cycles through metamagic-prefixed lines.">
+            ✏ Edit metamagic on a prepared spell
+          </button>
         </div>
       </div>
     `;
@@ -377,6 +389,200 @@ const Spells = (function () {
     div.querySelector(".sc-add-known").addEventListener("click", () => {
       const row = createKnownRow(div.querySelector(`.sc-known-list[data-lvl="${i}"]`), i, "");
       row.querySelector(".sc-known-name").focus();
+    });
+    // v2 Phase C-b: wire the per-level "Edit metamagic" button.
+    // Iterates the prepared textarea lines, finds the next one with
+    // a parseable metamagic prefix, and reopens the preparer on it.
+    div.querySelector(".sc-edit-prepared-mm").addEventListener("click", () => {
+      const panel2 = div.closest("[data-caster-type='spellcasting']");
+      const ta = div.querySelector(`.sc-spell-prepared[data-lvl="${i}"]`);
+      if (!ta || !window.MetamagicPreparer) return;
+      openPreparedEditPicker(panel2, ta, i);
+    });
+  }
+
+  // Open a small in-line "pick a prepared line to edit" interstitial
+  // (or open the preparer directly if there's only one eligible
+  // line). The user picks a line, and we reopen the preparer
+  // pre-populated to that line's parsed metamagic state. On
+  // Save changes, the line is replaced in-place.
+  function openPreparedEditPicker(panel, ta, lvl) {
+    if (!panel || !ta) return;
+    // Find existing interstitial, toggle if open.
+    const existing = ta.parentElement.querySelector(".sc-mm-edit-list");
+    if (existing) { existing.remove(); return; }
+
+    // Parse every line.
+    const lines = ta.value.split(/\r?\n/);
+    const candidates = [];
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const parsed = window.MetamagicPreparer.parsePreparedLine(lines[lineIdx]);
+      if (!parsed || !parsed.metamagic || !parsed.metamagic.length) continue;
+      candidates.push({ lineIdx, raw: lines[lineIdx], parsed });
+    }
+    if (!candidates.length) {
+      // No metamagic-prefixed lines — surface an inline note.
+      const note = document.createElement("div");
+      note.className = "sc-mm-edit-list feat-rules";
+      note.innerHTML =
+        `<b>No metamagic-prefixed spells at this level.</b> ` +
+        `Use the ✨ button on a Known spell to prepare with metamagic.`;
+      ta.parentElement.insertBefore(note, ta.nextSibling);
+      setTimeout(() => { note.remove(); }, 3500);
+      return;
+    }
+
+    // Build a small picker.
+    const box = document.createElement("div");
+    box.className = "feat-rules sc-mm-edit-list";
+    box.innerHTML =
+      `<div style="margin-bottom:0.4rem"><b>Edit metamagic on which spell?</b></div>` +
+      `<div style="display:flex;flex-direction:column;gap:0.25rem">` +
+      candidates.map(c =>
+        `<button class="btn-feat-info sc-mm-edit-pick" ` +
+        `data-line-idx="${c.lineIdx}" ` +
+        `style="text-align:left;padding:0.3rem 0.5rem">` +
+        `${escapeAttr(c.raw)}` +
+        `</button>`
+      ).join("") +
+      `</div>` +
+      `<div style="margin-top:0.3rem">` +
+      `<button class="btn-remove sc-mm-edit-cancel">Cancel</button>` +
+      `</div>`;
+    ta.parentElement.insertBefore(box, ta.nextSibling);
+
+    box.querySelector(".sc-mm-edit-cancel").addEventListener("click", () => {
+      box.remove();
+    });
+    box.querySelectorAll(".sc-mm-edit-pick").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.lineIdx, 10);
+        const c = candidates.find(x => x.lineIdx === idx);
+        if (!c) return;
+        // Remove the interstitial.
+        box.remove();
+
+        // -- Resolve the spell's TRUE base level on this caster's
+        // list. The textarea's level (lvl) is the EFFECTIVE level
+        // (base + metamagic). To re-open the picker correctly we
+        // need the original base level.
+        //
+        // Strategy:
+        //   1. Look in this panel's Known lists for a row whose
+        //      name matches parsed.name. If found, its data-lvl
+        //      attribute IS the base level.
+        //   2. Fall back: subtract the raw metamagic adjustments
+        //      from the textarea level. (Heighten with no target
+        //      makes this ambiguous; we accept that approximation.)
+        let baseLevel = null;
+        const knownRows = panel.querySelectorAll(".sc-known-row");
+        for (const kr of knownRows) {
+          const knownName = kr.querySelector(".sc-known-name")?.value;
+          if (knownName && knownName.toLowerCase() === c.parsed.name.toLowerCase()) {
+            const list = kr.closest(".sc-known-list");
+            const lvlAttr = list && list.dataset.lvl;
+            if (lvlAttr != null) {
+              baseLevel = parseInt(lvlAttr, 10);
+              break;
+            }
+          }
+        }
+        if (baseLevel === null) {
+          // Fallback: subtract raw metamagic costs from current level.
+          let totalRaw = 0;
+          for (const featName of c.parsed.metamagic) {
+            if (featName === "Heighten Spell" || featName === "Improved Heighten Spell") {
+              // Heighten sets the effective level outright — back out
+              // by going from (target - sum_of_non_heighten_costs)
+              // but we don't have that cleanly. Best-effort: assume
+              // any non-Heighten costs already accounted for; the
+              // Heighten contribution = target - base. Just default
+              // baseLevel to lvl in this odd case.
+              continue;
+            }
+            const meta = (typeof Spells !== "undefined")
+              ? Spells.lookupMetamagicFromDB(featName) : null;
+            if (meta && typeof meta.levelAdjustment === "number") {
+              totalRaw += meta.levelAdjustment;
+            }
+          }
+          baseLevel = Math.max(0, lvl - totalRaw);
+        }
+
+        const anchor = document.createElement("div");
+        anchor.className = "sc-known-row sc-known-row-virtual";
+        anchor.style.cssText = "padding:0.3rem;background:rgba(255,255,255,0.02)";
+        anchor.innerHTML =
+          `<span style="opacity:0.75;font-size:0.9em">Editing: <b>${escapeAttr(c.raw)}</b> ` +
+          `<span style="opacity:0.6">(base lvl ${baseLevel})</span></span>`;
+        ta.parentElement.insertBefore(anchor, ta.nextSibling);
+        window.MetamagicPreparer.open({
+          panel,
+          anchorRow: anchor,
+          baseLevel,
+          spellName: c.parsed.name,
+          prepopulate: {
+            metamagic: c.parsed.metamagic,
+            heightenTarget: c.parsed.heightenTarget,
+            sanctumIn: c.parsed.sanctumIn,
+          },
+          onPrepare: ({ modName, effLevel }) => {
+            // Build the new line text (preserve the used marker).
+            const newRecord = window.MetamagicPreparer
+              .parsePreparedLine(modName) || { name: modName, metamagic: [] };
+            newRecord.used = c.parsed.used;
+            const newLine = window.MetamagicPreparer.renderPreparedLine(newRecord);
+            // If the new effective level differs from the current
+            // textarea's level, REMOVE the line from THIS textarea
+            // and APPEND it to the target level's textarea.
+            const targetTa = effLevel === lvl
+              ? ta
+              : panel.querySelector(`.sc-spell-prepared[data-lvl="${effLevel}"]`);
+            if (effLevel !== lvl) {
+              // Remove from source.
+              const srcLines = ta.value.split(/\r?\n/);
+              srcLines.splice(idx, 1);
+              ta.value = srcLines.join("\n");
+              ta.dispatchEvent(new Event("input", { bubbles: true }));
+              // Append to target.
+              if (targetTa) {
+                const cur = targetTa.value;
+                targetTa.value = cur ? cur.replace(/\s+$/, "") + "\n" + newLine : newLine;
+                targetTa.dispatchEvent(new Event("input", { bubbles: true }));
+              }
+            } else {
+              // Replace in place.
+              const srcLines = ta.value.split(/\r?\n/);
+              srcLines[idx] = newLine;
+              ta.value = srcLines.join("\n");
+              ta.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+            anchor.remove();
+          },
+        });
+      });
+    });
+  }
+
+  // Refresh "Edit metamagic on a prepared spell" button visibility:
+  // show only when the character has at least one metamagic feat AND
+  // there's at least one parseable metamagic-prefixed line in the
+  // textarea (per-level). Called on Feats-tab edits, textarea
+  // edits, and panel build.
+  function refreshEditPreparedMMVisibility(panel) {
+    if (!panel || !window.MetamagicPreparer) return;
+    const hasMM = window.MetamagicPreparer.characterHasAnyMetamagic();
+    panel.querySelectorAll(".sc-edit-prepared-mm").forEach((btn) => {
+      const lvl = btn.dataset.lvl;
+      const ta = panel.querySelector(`.sc-spell-prepared[data-lvl="${lvl}"]`);
+      let hasMetamagicLine = false;
+      if (hasMM && ta) {
+        for (const line of ta.value.split(/\r?\n/)) {
+          const p = window.MetamagicPreparer.parsePreparedLine(line);
+          if (p && p.metamagic && p.metamagic.length) { hasMetamagicLine = true; break; }
+        }
+      }
+      btn.style.display = hasMetamagicLine ? "" : "none";
     });
   }
 
@@ -1822,10 +2028,20 @@ const Spells = (function () {
   document.addEventListener("input", (e) => {
     if (e.target?.closest?.("#tab-feats")) {
       document.querySelectorAll("[data-caster-type='spellcasting']")
-        .forEach(refreshMetamagicReference);
+        .forEach((p) => {
+          refreshMetamagicReference(p);
+          refreshEditPreparedMMVisibility(p);
+        });
       // Also refresh the per-row ✨ button visibility — gaining or
       // losing a metamagic feat should immediately toggle it.
       refreshAllKnownRowMetamagicVis();
+    }
+    // v2 Phase C-b: textarea-side refresh. When the user edits a
+    // Prepared textarea directly, re-check whether the "Edit
+    // metamagic" button should be visible at this level.
+    if (e.target?.classList?.contains("sc-spell-prepared")) {
+      const panel = e.target.closest("[data-caster-type='spellcasting']");
+      if (panel) refreshEditPreparedMMVisibility(panel);
     }
   });
   // Also refresh whenever the panel notes change (since the

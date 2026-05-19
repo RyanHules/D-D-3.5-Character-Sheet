@@ -1590,6 +1590,48 @@ test('metamagic-preparer v2 Phase A: reduction-feat helpers exposed', () => {
     'metamagic-preparer.js must clamp reduced cost to min +1 per RAW.');
 });
 
+test('metamagic-preparer v2 Phase C-a: per-class reductions table exposed', () => {
+  // CLASS_REDUCTIONS table with Incantatrix at minimum. Future PrCs
+  // get added here; the table is exposed on the public API so a
+  // future audit can validate against the DB.
+  const src = readSource('metamagic-preparer.js');
+  assert(src.includes('CLASS_REDUCTIONS'),
+    'metamagic-preparer.js must define CLASS_REDUCTIONS table for Phase C-a.');
+  assert(/"Incantatrix"/.test(src),
+    'metamagic-preparer.js CLASS_REDUCTIONS must include Incantatrix.');
+  // readReductionFeats must consult ClassPicker.getState() for the
+  // applied class list — this is the canonical source.
+  assert(/ClassPicker.*getState/.test(src),
+    'metamagic-preparer.js readReductionFeats must read class state from ClassPicker.');
+  // computeAdjustments must apply the classReductions to the per-feat
+  // reduction counter (stacking with feat reductions).
+  assert(src.includes('classReductions'),
+    'metamagic-preparer.js computeAdjustments must apply class reductions.');
+});
+
+test('metamagic-preparer v2 Phase C-b: prepared-line parse + render helpers', () => {
+  // parsePreparedLine + renderPreparedLine inverse-round-trip the
+  // textarea representation of a prepared spell. Used by the
+  // "Edit metamagic on a prepared spell" affordance.
+  const src = readSource('metamagic-preparer.js');
+  for (const fn of ['parsePreparedLine', 'renderPreparedLine']) {
+    assert(src.includes(fn),
+      `metamagic-preparer.js must export ${fn} for v2 Phase C-b.`);
+  }
+  // spells.js must render the "Edit metamagic on a prepared spell"
+  // button + the per-level visibility refresh helper.
+  const spellsSrc = readSource('spells.js');
+  assert(spellsSrc.includes('sc-edit-prepared-mm'),
+    'spells.js missing the Edit-metamagic-on-prepared button.');
+  assert(spellsSrc.includes('refreshEditPreparedMMVisibility'),
+    'spells.js missing refreshEditPreparedMMVisibility helper.');
+  assert(spellsSrc.includes('openPreparedEditPicker'),
+    'spells.js missing openPreparedEditPicker interstitial.');
+  // The preparer must accept prepopulate + onPrepare opts.
+  assert(/prepopulate/.test(src) && /onPrepare/.test(src),
+    'metamagic-preparer.js open() must accept prepopulate + onPrepare opts.');
+});
+
 test('metamagic-preparer v2 Phase B: Sudden* daily tracking exposed', () => {
   // resetAllDailyUses + markFeatUsed + isFeatUsedToday + the
   // [Used today] marker convention.
