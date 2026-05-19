@@ -998,8 +998,23 @@
       }
     }
     if (parsed.tags.size) {
+      // `tag:X` filter: accept entries that have an exact-matching
+      // tag OR a tag containing the typed string. Permissive matching
+      // is consistent with the bare-text partial-tag behavior — typing
+      // `tag:fighter-bonu` should reach the same fighter-bonus-tagged
+      // feats as `tag:fighter-bonus`. Same direction works in reverse
+      // (a tag is a substring of the typed string) for cases where
+      // the user types more than the canonical tag name.
       for (const t of parsed.tags) {
-        if (!entry.tags.has(t)) return 0;
+        let hit = false;
+        if (entry.tags.has(t)) {
+          hit = true;
+        } else {
+          for (const et of entry.tags) {
+            if (et.includes(t) || t.includes(et)) { hit = true; break; }
+          }
+        }
+        if (!hit) return 0;
       }
     }
     if (parsed.sources.size) {
