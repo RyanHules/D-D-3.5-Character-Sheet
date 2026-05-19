@@ -1647,6 +1647,15 @@ test('item-familiar: module loads + exposes Companion-integration API', () => {
     'item-familiar.js panel must include a weight input field.');
   assert(src.includes('getTotalWeight'),
     'item-familiar.js must expose getTotalWeight.');
+  // UA p.171: invested slot must be of highest castable level. The
+  // module must expose getHighestCastableLevel + auto-sync the
+  // invested field on recalc.
+  assert(src.includes('getHighestCastableLevel'),
+    'item-familiar.js must expose getHighestCastableLevel.');
+  assert(src.includes('autoHighest'),
+    'item-familiar.js must track the auto-fill cookie for invested-slot rows.');
+  assert(src.includes('ifam-slot-auto'),
+    'item-familiar.js panel must include the ↻ re-sync button on slot rows.');
 
   // Module-loader order: item-familiar.js must load before companion.js
   // since companion.js's render branches on ItemFamiliar.

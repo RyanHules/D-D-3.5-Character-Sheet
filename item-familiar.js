@@ -355,11 +355,52 @@
       <tr class="ifam-slot-row" data-row="${idx}">
         <td><input type="text" class="ifam-slot-class"
                    value="${esc((s && s.class) || "")}" placeholder="e.g. Wizard"></td>
-        <td><input type="number" class="ifam-slot-invested" min="1" max="9"
-                   value="${esc((s && s.invested) || "")}" style="width:4rem"></td>
+        <td>
+          <input type="number" class="ifam-slot-invested" min="1" max="9"
+                 value="${esc((s && s.invested) || "")}" style="width:4rem"
+                 title="UA p.171: must be the highest spell level you can cast in this class. Auto-updates when blank or matching the detected highest.">
+          <button class="btn-feat-info ifam-slot-auto" title="Re-sync to highest castable level"
+                  style="padding:0 0.3rem;line-height:1">↻</button>
+          <span class="ifam-slot-warn" style="display:none;color:#dba;font-size:0.85em"></span>
+        </td>
         <td><span class="ifam-slot-bonus calc-field">--</span></td>
         <td><button class="btn-remove ifam-remove-slot" title="Remove">X</button></td>
       </tr>`;
+  }
+
+  // -- Detect highest castable spell level for a given class name.
+  // Walks Spells-tab spellcasting panels, matches by tab label / notes
+  // (case-insensitive substring), and returns the highest spell level
+  // where perDay (+ bonus + domain + specialist) > 0. Returns null
+  // when no matching panel is found (the user typed a class that
+  // isn't on the sheet yet, or it doesn't cast spells).
+  function getHighestCastableLevel(className) {
+    const target = String(className || "").trim().toLowerCase();
+    if (!target) return null;
+    let best = null;
+    document.querySelectorAll("[data-caster-type='spellcasting']")
+      .forEach(panel => {
+        // Match against tab label OR notes textarea (case-insensitive
+        // substring). Same matching logic as spells.js uses for the
+        // per-class bonus-slot aggregation.
+        const id = (panel.id || "").replace(/^caster-/, "");
+        const tabBtn = document.querySelector(`.inner-tab[data-caster-idx="${id}"]`);
+        const tabLabel = tabBtn ? tabBtn.textContent.replace("×","").trim().toLowerCase() : "";
+        const notes = (panel.querySelector(".caster-notes")?.value || "").toLowerCase();
+        if (!(tabLabel + " " + notes).includes(target)) return;
+        // Walk levels 1..9, take the highest with any slots.
+        for (let lvl = 9; lvl >= 1; lvl--) {
+          const perDay = parseInt(panel.querySelector(`.sc-per-day[data-lvl="${lvl}"]`)?.value, 10) || 0;
+          const bonus = parseInt(panel.querySelector(`.sc-bonus[data-lvl="${lvl}"]`)?.value, 10) || 0;
+          const domain = parseInt(panel.querySelector(`.sc-domain-slots[data-lvl="${lvl}"]`)?.value, 10) || 0;
+          const spec = parseInt(panel.querySelector(`.sc-specialist-slots[data-lvl="${lvl}"]`)?.value, 10) || 0;
+          if (perDay + bonus + domain + spec > 0) {
+            if (best === null || lvl > best) best = lvl;
+            break;
+          }
+        }
+      });
+    return best;
   }
   function specialAbilityRowHTML(idx, a) {
     const sel = a && a.ability ? a.ability : "";
@@ -431,12 +472,24 @@
         t.closest(".ifam-slot-row")?.remove(); recalc(panel);
       } else if (t.classList.contains("ifam-remove-special")) {
         t.closest(".ifam-special-row")?.remove(); recalc(panel);
+      } else if (t.classList.contains("ifam-slot-auto")) {
+        // ↻ re-sync: clear the manual override + auto-fill cookie so
+        // recalc() writes the current detected highest castable level.
+        const row = t.closest(".ifam-slot-row");
+        const invInput = row?.querySelector(".ifam-slot-invested");
+        if (invInput) {
+          invInput.value = "";
+          invInput.dataset.autoHighest = "";
+        }
+        recalc(panel);
+        notifyItemFamiliarChanged();
       }
     });
     panel.addEventListener("input", (e) => {
       if (e.target.classList.contains("ifam-rank-count")
        || e.target.classList.contains("ifam-bonus-amt")
        || e.target.classList.contains("ifam-slot-invested")
+       || e.target.classList.contains("ifam-slot-class")
        || e.target.classList.contains("ifam-sapience-int")
        || e.target.classList.contains("ifam-sapience-wis")
        || e.target.classList.contains("ifam-sapience-cha")
@@ -490,12 +543,53 @@
         ` / ${maxBonuses} bonus${maxBonuses === 1 ? "" : "es"} applied`;
     }
 
-    // Spell-slot bonus-level computation: invested - 2.
+    // Spell-slot rows: bonus-level computation (invested − 2) + UA
+    // "highest castable" enforcement (auto-sync when invested is
+    // blank or matches the previous auto-fill; warn otherwise so
+    // the user can re-sync via the ↻ button if they want).
     panel.querySelectorAll(".ifam-slot-row").forEach(row => {
-      const inv = int(row.querySelector(".ifam-slot-invested")?.value);
+      const classInput = row.querySelector(".ifam-slot-class");
+      const invInput = row.querySelector(".ifam-slot-invested");
       const bonusEl = row.querySelector(".ifam-slot-bonus");
+      const warnEl = row.querySelector(".ifam-slot-warn");
+      if (!invInput) return;
+
+      const className = (classInput?.value || "").trim();
+      const detectedHighest = className ? getHighestCastableLevel(className) : null;
+
+      // Auto-sync behavior (same pattern as the spell-slots bonus
+      // auto-fill in spells.js): if the user hasn't typed anything,
+      // OR what they typed matches our last auto value, write the
+      // current detected value. Any other state = manual override,
+      // leave alone but warn.
+      const currentInv = invInput.value;
+      const lastAuto = invInput.dataset.autoHighest ?? "";
+      if (detectedHighest !== null && (currentInv === "" || currentInv === lastAuto)) {
+        invInput.value = String(detectedHighest);
+        invInput.dataset.autoHighest = String(detectedHighest);
+      } else if (detectedHighest !== null && lastAuto !== String(detectedHighest)) {
+        // Detected value changed but the user has a manual override;
+        // remember the new detected value so a future sync works.
+        invInput.dataset.autoHighest = String(detectedHighest);
+      }
+
+      const inv = int(invInput.value);
       if (bonusEl) {
         bonusEl.textContent = inv >= 2 ? "Lvl " + (inv - 2) : "—";
+      }
+
+      // Warning: divergence from detected highest castable level.
+      if (warnEl) {
+        if (detectedHighest !== null && inv > 0 && inv !== detectedHighest) {
+          warnEl.style.display = "";
+          warnEl.textContent = `⚠ Should be Lvl ${detectedHighest} (highest castable per UA p.171).`;
+        } else if (className && detectedHighest === null) {
+          warnEl.style.display = "";
+          warnEl.textContent = `⚠ No matching spellcasting panel for "${className}" — value not auto-synced.`;
+        } else {
+          warnEl.style.display = "none";
+          warnEl.textContent = "";
+        }
       }
     });
     const slotsSummary = panel.querySelector(".ifam-slots-summary");
@@ -760,6 +854,16 @@
   // classes-changed event.
   document.addEventListener("classes-changed", refreshAllPanelsForMasterLevel);
 
+  // Spells-tab edits affect the "highest castable level" detection
+  // for invested-slot rows. Watch the Spells tab and refresh slot
+  // rows whenever its inputs change.
+  document.addEventListener("input", (e) => {
+    if (!e.target?.closest?.("#tab-spells")) return;
+    // Only re-recalc the item-familiar panels (Spells-tab itself
+    // doesn't need anything from us).
+    getAllItemFamiliarPanels().forEach(p => recalc(p));
+  });
+
   // -- Public API -----------------------------------------------------
   window.ItemFamiliar = {
     isItemFamiliarType,
@@ -772,6 +876,7 @@
     getAllSpellSlotBonuses,
     getXpMultiplier,
     getTotalWeight,
+    getHighestCastableLevel,
     onItemFamiliarChanged,
     notifyItemFamiliarChanged,
     // Surfaced rules constants — let tests verify.
