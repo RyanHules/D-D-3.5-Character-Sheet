@@ -375,9 +375,21 @@
   // -- Detect highest castable spell level for a given class name.
   // Walks Spells-tab spellcasting panels, matches by tab label / notes
   // (case-insensitive substring), and returns the highest spell level
-  // where perDay (+ bonus + domain + specialist) > 0. Returns null
-  // when no matching panel is found (the user typed a class that
-  // isn't on the sheet yet, or it doesn't cast spells).
+  // where the caster has a NON-BONUS slot. Returns null when no
+  // matching panel is found.
+  //
+  // IMPORTANT: bonus slots (ability-mod-derived) do NOT count as
+  // "castable" — per the PHB "Bonus Spells" sidebar, you can only
+  // RECEIVE bonus spells of a level you can already cast. So a
+  // Wizard with perDay-4 = 2 + a phantom L5 bonus (from high INT)
+  // can only cast through L4. spells.js gates the same way (see
+  // `baseCastable = (perDay + domain + specialist) > 0`), and we
+  // mirror it here to keep the two in lockstep.
+  //
+  // If a save from an older version of the sheet stamped a `bonus-N`
+  // value at a level with `perDay-N = 0`, it's a residual — the
+  // bonus contributes 0 effective slots and shouldn't bump the
+  // item-familiar's invested level either.
   function getHighestCastableLevel(className) {
     const target = String(className || "").trim().toLowerCase();
     if (!target) return null;
@@ -392,13 +404,14 @@
         const tabLabel = tabBtn ? tabBtn.textContent.replace("×","").trim().toLowerCase() : "";
         const notes = (panel.querySelector(".caster-notes")?.value || "").toLowerCase();
         if (!(tabLabel + " " + notes).includes(target)) return;
-        // Walk levels 1..9, take the highest with any slots.
+        // Walk levels 9..1, take the highest with a non-bonus slot.
+        // Skip levels where only `bonus` is non-zero (the ability-
+        // mod bonus is gated on base castability per PHB).
         for (let lvl = 9; lvl >= 1; lvl--) {
           const perDay = parseInt(panel.querySelector(`.sc-per-day[data-lvl="${lvl}"]`)?.value, 10) || 0;
-          const bonus = parseInt(panel.querySelector(`.sc-bonus[data-lvl="${lvl}"]`)?.value, 10) || 0;
           const domain = parseInt(panel.querySelector(`.sc-domain-slots[data-lvl="${lvl}"]`)?.value, 10) || 0;
           const spec = parseInt(panel.querySelector(`.sc-specialist-slots[data-lvl="${lvl}"]`)?.value, 10) || 0;
-          if (perDay + bonus + domain + spec > 0) {
+          if (perDay + domain + spec > 0) {
             if (best === null || lvl > best) best = lvl;
             break;
           }
