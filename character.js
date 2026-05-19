@@ -408,7 +408,7 @@ const Character = (function () {
     // shield, deflection are auto-calculated). Miss chance lives in
     // the renamed "Defense Onion" section but uses the ac-* ID prefix
     // for save-file backwards-compatibility with older saves.
-    ["ac-natural", "ac-misc", "ac-miss-chance"].forEach((id) => {
+    ["ac-natural", "ac-misc", "ac-miss-chance", "ac-defense-notes"].forEach((id) => {
       const el = $(`#${id}`);
       if (el) data[id] = el.value;
     });
@@ -459,7 +459,7 @@ const Character = (function () {
       "char-gender", "char-height", "char-weight", "char-eyes", "char-hair",
       "char-skin", "char-campaign", "char-xp", "char-speed", "damage-reduction",
       "hp-total", "hp-current", "hp-temp", "hp-nonlethal",
-      "ac-natural", "ac-misc", "ac-miss-chance",
+      "ac-natural", "ac-misc", "ac-miss-chance", "ac-defense-notes",
       "save-conditional", "init-misc", "bab-1", "grapple-misc",
       "spell-resistance", "languages",
     ].forEach((id) => {

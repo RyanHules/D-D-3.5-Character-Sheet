@@ -540,10 +540,33 @@
     function renderResults() {
       const resultsEl = picker.querySelector('.sp-results');
       if (!resultsEl) return;
-      const names = Array.from(currentByName.keys())
+      // Filter the chip list by the typed spell name (case-insensitive
+      // substring match), so the chips track what the user is actually
+      // looking for. Without this, the chip wall sat between the picker
+      // inputs and the info panel showing whatever spell the user
+      // ultimately typed — making the picker awkward to use as a
+      // narrowing-down tool.
+      const typedRaw = spellInput.value.trim();
+      const typed = typedRaw.toLowerCase();
+      const allNames = Array.from(currentByName.keys())
         .map(k => currentByName.get(k).name)
         .sort((a, b) => a.localeCompare(b));
+      const names = typed
+        ? allNames.filter(n => n.toLowerCase().includes(typed))
+        : allNames;
       if (names.length === 0) {
+        // If the typed name filter killed every match, surface that
+        // explicitly rather than hiding the panel (so the user knows
+        // they're filtering, not that nothing matches the class/level).
+        if (typed && allNames.length > 0) {
+          resultsEl.innerHTML =
+            `<div style="opacity:0.7">${allNames.length} match` +
+            `${allNames.length === 1 ? '' : 'es'} from filter — none ` +
+            `contain "${escapeHtml(typedRaw)}". Clear or shorten the ` +
+            `spell-name field to widen.</div>`;
+          resultsEl.style.display = 'block';
+          return;
+        }
         resultsEl.style.display = 'none';
         resultsEl.innerHTML = '';
         return;
@@ -562,9 +585,12 @@
         `<button type="button" class="sp-result-chip" style="${chipStyle}" ` +
         `data-name="${escapeHtml(n)}">${escapeHtml(n)}</button>`
       ).join('');
+      const matchSuffix = typed
+        ? ` containing &quot;${escapeHtml(typedRaw)}&quot;`
+        : '';
       const header = truncated
-        ? `<div style="opacity:0.7;margin-bottom:0.25rem">Showing ${cap} of ${names.length} matches — narrow the filter to see more</div>`
-        : `<div style="opacity:0.7;margin-bottom:0.25rem">${names.length} match${names.length === 1 ? '' : 'es'}</div>`;
+        ? `<div style="opacity:0.7;margin-bottom:0.25rem">Showing ${cap} of ${names.length} matches${matchSuffix} — narrow further to see more</div>`
+        : `<div style="opacity:0.7;margin-bottom:0.25rem">${names.length} match${names.length === 1 ? '' : 'es'}${matchSuffix}</div>`;
       resultsEl.innerHTML = header + `<div>${chips}</div>`;
       resultsEl.style.display = 'block';
     }
@@ -615,6 +641,7 @@
     levelInput.addEventListener('input', refreshMetamagicRow);
     tagSelect.addEventListener('change', refreshSpellList);
     spellInput.addEventListener('input', updateInfoPanel);
+    spellInput.addEventListener('input', renderResults);
     spellInput.addEventListener('change', updateInfoPanel);
 
     // Result-chip clicks: fill the spell input + show the info panel.
