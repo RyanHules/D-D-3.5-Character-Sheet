@@ -1680,14 +1680,17 @@ test('item-familiar: module loads + exposes Companion-integration API', () => {
 });
 
 test('metamagic-preparer v2 Phase C-a: per-class reductions table exposed', () => {
-  // CLASS_REDUCTIONS table with Incantatrix at minimum. Future PrCs
-  // get added here; the table is exposed on the public API so a
-  // future audit can validate against the DB.
+  // CLASS_REDUCTIONS table covers every PrC with a -1-to-all metamagic
+  // reducer feature. The DB-driven audit below verifies completeness
+  // against the live class data; this test just sanity-checks the
+  // wiring exists.
   const src = readSource('metamagic-preparer.js');
   assert(src.includes('CLASS_REDUCTIONS'),
     'metamagic-preparer.js must define CLASS_REDUCTIONS table for Phase C-a.');
-  assert(/"Incantatrix"/.test(src),
-    'metamagic-preparer.js CLASS_REDUCTIONS must include Incantatrix.');
+  for (const expected of ['Incantatrix', 'Dweomerkeeper']) {
+    assert(new RegExp(`"${expected}"`).test(src),
+      `metamagic-preparer.js CLASS_REDUCTIONS must include ${expected}.`);
+  }
   // readReductionFeats must consult ClassPicker.getState() for the
   // applied class list — this is the canonical source.
   assert(/ClassPicker.*getState/.test(src),
@@ -1696,6 +1699,101 @@ test('metamagic-preparer v2 Phase C-a: per-class reductions table exposed', () =
   // reduction counter (stacking with feat reductions).
   assert(src.includes('classReductions'),
     'metamagic-preparer.js computeAdjustments must apply class reductions.');
+  // Dweomerkeeper exempts Heighten Spell — the schema must support
+  // excludeFeats and the compute path must honor it.
+  assert(/excludeFeats/.test(src),
+    'metamagic-preparer.js must support per-rule excludeFeats lists ' +
+    '(Dweomerkeeper exempts Heighten Spell from Cloak of Mysteries).');
+});
+
+// -- Future-proofing audit -------------------------------------------
+//
+// Scan the DB for PrC / class features whose description matches the
+// canonical "all metamagic reduced by 1" pattern (Incantatrix-style).
+// Every match must either be present in metamagic-preparer.js's
+// CLASS_REDUCTIONS table OR explicitly listed in the IGNORE set below
+// with a one-line justification. The audit catches NEW classes added
+// by future DB extractions — if you re-run the DB build and add a PrC
+// with this feature, this test will fail until you wire it up.
+//
+// To extract CLASS_REDUCTIONS keys, we re-use the same object-literal
+// key extractor used for HARDCODED_ADVANCERS above.
+const MM_REDUCER_SRC = fs.readFileSync(
+  path.join(ROOT, 'metamagic-preparer.js'), 'utf8'
+);
+const CLASS_REDUCTIONS_KEYS = extractObjectKeys(
+  MM_REDUCER_SRC, 'CLASS_REDUCTIONS'
+);
+
+// Classes whose description matches the pattern but should NOT be in
+// CLASS_REDUCTIONS — usually because they require user opt-in (per-day
+// counters, per-school limits, etc.) that don't fit the
+// "applies to every metamagic, always" shape. Keep this list small and
+// commented — each entry needs a justification.
+const MM_REDUCER_IGNORE = new Set([
+  // No current ignores. If a future PrC has a limited-use reducer
+  // (e.g. N/day, per-school, single-spell), add it here with a
+  // justification and surface it as a FEAT-side reduction config
+  // instead (see Easy Metamagic / Arcane Thesis pattern).
+]);
+
+test('metamagic-preparer: CLASS_REDUCTIONS covers every DB -1-to-all reducer', (db) => {
+  // Regex patterns matching the canonical RAW wording for a -1-to-all
+  // metamagic reducer. Keep these tight — too loose and we false-flag
+  // features that mention metamagic in unrelated context (Quickening
+  // Strike, Domain Wizard bonus-slot prose, etc.).
+  const REDUCER_PATTERNS = [
+    // "level increase ... reduced by one/two/N" (Incantatrix shape)
+    /level (?:adjustment|increase)\s+(?:upon a spell\s+)?(?:is\s+)?reduced by (?:one|two|three|\d+)/i,
+    // "spell-slot adjustment by one/N" (Dweomerkeeper shape)
+    /spell-?slot adjustment by (?:one|two|three|\d+)/i,
+    // "metamagic feats ... cost one/N less spell-slot level" (ELH IM)
+    /metamagic feat[s]?\b[^.]{0,80}cost\s+(?:one|two|three|\d+)\s+less\s+spell-?slot level/i,
+  ];
+
+  const rows = execAll(db,
+    "SELECT e.name AS name, e.source AS source, " +
+    "       json_extract(e.data, '$.class_features') AS feats " +
+    "FROM entry e LEFT JOIN book b ON b.name = e.source " +
+    "WHERE e.type IN ('class','prc') " +
+    // Source-recency tiebreak: 3.5 over 3.0, then newest pub date.
+    // For the canonical class level we want the same printing the
+    // class-picker would pick.
+    "ORDER BY e.name, CASE b.edition WHEN '3.5' THEN 0 ELSE 1 END, " +
+    "b.publication_date DESC");
+
+  // Keep only the source-recency winner per class name (the first row
+  // after the ORDER BY).
+  const winners = new Map();
+  for (const r of rows) if (!winners.has(r.name)) winners.set(r.name, r);
+
+  const missing = [];
+  for (const [className, row] of winners) {
+    const features = JSON.parse(row.feats || '[]');
+    for (const f of features) {
+      const desc = (f.description || f.benefit || '').toString();
+      const matched = REDUCER_PATTERNS.some(re => re.test(desc));
+      if (!matched) continue;
+      if (CLASS_REDUCTIONS_KEYS.has(className)) continue;
+      if (MM_REDUCER_IGNORE.has(className)) continue;
+      missing.push({
+        className,
+        source: row.source,
+        feature: f.name,
+        level: f.level_acquired ?? f.level ?? '?',
+        snippet: desc.slice(0, 180),
+      });
+    }
+  }
+
+  assert(missing.length === 0,
+    `${missing.length} DB class feature(s) match the -1-to-all metamagic\n` +
+    `reducer pattern but aren't in metamagic-preparer.js's CLASS_REDUCTIONS:\n` +
+    missing.slice(0, 8).map(m =>
+      `  ${m.className} ${m.feature} (L${m.level}, ${m.source})\n    "${m.snippet}"`
+    ).join('\n') + '\n\nAdd each one to the CLASS_REDUCTIONS table in metamagic-preparer.js, or\n' +
+    'list it in MM_REDUCER_IGNORE here with a one-line justification (e.g.\n' +
+    'limited-use reducers that need feat-side config instead).');
 });
 
 test('metamagic-preparer v2 Phase C: prepared-line parse + render helpers', () => {

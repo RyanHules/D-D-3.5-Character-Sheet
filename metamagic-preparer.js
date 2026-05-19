@@ -299,26 +299,56 @@
   //
   // Some PrCs grant class features that reduce the slot-cost of every
   // metamagic feat the character uses (e.g. Incantatrix's Improved
-  // Metamagic at level 8). Curated table keyed by class name;
-  // applies when the character's level in that class meets the
-  // `minLevel`. Reductions stack additively with feat reductions
-  // (Improved Metamagic feat, Arcane Thesis, Easy Metamagic), and
-  // each metamagic feat's cost still clamps to min +1 (RAW).
+  // Metamagic). Curated table keyed by class name; applies when the
+  // character's level in that class meets the `minLevel`. Reductions
+  // stack additively with feat reductions (Improved Metamagic feat,
+  // Arcane Thesis, Easy Metamagic), and each metamagic feat's cost
+  // still clamps to min +1 (RAW).
   //
   // Read from `ClassPicker.getState()` at compute time — the
   // class-picker's applied-class chip list is the canonical source
   // of truth for which classes (and at what levels) the character
   // currently has.
+  //
+  // Rule schema per class entry:
+  //   { minLevel: int        — character level in this class to unlock
+  //     kind: "all"          — reduces every metamagic feat
+  //     amount: int          — slot levels removed (typically 1)
+  //     featureName: string  — for display in tooltips
+  //     description: string  — for display in tooltips
+  //     excludeFeats?: [str] — feats this reduction does NOT apply to
+  //                            (e.g. Dweomerkeeper exempts Heighten Spell)
+  //   }
+  //
+  // **Adding a new entry:** the audit in tests/test_pickers.js scans
+  // the DB for class features matching the canonical -1-to-all
+  // metamagic-reducer pattern and fails if any aren't represented
+  // here. Read the error — it tells you the class name + level and
+  // the literal text it matched. The level comes from the
+  // source-recency winner (3.5 over 3.0, newest publication_date),
+  // not from any specific book printing.
 
   const CLASS_REDUCTIONS = {
-    // Incantatrix (CArc → reprinted in MoF → reprinted in PGtF; all
-    // share name + level numbering). Improved Metamagic (Su) at L8:
-    // each metamagic feat's level increase is reduced by 1 (cannot
-    // reduce below +1 if base was ≥+1; +0 metamagic stays +0).
+    // Incantatrix — Improved Metamagic (Su). The DB has two printings:
+    // MoF 2001 (L8) and PGtF 2004 (L10). Source-recency picks PGtF, so
+    // the canonical level is L10. (RAW wording is identical otherwise:
+    // each metamagic feat's level increase is reduced by 1, can't go
+    // below +1 if base was ≥+1.)
     "Incantatrix": [
-      { minLevel: 8, kind: "all", amount: 1,
+      { minLevel: 10, kind: "all", amount: 1,
         featureName: "Improved Metamagic (Su)",
-        description: "Incantatrix L8: -1 to every metamagic" },
+        description: "Incantatrix L10: -1 to every metamagic" },
+    ],
+    // Dweomerkeeper — Cloak of Mysteries (Su) at L10. Same reduction
+    // shape as Incantatrix, but explicitly exempts Heighten Spell
+    // (and by extension Improved Heighten Spell — the only spell-
+    // level-targeting metamagic feats in the canon).
+    "Dweomerkeeper": [
+      { minLevel: 10, kind: "all", amount: 1,
+        featureName: "Cloak of Mysteries (Su)",
+        description: "Dweomerkeeper L10: -1 to every metamagic " +
+                     "(except Heighten Spell)",
+        excludeFeats: ["Heighten Spell", "Improved Heighten Spell"] },
     ],
   };
 
@@ -396,6 +426,11 @@
               amount: r.amount,
               featureName: r.featureName,
               description: r.description,
+              // Per-feat exclusion list (e.g. Dweomerkeeper exempts
+              // Heighten Spell). Forwarded into computeAdjustments
+              // where the per-feat reduction loop skips matching feats.
+              excludeFeats: Array.isArray(r.excludeFeats)
+                ? r.excludeFeats.slice() : [],
             });
           }
         }
@@ -467,8 +502,17 @@
           reasons.push("Easy Metamagic (-1)");
         }
         // v2 Phase C-a: class-feature reductions (Incantatrix etc.).
-        // All `kind: "all"` class reductions apply to every metamagic.
+        // All `kind: "all"` class reductions apply to every metamagic
+        // EXCEPT those listed in the rule's excludeFeats (Dweomerkeeper
+        // exempts Heighten Spell per RAW).
         for (const cr of reductions.classReductions || []) {
+          const excluded = (cr.excludeFeats || [])
+            .some(x => x && x.toLowerCase() === f.name.toLowerCase());
+          if (excluded) {
+            reasons.push(`${cr.className} ${cr.featureName} ` +
+              `(no effect on ${f.name})`);
+            continue;
+          }
           reduction += cr.amount;
           reasons.push(`${cr.className} ${cr.featureName} (-${cr.amount})`);
         }
